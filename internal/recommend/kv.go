@@ -5,6 +5,7 @@ import (
 	"math/bits"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // kvCacheBytes computes the KV-cache size in bytes for a model at a given context
@@ -24,12 +25,14 @@ import (
 // the fit re-validation — exactly the silent-OOM guard this math exists to
 // provide. A saturated KV can never compare ≤ envelope, so Fits stays false.
 //
-// An entry with sliding-window layers adds a second term for them (ADR-0029): see
-// swaCacheBytes. KVCacheBytes, on the recommendation and on the coder fit, is the
-// sum, so every reader of it sees both caches.
+// An entry with sliding-window layers adds two terms for them: their bounded cache
+// (ADR-0029, swaCacheBytes) and the context checkpoints the unit caps (ADR-0034,
+// swaCheckpointBytes). KVCacheBytes, on the recommendation and on the coder fit, is
+// the sum, so every reader of it sees all three.
 func kvCacheBytes(m catalog.Model, ctx int) uint64 {
 	global := kvBytesForDims(m.NLayers, m.NKVHeads, m.HeadDim, ctx, m.KVBytesPerElem)
-	return addSaturating(global, swaCacheBytes(m.SWA, m.KVBytesPerElem, ctx))
+	sliding := addSaturating(swaCacheBytes(m.SWA, m.KVBytesPerElem, ctx), swaCheckpointBytes(m.SWA, m.KVBytesPerElem, ctx))
+	return addSaturating(global, sliding)
 }
 
 // llamaServerSeqMax and llamaServerUBatch are the llama-server defaults that size
@@ -73,6 +76,24 @@ func swaCacheBytes(s *catalog.SlidingWindow, kvBytesPerElem, ctx int) uint64 {
 		return 0
 	}
 	return kvBytesForDims(s.NLayers, s.NKVHeads, s.HeadDim, swaCells(ctx, s.Window), kvBytesPerElem)
+}
+
+// swaCheckpointBytes is the most host memory llama-server's context checkpoints
+// can hold for a model with sliding-window layers: each slot keeps up to
+// inference.SWACtxCheckpoints of them, the cap the unit renders, and each copies at
+// most one window of the sliding layers' cells (800.013 MiB logged per checkpoint
+// on Gemma 4 31B, 1024 cells plus a header the headroom absorbs), or the whole
+// context when it is shorter. A nil block keeps none.
+func swaCheckpointBytes(s *catalog.SlidingWindow, kvBytesPerElem, ctx int) uint64 {
+	if s == nil {
+		return 0
+	}
+	one := kvBytesForDims(s.NLayers, s.NKVHeads, s.HeadDim, min(ctx, s.Window), kvBytesPerElem)
+	hi, lo := bits.Mul64(one, llamaServerSeqMax*inference.SWACtxCheckpoints)
+	if hi != 0 {
+		return math.MaxUint64
+	}
+	return lo
 }
 
 // draftKVCacheBytes computes the KV-cache size for a draft sidecar at ctx, using

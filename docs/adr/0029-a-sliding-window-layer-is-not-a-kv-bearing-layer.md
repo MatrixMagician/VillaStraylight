@@ -83,7 +83,8 @@ and `doctor` into a permanent CAT-01 WARN, and Muse would have been witnessed at
   `sliding_window_pattern`, and their witness values and fit terms are unchanged).
 - llama-server's SWA context checkpoints (`--ctx-checkpoints`, 32 per slot, about
   0.78 MiB per token on Gemma 4 31B, host memory, outside `--cache-ram` while a slot
-  is active) are not in the fit. They are measured in the vet record and tracked as #323.
+  is active) are not in the fit. They are measured in the vet record and tracked as #323;
+  ADR-0034 caps them and counts the cap.
 - A future entry whose global layers are heterogeneous, or whose pattern length
   disagrees with `block_count`, degrades to the unevaluable WARN rather than a
   confident mismatch, as ADR-0007 requires.

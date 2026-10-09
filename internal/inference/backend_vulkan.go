@@ -192,7 +192,25 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 	args = appendToolsArgs(args, spec)
 	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
+	args = appendCtxCheckpointsArgs(args, spec.SlidingWindow)
 	return args
+}
+
+// SWACtxCheckpoints is the --ctx-checkpoints cap villa renders for a model with
+// sliding-window layers (ADR-0034). llama-server keeps up to this many checkpoints
+// of the sliding layers' cache per slot, in host memory and outside --cache-ram,
+// and its default of 32 lets one conversation hold 25 GiB on Gemma 4 31B. The
+// fit (internal/recommend) counts this value, so the render and the reservation
+// read one number.
+const SWACtxCheckpoints = 1
+
+// appendCtxCheckpointsArgs appends the checkpoint cap for a model with
+// sliding-window layers; any other model returns args UNCHANGED.
+func appendCtxCheckpointsArgs(args []string, slidingWindow bool) []string {
+	if !slidingWindow {
+		return args
+	}
+	return append(args, "--ctx-checkpoints", strconv.Itoa(SWACtxCheckpoints))
 }
 
 // appendSecretEnvFileArgs appends `--env-file <path>` to args, behind the same

@@ -129,15 +129,38 @@ func TestSWACacheBytes(t *testing.T) {
 	}
 }
 
+// TestSWACheckpointBytes guards the bound ADR-0034 counts: every slot may hold
+// the rendered number of context checkpoints, and each holds at most one window
+// of sliding-layer cells (Gemma 4 31B: 1024 cells at 819,200 bytes, the 800 MiB
+// the server logs), or the whole context when it is shorter than the window.
+func TestSWACheckpointBytes(t *testing.T) {
+	gemma := &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024}
+	if got, want := swaCheckpointBytes(gemma, 2, 16384), uint64(3355443200); got != want {
+		t.Errorf("swaCheckpointBytes(gemma, 16384) = %d, want %d", got, want)
+	}
+	if got, want := swaCheckpointBytes(gemma, 2, 512), uint64(1677721600); got != want {
+		t.Errorf("swaCheckpointBytes(gemma, 512) = %d, want %d (a context shorter than the window)", got, want)
+	}
+	if got := swaCheckpointBytes(nil, 2, 16384); got != 0 {
+		t.Errorf("swaCheckpointBytes(nil) = %d, want 0 (no block keeps no checkpoints)", got)
+	}
+}
+
 // TestKVCacheBytesIncludesSWA guards the promise that kvCacheBytes is the global
-// term plus the sliding-window term, so every reader of KVCacheBytes sees both.
+// term plus the sliding-window cache plus its checkpoint cap, so every reader of
+// KVCacheBytes sees all three, and that an entry without a swa block is the
+// global term alone.
 func TestKVCacheBytesIncludesSWA(t *testing.T) {
 	m := catalog.Model{
 		NLayers: 10, NKVHeads: 4, HeadDim: 512, KVBytesPerElem: 2,
 		SWA: &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024},
 	}
-	if got, want := kvCacheBytes(m, 16384), uint64(1342177280+3774873600); got != want {
+	if got, want := kvCacheBytes(m, 16384), uint64(1342177280+3774873600+3355443200); got != want {
 		t.Errorf("kvCacheBytes = %d, want %d", got, want)
+	}
+	m.SWA = nil
+	if got, want := kvCacheBytes(m, 16384), uint64(1342177280); got != want {
+		t.Errorf("kvCacheBytes without a swa block = %d, want %d", got, want)
 	}
 }
 
@@ -148,6 +171,9 @@ func TestSWACacheBytesSaturates(t *testing.T) {
 	huge := &catalog.SlidingWindow{NLayers: 1 << 40, NKVHeads: 1 << 20, HeadDim: 1 << 10, Window: 1024}
 	if got := swaCacheBytes(huge, 2, 16384); got != math.MaxUint64 {
 		t.Errorf("swaCacheBytes(huge) = %d, want MaxUint64", got)
+	}
+	if got := swaCheckpointBytes(huge, 2, 16384); got != math.MaxUint64 {
+		t.Errorf("swaCheckpointBytes(huge) = %d, want MaxUint64", got)
 	}
 	m := catalog.Model{NLayers: 48, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2, SWA: huge}
 	if got := kvCacheBytes(m, 1<<50); got != math.MaxUint64 {
