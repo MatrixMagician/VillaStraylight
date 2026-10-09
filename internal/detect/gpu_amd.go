@@ -350,7 +350,7 @@ const rocm644ImageTag = "rocm-6.4.4"
 const rocm100ImageTag = "rocm-10.0"
 
 // rocmNightlyDenyTag is the ROCm image tag the pin policy refuses: the nightlies
-// build reintroduces the 64 GB allocation cap (CLAUDE.md "What NOT to Use").
+// build reintroduces the 64 GB allocation cap (rocm-policy.json imageDeny).
 const rocmNightlyDenyTag = "rocm7-nightlies"
 
 // resolvedROCmImage returns the image string the readiness compute scores against.
@@ -442,9 +442,9 @@ func splitNumericSegments(v string) []int {
 }
 
 // rocmFirmwareFloor is the minimum linux-firmware date (YYYYMMDD) known good for
-// ROCm on gfx1151 (CLAUDE.md "Version Compatibility": linux-firmware >= 20260110).
+// ROCm on gfx1151 (rocm-policy.json firmwareFloor: linux-firmware >= 20260110).
 // rocmFirmwareDeny lists firmware dates that are explicitly broken for ROCm on
-// Strix Halo (CLAUDE.md "What NOT to Use": linux-firmware-20251125 breaks ROCm).
+// Strix Halo (rocm-policy.json firmwareDeny: linux-firmware-20251125 breaks ROCm).
 //
 // These values DUPLICATE preflight's rocm-policy.json (firmwareFloor / firmwareDeny)
 // on purpose: preflight imports detect, so detect importing preflight would create a
@@ -604,7 +604,7 @@ func parseGfxID(rocminfoOutput string) Str {
 // GPUBusyPercent reads the LIVE amdgpu gpu_busy_percent (0..100) from the real host
 // DRM root — the iGPU utilization headline's best-effort overlay. amd-smi /
 // rocm-smi report N/A for gfx1151 (ROCm #6035), so kernel sysfs is the source of
-// truth (CLAUDE.md "never amd-smi"). The value is BEST-EFFORT (memory-first):
+// truth. The value is BEST-EFFORT (memory-first):
 // it degrades to typed-Unknown ("Unavailable" in the panel) on a missing/garbage file
 // rather than ever fabricating a number. It inherits the vendor-0x1002 discovery
 // (never card0) + typed-Unknown shape from the memory readers' seam.

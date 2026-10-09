@@ -34,7 +34,7 @@ const FirmwareFloor = "20260110"
 // FirmwareDeny is a specific linux-firmware build documented to BREAK ROCm on
 // Strix Halo (instability/crashes). Its presence is an explicit WARN regardless of
 // the date comparison — it is a known-bad point release, not just "too old"
-// (CLAUDE.md "What NOT to Use": linux-firmware-20251125).
+// (rocm-policy.json firmwareDeny: linux-firmware-20251125).
 const FirmwareDeny = "20251125"
 
 // Floor bundles the version thresholds so a future loader can replace them
