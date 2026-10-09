@@ -112,7 +112,9 @@ func (k Kind) EveryUnit() (units []string, services []string) {
 // part, and it runs twice.
 func (k Kind) UpdateBudget() time.Duration {
 	switch k {
-	case Inference:
+	case Inference, Image:
+		// Image gets inference's budget: an eager load of about 9 GB plus one real
+		// generation, run before and after the mutation.
 		return 10 * time.Minute
 	case Chat:
 		return 3 * time.Minute

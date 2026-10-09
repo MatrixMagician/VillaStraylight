@@ -43,3 +43,12 @@ func TestBudgetsArePerSubsystemAndNonZero(t *testing.T) {
 		t.Error("inference does not get a longer budget than chat, despite running the residency proof twice")
 	}
 }
+
+// TestImageBudgetMatchesInference: the image proof eager-loads about 9 GB and runs a
+// real generation, before and after the mutation, so its budget is inference's, not
+// a managed service's.
+func TestImageBudgetMatchesInference(t *testing.T) {
+	if Image.UpdateBudget() != Inference.UpdateBudget() {
+		t.Errorf("image budget %v != inference budget %v; the image proof loads and generates twice", Image.UpdateBudget(), Inference.UpdateBudget())
+	}
+}

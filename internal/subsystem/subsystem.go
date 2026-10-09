@@ -84,6 +84,10 @@ const (
 	// Voice is speech-to-text plus text-to-speech, villa-stt and villa-tts, proved
 	// together by one spoken round trip (ADR-0030).
 	Voice
+	// Image is local image generation: stable-diffusion.cpp's sd-server on Vulkan
+	// RADV, wired into Open WebUI. It owns no persistent state: villa-image mounts
+	// the models volume read-only.
+	Image
 )
 
 // String renders the subsystem's name for messages and logs.
@@ -105,6 +109,8 @@ func (k Kind) String() string {
 		return "sandbox"
 	case Voice:
 		return "voice"
+	case Image:
+		return "image generation"
 	}
 	return "unknown"
 }
@@ -125,6 +131,8 @@ func (k Kind) ConfigKey() string {
 		return "workspace_agent"
 	case Voice:
 		return "voice_enabled"
+	case Image:
+		return "image_enabled"
 	case Inference, Chat:
 		// DELIBERATE: an always-on subsystem has no config key, because there is no
 		// flag an operator could edit to change the answer. The empty string is the
@@ -144,7 +152,7 @@ func (k Kind) AlwaysOn() bool {
 	switch k {
 	case Inference, Chat:
 		return true
-	case Memory, WebSearch, Agent, CodingMode, Sandbox, Voice:
+	case Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image:
 		return false
 	}
 	return false
@@ -220,7 +228,7 @@ func Stateful() []Kind {
 // on?" — a question whose honest answer never includes inference. Widening it would
 // have made status, doctor and install each report two subsystems nobody enabled,
 // silently, with no compile error to catch it. Every is the all-subsystems list.
-var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice}
+var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
 
 // Every is every subsystem, optional and always-on alike, in stack order:
 // inference first because nothing runs without it, then chat, then the addons.
@@ -229,7 +237,7 @@ var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice}
 // ask which are enabled — the pin table keys its entries by this vocabulary. The
 // order here is presentation order and is deliberately NOT the iota order, which
 // exists only to keep stored values stable.
-var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice}
+var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
 
 // On reports whether the named subsystem is enabled in this config.
 //
@@ -250,6 +258,8 @@ func On(cfg config.VillaConfig, k Kind) bool {
 		return cfg.WorkspaceAgent
 	case Voice:
 		return cfg.VoiceEnabled
+	case Image:
+		return cfg.ImageEnabled
 	case Inference, Chat:
 		// TRUE BY CONSTRUCTION, not a stub. Inference and chat have no config bool
 		// because `villa install` renders both units unconditionally: there is no
@@ -282,6 +292,9 @@ func SandboxOn(cfg config.VillaConfig) bool { return On(cfg, Sandbox) }
 
 // VoiceOn reports whether the voice subsystem is enabled.
 func VoiceOn(cfg config.VillaConfig) bool { return On(cfg, Voice) }
+
+// ImageOn reports whether local image generation is enabled.
+func ImageOn(cfg config.VillaConfig) bool { return On(cfg, Image) }
 
 // ToolsOn reports whether the inference unit must serve tool calls.
 //

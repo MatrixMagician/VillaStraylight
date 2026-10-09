@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 )
 
 // TestSaveLoadRoundTrip asserts SaveVillaTo then LoadVillaFrom round-trips the
@@ -35,6 +37,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		// villa-websafe fields (v1.5, GROUND/GUARD): inert addr/port defaults so the
 		// full-literal equality survives the schema extension (normalizeVilla self-heals
 		// "" / 0 -> villa-websafe / 8090 on load). The secret/path stay empty (not self-healed).
+		// Image fields: the inert default id, self-healed on load (#312).
+		ImageModel: "z-image-turbo",
 	}
 	if err := SaveVillaTo(dir, want); err != nil {
 		t.Fatalf("SaveVillaTo: %v", err)
@@ -1380,5 +1384,76 @@ func TestVoiceEnabledIsOmittedWhenOffAndRoundTrips(t *testing.T) {
 	}
 	if !got.VoiceEnabled {
 		t.Error("voice-on round trip lost the gate")
+	}
+}
+
+// TestImageSaveOmitsKeysWhenDisabled: an image-off save writes no image key, so an
+// existing install is byte-identical on disk until the operator opts in; an
+// image-on save persists both keys and round-trips.
+func TestImageSaveOmitsKeysWhenDisabled(t *testing.T) {
+	off := DefaultVillaConfig()
+	off.Model = "qwen3-35b-a3b-moe-64"
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	for _, k := range []string{"image_enabled", "image_model"} {
+		if strings.Contains(string(dataOff), k) {
+			t.Errorf("image-off save wrote image key %q:\n%s", k, dataOff)
+		}
+	}
+
+	on := DefaultVillaConfig()
+	on.Model = "qwen3-35b-a3b-moe-64"
+	on.ImageEnabled = true
+	on.ImageModel = "z-image-turbo-q4"
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	if !strings.Contains(string(dataOn), "image_enabled = true") || !strings.Contains(string(dataOn), `image_model = "z-image-turbo-q4"`) {
+		t.Errorf("image-on save omitted an image key:\n%s", dataOn)
+	}
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if !reflect.DeepEqual(got, on) {
+		t.Errorf("image-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
+	}
+}
+
+// TestImageModelSelfHealsAndTheGateDoesNot: an empty image_model loads as the
+// default id (the EmbeddingModel precedent), while image_enabled is a deliberate
+// bool that is never widened.
+func TestImageModelSelfHealsAndTheGateDoesNot(t *testing.T) {
+	got := normalizeVilla(VillaConfig{ImageEnabled: true})
+	if got.ImageModel != "z-image-turbo" {
+		t.Errorf("ImageModel self-heal = %q, want z-image-turbo", got.ImageModel)
+	}
+	if normalizeVilla(VillaConfig{}).ImageEnabled {
+		t.Error("normalizeVilla widened ImageEnabled to true")
+	}
+	if got := normalizeVilla(VillaConfig{ImageModel: "z-image-turbo-q4"}); got.ImageModel != "z-image-turbo-q4" {
+		t.Errorf("a chosen image_model was overwritten: %q", got.ImageModel)
+	}
+}
+
+// TestDefaultImageModelIsInTheImageTable binds the one hand-synced pair in the
+// image design: the default id written here must resolve in the compiled-in
+// image table, or every fresh --image install would render a unit for a model
+// that does not exist.
+func TestDefaultImageModelIsInTheImageTable(t *testing.T) {
+	id := DefaultVillaConfig().ImageModel
+	if _, ok := catalog.Image(id); !ok {
+		t.Errorf("default image_model %q is not in internal/catalog/images.json", id)
 	}
 }
