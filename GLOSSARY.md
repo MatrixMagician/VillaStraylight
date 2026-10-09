@@ -53,10 +53,24 @@ _Avoid_: service file, container spec, manifest
 **Stack apply**:
 Turning a target config into the Quadlet units on disk: derive every render
 input from the config, heal the inference secret, render, write what changed,
-reload systemd. One module does it for every verb but install (`internal/stackapply`,
-ADR-0013); the verb only chooses what to start or restart, or a swap transaction
-chooses for it.
+stop and remove the orphaned units, reload systemd. One module does it for every
+verb but install (`internal/stackapply`, ADR-0013, ADR-0035); the verb only chooses
+what to start or restart, or a swap transaction chooses for it.
 _Avoid_: reconcile-and-write, redeploy, regenerate
+
+**Subsystem unit registry**:
+The one list of every Quadlet `.container` unit villa owns, each under the
+subsystem it moves with (`internal/subsystem/units.go`). Update captures and
+restarts from it, and a stack apply removes from it; a rendered `.container` it
+does not name fails the build, so a new unit joins it to exist at all.
+_Avoid_: unit list, service map
+
+**Orphaned unit**:
+A unit the subsystem unit registry declares that is on disk but that the config
+no longer renders, typically after a subsystem was turned off. The next stack
+apply stops and removes it (ADR-0035); until then doctor names it. A unit outside
+the registry (the operator's own, a resident slot) is never one.
+_Avoid_: stale unit, leftover unit, dangling unit
 
 **Served model**:
 The model villa-llama actually serves: the coder model in swap-residency coding

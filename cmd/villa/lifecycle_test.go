@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ import (
 type fakeLifecycleDeps struct {
 	*lifecycleDeps
 	writeCalls   int
+	removeCalls  int
 	reloadCalls  int
 	startCalls   []string
 	stopCalls    []string
@@ -70,6 +72,7 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 	}
 	d.stack.WriteUnits = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
 	d.stack.DaemonReload = func() error { f.reloadCalls++; return nil }
+	d.stack.RemoveUnits = func(orchestrate.Plan, string) error { f.removeCalls++; return nil }
 	d.start = func(svc string) error { f.startCalls = append(f.startCalls, svc); return nil }
 	d.stop = func(svc string) error { f.stopCalls = append(f.stopCalls, svc); return nil }
 	d.restart = func(svc string) error { f.restartCalls = append(f.restartCalls, svc); return nil }
@@ -79,6 +82,8 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 		}
 		return "inactive", nil
 	}
+	d.stack.Stop = d.stop
+	d.stack.IsActive = d.isActive
 	d.journalText = func(svc string) (string, bool) {
 		f.journalCalls = append(f.journalCalls, svc)
 		return "load_tensors: Vulkan0 model buffer size = 512 MiB\n", true
@@ -500,5 +505,83 @@ func TestLogsUnknownServiceBlocks(t *testing.T) {
 	}
 	if !bytes.Contains(errOut.Bytes(), []byte("nope")) {
 		t.Errorf("unknown-service logs should name the bad service, got %q", errOut.String())
+	}
+}
+
+// gatedOff is the web-search pair a config with web search turned off no longer
+// renders, still on disk from the run that had it on.
+func gatedOff() []orchestrate.Unit {
+	return []orchestrate.Unit{
+		{Name: "villa-searxng.container", Text: "[Container]\nImage=searxng\n"},
+		{Name: "villa-websafe.container", Text: "[Container]\nImage=websafe\n"},
+	}
+}
+
+// TestLifecycleUpStopsAndRemovesAGatedOffUnit (#330): `up` after a config edit that
+// turned web search off stops the running searxng service, removes both unit files
+// and reloads, and starts nothing: no rendered unit changed.
+func TestLifecycleUpStopsAndRemovesAGatedOffUnit(t *testing.T) {
+	units := twoUnitStack()
+	f := newFakeLifecycleDeps(t, units, orchestrate.Plan{Unchanged: units, Removed: gatedOff()})
+	f.active = map[string]bool{"villa-llama.service": true, "villa-searxng.service": true}
+
+	cmd, out, errOut := lifecycleTestCmd()
+	if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+		t.Fatalf("up exit = %d, want 0 (stderr %q)", code, errOut.String())
+	}
+	if want := []string{"villa-searxng.service"}; !equalStrings(f.stopCalls, want) {
+		t.Errorf("stopped %v, want %v", f.stopCalls, want)
+	}
+	if f.removeCalls != 1 || f.reloadCalls != 1 || f.writeCalls != 0 {
+		t.Errorf("remove=%d reload=%d write=%d, want one removal, one reload and no write", f.removeCalls, f.reloadCalls, f.writeCalls)
+	}
+	if len(f.startCalls) != 0 || len(f.restartCalls) != 0 {
+		t.Errorf("started %v restarted %v, want nothing", f.startCalls, f.restartCalls)
+	}
+	if got := out.String(); !strings.Contains(got, "removed 2 unit(s) no longer rendered: villa-searxng.container, villa-websafe.container") || strings.Contains(got, "no changes") {
+		t.Errorf("up output %q, want the removal named and no no-change claim", got)
+	}
+}
+
+// TestLifecycleUpDryRunNamesTheUnitsItWouldRemove: the preview names each removal and
+// stops nothing.
+func TestLifecycleUpDryRunNamesTheUnitsItWouldRemove(t *testing.T) {
+	units := twoUnitStack()
+	f := newFakeLifecycleDeps(t, units, orchestrate.Plan{Unchanged: units, Removed: gatedOff()})
+	f.active = map[string]bool{"villa-searxng.service": true}
+
+	cmd, out, _ := lifecycleTestCmd()
+	if code := runUp(cmd, upOpts{dryRun: true}, nil, f.lifecycleDeps); code != exitPass {
+		t.Fatalf("up --dry-run exit = %d, want 0", code)
+	}
+	want := "dry-run: villa-searxng.container would be stopped and removed\n" +
+		"dry-run: villa-websafe.container would be stopped and removed\n" +
+		"dry-run: 0 unit(s) would be written, 2 removed (nothing written)\n"
+	if out.String() != want {
+		t.Errorf("dry-run output:\n%s\nwant:\n%s", out.String(), want)
+	}
+	if len(f.stopCalls) != 0 || f.removeCalls != 0 || f.reloadCalls != 0 {
+		t.Errorf("a dry run touched the host: stop=%v remove=%d reload=%d", f.stopCalls, f.removeCalls, f.reloadCalls)
+	}
+}
+
+// TestUninstallUnitsIncludeTheGatedOffUnits (#330): uninstall tears down the
+// registry units on disk the config no longer renders, after the rendered stack so
+// the reversed stop order stops them first.
+func TestUninstallUnitsIncludeTheGatedOffUnits(t *testing.T) {
+	units := twoUnitStack()
+	f := newFakeLifecycleDeps(t, units, orchestrate.Plan{Unchanged: units, Removed: gatedOff()})
+	got, _, err := f.uninstallUnits()
+	if err != nil {
+		t.Fatalf("uninstallUnits: %v", err)
+	}
+	want := append(twoUnitStack(), gatedOff()...)
+	if len(got) != len(want) {
+		t.Fatalf("uninstallUnits = %d units, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Name != want[i].Name {
+			t.Errorf("unit %d = %s, want %s", i, got[i].Name, want[i].Name)
+		}
 	}
 }

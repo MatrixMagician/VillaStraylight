@@ -428,9 +428,9 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 			},
 			LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
 			SaveConfig: func(config.VillaConfig) error { rec("save"); return nil },
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
 				rec("reconcile")
-				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+				return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 			},
 			Restore:      func(map[string]string) error { rec("restore"); return nil },
 			DaemonReload: func() error { rec("daemon-reload"); return nil },
@@ -524,9 +524,9 @@ func TestHandleSwitchConcurrentRefusedWith409(t *testing.T) {
 	var stubCalls []string
 	deps := stubSwapDeps("qwen3", true, &stubCalls)
 	deps.Tx.SaveConfig = func(config.VillaConfig) error { rec("save"); return nil }
-	deps.Tx.Apply = func(config.VillaConfig) ([]orchestrate.Unit, error) {
+	deps.Tx.Apply = func(config.VillaConfig) (stackapply.Applied, error) {
 		rec("reconcile")
-		return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+		return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 	}
 	deps.Tx.Restart = func(string) error {
 		rec("restart")

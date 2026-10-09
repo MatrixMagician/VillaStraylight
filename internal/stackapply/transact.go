@@ -6,13 +6,15 @@
 //
 //   - the stack lock (ADR-0010), taken before the config is read, so a Change and
 //     the rollback see one config no other stack mutation can write underneath;
-//   - the capture of the prior config and of every unit the prior config renders;
-//   - the apply through this module (Apply), which reports the units it changed;
+//   - the capture of the prior config, of every unit the prior config renders and of
+//     every registry unit on disk;
+//   - the apply through this module (Apply), which reports the units it changed and
+//     removed and the services it stopped;
 //   - the restart of every changed service that is running, plus the proven
 //     service whether or not it was, since the proof needs it serving (#251);
 //   - the proof, and a rollback that restores every captured unit and the prior
-//     config, reloads, restarts what the cutover restarted, and says so when a step
-//     of it failed.
+//     config, reloads, restarts what the cutover restarted and what the apply
+//     stopped, and says so when a step of it failed.
 //
 // Before this frame each of backendswap, codingmode and modelswap carried a copy of
 // it, the lock was taken by five cobra callers only (bench --ab ran unlocked, #250),
@@ -25,7 +27,6 @@ import (
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
@@ -38,12 +39,12 @@ type TxDeps struct {
 	Lock       func() (*stacklock.Lock, error)
 	LoadConfig func() (config.VillaConfig, error)
 	SaveConfig func(config.VillaConfig) error
-	// Capture returns the on-disk bytes of every unit cfg renders, keyed by unit
-	// filename. A unit never written is absent.
+	// Capture returns the on-disk bytes of every unit cfg renders and every registry
+	// unit on disk, keyed by unit filename. A unit never written is absent.
 	Capture func(cfg config.VillaConfig) (map[string]string, error)
-	// Apply writes the target config's changed units and reloads (Apply in this
-	// package), returning the units it wrote.
-	Apply func(cfg config.VillaConfig) ([]orchestrate.Unit, error)
+	// Apply makes the unit files match the target config (Apply in this package),
+	// reporting what it wrote, removed and stopped.
+	Apply func(cfg config.VillaConfig) (Applied, error)
 	// Restore writes captured unit bytes back verbatim (Restore in this package).
 	Restore      func(units map[string]string) error
 	DaemonReload func() error
@@ -115,8 +116,9 @@ func Transact(d TxDeps, change Change) Outcome {
 		return Outcome{Refused: true, FailedStep: "capture", Err: err}
 	}
 
-	// restarted is every service the cutover restarted or tried to, which is the set
-	// the rollback re-readies: a service never restarted still runs its prior unit.
+	// restarted is every service the cutover restarted or tried to, plus every service
+	// the apply stopped, which is the set the rollback re-readies: a service never
+	// restarted still runs its prior unit.
 	var restarted []string
 	rollback := func(step, reason string, cause error, v prove.Verdict) Outcome {
 		var fails []string
@@ -146,24 +148,26 @@ func Transact(d TxDeps, change Change) Outcome {
 	if err := d.SaveConfig(next); err != nil {
 		return rollback("save", "", err, prove.Verdict{})
 	}
-	changed, err := d.Apply(next)
+	applied, err := d.Apply(next)
+	restarted = append(restarted, applied.Stopped...)
 	if err != nil {
 		return rollback("write", "", err, prove.Verdict{})
 	}
-	if len(changed) == 0 {
+	// A removal alone changes nothing the proof drives: it is housekeeping the
+	// config already demanded.
+	if len(applied.Changed) == 0 {
 		return Outcome{NoOp: true}
 	}
 	restart := func(svc string) error {
 		restarted = append(restarted, svc)
 		return d.Restart(svc)
 	}
-	for _, u := range changed {
-		name, ok := strings.CutSuffix(u.Name, ".container")
+	for _, u := range applied.Changed {
+		svc, ok := service(u.Name)
 		if !ok {
 			continue
 		}
-		svc := name + ".service"
-		if svc != d.Service && !running(d, svc) {
+		if svc != d.Service && !running(d.IsActive, svc) {
 			continue
 		}
 		if err := restart(svc); err != nil {
@@ -190,7 +194,7 @@ func Transact(d TxDeps, change Change) Outcome {
 // running: restarting a stopped unit starts it, and an unreadable state must never
 // start a service the operator stopped. (The proven service is restarted regardless,
 // so this only ever gates the other changed units.)
-func running(d TxDeps, svc string) bool {
-	state, err := d.IsActive(svc)
+func running(isActive func(string) (string, error), svc string) bool {
+	state, err := isActive(svc)
 	return err == nil && (state == "active" || state == "activating" || state == "reloading")
 }

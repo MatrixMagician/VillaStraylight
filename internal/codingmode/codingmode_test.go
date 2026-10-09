@@ -52,8 +52,8 @@ func (f *modeFake) deps() Deps {
 				f.captured = true
 				return map[string]string{"villa-llama.container": "PRIOR"}, nil
 			},
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
-				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
+				return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 			},
 			Restore:      func(map[string]string) error { return nil },
 			DaemonReload: func() error { return nil },

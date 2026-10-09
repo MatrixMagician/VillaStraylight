@@ -222,7 +222,7 @@ func liveUninstallDeps() *uninstallDeps {
 	sys := orchestrate.NewSystemd()
 	ld := liveLifecycleDeps()
 	return &uninstallDeps{
-		renderStack:    ld.renderStack,
+		renderStack:    ld.uninstallUnits,
 		stop:           sys.Stop,
 		removeUnitFile: removeUnitFileLive,
 		daemonReload:   sys.DaemonReload,

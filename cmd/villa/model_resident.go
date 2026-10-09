@@ -516,20 +516,27 @@ func (d *residentDeps) applyResidentChange(out, errOut io.Writer, ch residentCha
 		mutated.RecordUnit(ch.orphan)
 	}
 
-	// Apply reloads when it wrote a unit, and returns what it wrote even when that
-	// reload fails, so the rollback restores it. A run that wrote nothing still
-	// reloads once: a removed orphan unit must drop out of the manager.
-	changed, err := stackapply.Apply(d.stack, ch.next)
-	for _, u := range changed {
+	// Apply reloads when it wrote or removed a unit, and reports what it did even
+	// when a later step fails, so the rollback restores it and restarts what it
+	// stopped. A run that touched nothing still reloads once: a removed orphan unit
+	// must drop out of the manager.
+	applied, err := stackapply.Apply(d.stack, ch.next)
+	for _, u := range slices.Concat(applied.Changed, applied.Removed) {
 		mutated.RecordUnit(u.Name)
+	}
+	for _, svc := range applied.Stopped {
+		mutated.RecordStart(svc)
 	}
 	if err != nil {
 		return refuse("%s: apply units failed: %v\n", ch.verb, err)
 	}
-	if len(changed) > 0 {
-		fmt.Fprintf(out, "wrote %d unit(s) to %s\n", len(changed), dir)
-	} else if err := d.daemonReload(); err != nil {
-		return refuse("%s: daemon-reload failed: %v\n", ch.verb, err)
+	if len(applied.Changed) > 0 {
+		fmt.Fprintf(out, "wrote %d unit(s) to %s\n", len(applied.Changed), dir)
+	}
+	if applied.Empty() {
+		if err := d.daemonReload(); err != nil {
+			return refuse("%s: daemon-reload failed: %v\n", ch.verb, err)
+		}
 	}
 
 	if ch.startUnit != "" {
@@ -543,7 +550,7 @@ func (d *residentDeps) applyResidentChange(out, errOut io.Writer, ch residentCha
 	// The chat UI's connection env lists every resident endpoint, so its unit changes
 	// whenever the set does. Without this restart the new slot is reachable on its port
 	// but invisible in the chat UI, which is the whole point of admitting it.
-	if unitsContain(changed, orchestrate.OpenWebUIContainerUnitName()) && prior.WasRunning(openWebUIServiceName) {
+	if unitsContain(applied.Changed, orchestrate.OpenWebUIContainerUnitName()) && prior.WasRunning(openWebUIServiceName) {
 		mutated.RecordStart(openWebUIServiceName)
 		if err := d.restart(openWebUIServiceName); err != nil {
 			return refuse("%s: restart %s failed: %v\n", ch.verb, openWebUIServiceName, err)
@@ -607,11 +614,14 @@ func residentEndpoints(cfg config.VillaConfig) ([]string, error) {
 // records in ADR-0003: they are large, inert on their own, and a retry should not
 // re-download them.
 func (d *residentDeps) capturePrior(ch residentChange, dir string, plan orchestrate.Plan) install.Prior {
-	names := make([]string, 0, len(plan.Changed)+len(plan.Unchanged)+1)
+	names := make([]string, 0, len(plan.Changed)+len(plan.Unchanged)+len(plan.Removed)+1)
 	for _, u := range plan.Changed {
 		names = append(names, u.Name)
 	}
 	for _, u := range plan.Unchanged {
+		names = append(names, u.Name)
+	}
+	for _, u := range plan.Removed {
 		names = append(names, u.Name)
 	}
 	if ch.orphan != "" {

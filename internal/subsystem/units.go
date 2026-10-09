@@ -60,6 +60,9 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-searxng.container"},
 		{name: "villa-websafe.container"},
 	},
+	// The proxy is the one unit the workspace agent renders (ADR-0011); the task
+	// container is per-task and the network is not a service (ADR-0035).
+	Sandbox: {{name: "villa-inferproxy.container"}},
 	// Both voice units render whenever the subsystem does: one gate, one proof
 	// (ADR-0030), so neither carries an `on` of its own.
 	Voice: {

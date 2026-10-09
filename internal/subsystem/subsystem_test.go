@@ -371,13 +371,14 @@ func TestToolsOnIsTheUnionOfBothFlags(t *testing.T) {
 	}
 }
 
-// TestSandboxOwnsNoUnitsYet: the sandbox subsystem renders no Quadlet unit of its
-// own. Its container is started per task by `villa work`, not by systemd, so a unit
-// declaration here would make the cross-package drift test demand a unit the
-// renderer never produces.
-func TestSandboxOwnsNoUnitsYet(t *testing.T) {
-	if us, svcs := Sandbox.EveryUnit(); len(us) != 0 || len(svcs) != 0 {
-		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is not a unit", us, svcs)
+// TestSandboxOwnsTheProxyUnitAlone: the sandbox subsystem's one Quadlet unit is
+// villa-inferproxy (ADR-0011), declared so turning the agent off removes it
+// (ADR-0035). Its task container is started per task by `villa work`, not by
+// systemd, so it is never declared.
+func TestSandboxOwnsTheProxyUnitAlone(t *testing.T) {
+	us, svcs := Sandbox.EveryUnit()
+	if len(us) != 1 || us[0] != "villa-inferproxy.container" || len(svcs) != 1 || svcs[0] != "villa-inferproxy.service" {
+		t.Errorf("Sandbox.EveryUnit() = (%v, %v), want the proxy alone", us, svcs)
 	}
 	if Sandbox.AlwaysOn() {
 		t.Error("Sandbox.AlwaysOn() = true; it is gated by workspace_agent")
