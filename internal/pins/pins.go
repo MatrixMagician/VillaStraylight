@@ -1,6 +1,7 @@
 // Package pins is the compiled-in, enumerable registry of every component villa
-// pins: the four inference backend images, Open WebUI, Qdrant, the embedder,
-// SearXNG, the websafe base image, and the Crush binary.
+// pins: the inference backend images, Open WebUI, Qdrant, the embedder, the
+// document extractor, SearXNG, the websafe base image, the Crush binary and the
+// sandbox image.
 //
 // Before this package, "which components does villa pin?" had no answer in code.
 // The pins were eight constants in five packages, each correct in isolation and
@@ -38,9 +39,11 @@
 package pins
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
@@ -100,6 +103,9 @@ const (
 	// Its pin is byte-identical to BackendVulkan's today and is deliberately a
 	// separate component: one image, two roles, and the roles may diverge.
 	Embedder ComponentID = orchestrate.ComponentEmbedder
+	// Extractor is the Apache Tika image villa-extract serves document
+	// extraction from (ADR-0033).
+	Extractor ComponentID = orchestrate.ComponentExtractor
 	// SearXNG is the metasearch service image.
 	SearXNG ComponentID = orchestrate.ComponentSearXNG
 	// Websafe is the distroless base the web-guard loader container runs on.
@@ -144,6 +150,12 @@ type Entry struct {
 	// Subsystem is which part of the stack this component belongs to, and
 	// therefore which proof gates an update to it.
 	Subsystem subsystem.Kind
+	// Unit is the Quadlet .container unit this pin renders into, for a pin whose
+	// subsystem renders that unit only on some configs. For(k, cfg) keeps such a
+	// pin only when the subsystem's unit registry renders the unit for cfg, so the
+	// pin set a host updates is the unit set it runs and both read the one gate in
+	// internal/subsystem. Empty for a pin the subsystem always runs.
+	Unit string
 	// Shape is what a moved pin means for this component.
 	Shape Shape
 	// Registry is the host the component's bytes come from. This is the allowlist:
@@ -330,6 +342,17 @@ func Table() []Entry {
 			Vetted:    func() Pin { return Pin{Ref: orchestrate.EmbedImage()} },
 		},
 		{
+			Component: Extractor,
+			Subsystem: subsystem.Memory,
+			// Memory renders villa-extract only with `extractor = true`, so the pin
+			// is bound to the unit and follows that gate (ADR-0033).
+			Unit:     orchestrate.ExtractContainerUnitName(),
+			Shape:    VersionTag,
+			Registry: registryDockerIO,
+			Version:  "3.3.1.0",
+			Vetted:   func() Pin { return Pin{Ref: orchestrate.ExtractImage()} },
+		},
+		{
 			Component: SearXNG,
 			Subsystem: subsystem.WebSearch,
 			Shape:     RollingDigest,
@@ -397,17 +420,34 @@ func Lookup(id ComponentID) (Entry, bool) {
 	return Entry{}, false
 }
 
-// For returns every entry belonging to one subsystem, in table order. It is what
-// the update flow walks: the proof unit is the subsystem, so the pins that move
-// together are the pins that answer to the same proof.
-func For(k subsystem.Kind) []Entry {
+// For returns every entry of one subsystem that a host running cfg renders, in
+// table order. It is what the update flow walks: the proof unit is the subsystem,
+// so the pins that move together are the pins that answer to the same proof.
+//
+// An entry bound to a unit is kept only when the subsystem's unit registry
+// renders that unit for cfg. A static per-subsystem list would name a pin for a
+// unit the host never rendered, and update would pull, prove and record an
+// effective pin for a service that does not exist.
+func For(k subsystem.Kind, cfg config.VillaConfig) []Entry {
 	var out []Entry
 	for _, e := range Table() {
-		if e.Subsystem == k {
+		if e.Subsystem == k && e.RenderedBy(cfg) {
 			out = append(out, e)
 		}
 	}
 	return out
+}
+
+// RenderedBy reports whether a host running cfg renders this pin's unit: true for
+// a pin with no unit, and for a bound one exactly when its subsystem's unit
+// registry renders that unit for cfg. It is the one rule every per-subsystem walk
+// of the table applies, so no walk can hold a pin the host has no unit for.
+func (e Entry) RenderedBy(cfg config.VillaConfig) bool {
+	if e.Unit == "" {
+		return true
+	}
+	rendered, _ := e.Subsystem.Units(cfg)
+	return slices.Contains(rendered, e.Unit)
 }
 
 // RegistryAllowed reports whether a host is one the table already pulls from.

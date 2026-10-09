@@ -1,5 +1,5 @@
-eval: qwen-test Q4_K_M, suite version 2 (backend rocm, image sha256:1111, speculation off, ctx 8192, tools mode off)
-score:    1 passed, 1 failed, 2 skipped, 1 unconducted
+eval: qwen-test Q4_K_M, suite version 3 (backend rocm, image sha256:1111, speculation off, ctx 8192, tools mode off)
+score:    1 passed, 1 failed, 3 skipped, 1 unconducted
 baseline: 2 passed, 1 failed, 1 skipped, 0 unconducted
 changed since the baseline: image_digest sha256:0000 -> sha256:1111
   regression   arith-a: "The answer is 5"
@@ -7,5 +7,6 @@ changed since the baseline: image_digest sha256:0000 -> sha256:1111
   unconducted  json-c: connection refused
   skipped      tool-d: tools mode off
   skipped      retrieval-e: reranker off
+  skipped      extract-f: extractor off
 --- stderr ---
 eval: FAIL — 1 capability case(s) regressed against the eval baseline

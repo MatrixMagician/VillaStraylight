@@ -86,6 +86,8 @@ type RenderInput struct {
 	EmbedPort      int
 	RerankAddr     string
 	RerankPort     int
+	ExtractAddr    string
+	ExtractPort    int
 }
 
 // RenderView maps the cfg memory fields one-for-one into a RenderInput
@@ -101,5 +103,7 @@ func RenderView(cfg config.VillaConfig) RenderInput {
 		EmbedPort:      config.EmbedPort,
 		RerankAddr:     config.RerankAddr,
 		RerankPort:     config.RerankPort,
+		ExtractAddr:    config.ExtractAddr,
+		ExtractPort:    config.ExtractPort,
 	}
 }

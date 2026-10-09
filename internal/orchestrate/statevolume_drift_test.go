@@ -61,6 +61,7 @@ func mountedVolumeNames(unitText string) map[string]bool {
 func statefulFixtureInput() RenderInput {
 	in := memoryFixtureInput()
 	in.Cfg.Reranker = true
+	in.Cfg.Extractor = true
 	in.Cfg.WebSearchEnabled = true
 	in.Cfg.VoiceEnabled = true
 	return in

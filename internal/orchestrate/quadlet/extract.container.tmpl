@@ -1,0 +1,16 @@
+# ~/.config/containers/systemd/villa-extract.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight document extractor (Apache Tika)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+Environment=JAVA_TOOL_OPTIONS=-Xmx1g
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

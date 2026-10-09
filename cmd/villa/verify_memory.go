@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
@@ -50,6 +51,7 @@ type ragSmokeInput struct {
 	owuiPort int
 	question string
 	wantFact string
+	extract  bool
 }
 
 // evalRagSmoke is the PURE runtime-RAG-smoke core (unit-testable off-hardware via injected
@@ -67,7 +69,10 @@ type ragSmokeInput struct {
 // did not complete; the answer not Contains(wantFact) OR !cited → FAIL no-citation. All ok
 // + fact present + cited → PASS. Every FAIL carries a refuse-with-remediation detail naming
 // the service to check and to re-run `villa verify memory`.
-func evalRagSmoke(egressBlocked func() (bool, error), uploadCite func() (answer string, cited bool, err error), wantFact string) memoryProof {
+//
+// extractProbe is nil when no extractor is rendered. Otherwise it runs last, because the
+// smoke upload is a .txt that Open WebUI never sends to Tika (ADR-0033).
+func evalRagSmoke(egressBlocked func() (bool, error), uploadCite func() (answer string, cited bool, err error), extractProbe func() (text string, err error), wantFact string) memoryProof {
 	// 1) Negative control FIRST — egress must be proven blocked before the drive is trusted.
 	blocked, err := egressBlocked()
 	if err != nil {
@@ -98,7 +103,24 @@ func evalRagSmoke(egressBlocked func() (bool, error), uploadCite func() (answer 
 		}
 	}
 
-	return memoryProof{status: preflight.StatusPass, detail: "document upload retrieved + cited with zero outbound"}
+	detail := "document upload retrieved + cited with zero outbound"
+	if extractProbe != nil {
+		text, err := extractProbe()
+		if err != nil {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the extractor did not answer (%v) — check `systemctl --user status %s` and its journal, then re-run `villa verify memory`", err, extractServiceName),
+			}
+		}
+		if !strings.Contains(text, extractProbeBody) {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the extractor returned no text for the probe document — check `systemctl --user status %s`, then re-run `villa verify memory`", extractServiceName),
+			}
+		}
+		detail += " + extractor text"
+	}
+	return memoryProof{status: preflight.StatusPass, detail: detail}
 }
 
 // egressNegativeControlHost is the known external host the negative-control probe attempts
@@ -160,7 +182,14 @@ func liveRagSmoke(ctx context.Context, in ragSmokeInput) memoryProof {
 		return driveRagUploadCite(ctx, base, in.question, in.wantFact)
 	}
 
-	return evalRagSmoke(egressBlocked, uploadCite, in.wantFact)
+	var extractProbe func() (string, error)
+	if in.extract {
+		extractProbe = func() (string, error) {
+			return postExtract(ctx, helperImage, config.ExtractAddr, config.ExtractPort, "text/plain", []byte(extractProbeBody))
+		}
+	}
+
+	return evalRagSmoke(egressBlocked, uploadCite, extractProbe, in.wantFact)
 }
 
 // driveRagUploadCite drives the OWUI REST RAG path over the loopback base URL via fixed-arg

@@ -126,7 +126,7 @@ func TestModuleIsLoadBearing(t *testing.T) {
 	// Predicate reads only: an `if cfg.MemoryEnabled`, a `&&`, a `return c.AgentEnabled`.
 	// Assignments (`cfg.MemoryEnabled = ...`) are how a gate gets SET, which is a
 	// different operation and legitimately touches the field.
-	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode|WorkspaceAgent|ToolsMode|Reranker|VoiceEnabled)\b\s*(?:[^=]|$)`)
+	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode|WorkspaceAgent|ToolsMode|Reranker|Extractor|VoiceEnabled)\b\s*(?:[^=]|$)`)
 	predicate := regexp.MustCompile(`\bif\b|&&|\|\||\breturn\b`)
 
 	repoRoot := filepath.Join("..", "..")

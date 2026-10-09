@@ -277,7 +277,7 @@ func TestUnknownSubsystemTeachesTheModel(t *testing.T) {
 		t.Errorf("exit = %d, want %d for an unknown subsystem", code, exitBlocked)
 	}
 	got := h.text()
-	for _, want := range []string{"part of the memory subsystem", "verify memory proves Qdrant, the embedder and the reranker together", "villa update memory"} {
+	for _, want := range []string{"part of the memory subsystem", "verify memory proves Qdrant, the embedder, the reranker and the extractor together", "villa update memory"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the error does not teach the subsystem model (missing %q):\n%s", want, got)
 		}

@@ -17,6 +17,7 @@ func units() Units {
 		Qdrant:    "villa-qdrant.service",
 		Embed:     "villa-embed.service",
 		Rerank:    "villa-rerank.service",
+		Extract:   "villa-extract.service",
 		Searxng:   "villa-searxng.service",
 		Websafe:   "villa-websafe.service",
 		Stt:       "villa-stt.service",

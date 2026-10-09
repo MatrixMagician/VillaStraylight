@@ -306,6 +306,7 @@ func memoryStatusCfg() config.VillaConfig {
 	cfg.Ctx = 131072
 	cfg.MemoryEnabled = true
 	cfg.Reranker = true
+	cfg.Extractor = true
 	return cfg
 }
 
@@ -340,6 +341,8 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 		status.Service{Unit: unitServiceName(orchestrate.EmbedContainerUnitName()), Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.RerankContainerUnitName()), Kind: status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
+		status.Service{Unit: unitServiceName(orchestrate.ExtractContainerUnitName()), Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {

@@ -44,7 +44,7 @@ func healthyReport() doctor.Report {
 			{ID: "TMD-01", Name: "Tools-mode drift", Tier: "BLOCK", Status: "PASS", Detail: "the served unit's tool-calling flag matches tools mode (off)", Provenance: "on-disk villa-llama unit vs subsystem.ToolsOn"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 9,
+		SchemaVersion: 10,
 	}
 }
 
@@ -100,7 +100,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 9,
+		SchemaVersion: 10,
 	}
 }
 
@@ -188,12 +188,12 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
-// golden MUST carry "schema_version": 9 (the sandbox fold, issue #176, the TMD-01 tools-mode drift finding, issue #173, then the reranker health row, ADR-0028). doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 10 (the sandbox fold, issue #176, the TMD-01 tools-mode drift finding, issue #173, the reranker health row, ADR-0028, then the extractor health row, ADR-0033). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 9`)) {
-		t.Errorf("--json output must carry schema_version 9, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 10`)) {
+		t.Errorf("--json output must carry schema_version 10, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
@@ -216,11 +216,12 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "health:villa-qdrant.service", Name: "villa-qdrant.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
 			{ID: "health:villa-embed.service", Name: "villa-embed.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
 			{ID: "health:villa-rerank.service", Name: "villa-rerank.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
+			{ID: "health:villa-extract.service", Name: "villa-extract.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
 			{ID: "MEM-DOC-residency", Name: "Chat-model residency under embedding load", Tier: "BLOCK", Status: "PASS", Detail: "chat-model device buffer 21504.49 MiB resident on the iGPU; GTT-used floor corroborated mid-drive", Provenance: "embed-load drive + inference.RunningOffloadVerdict"},
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 9,
+		SchemaVersion: 10,
 	}
 }
 
@@ -273,8 +274,8 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 9`)) {
-		t.Errorf("--json output must carry schema_version 9, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 10`)) {
+		t.Errorf("--json output must carry schema_version 10, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
@@ -320,8 +321,8 @@ func TestDoctorAgentRender(t *testing.T) {
 	if code != exitPass {
 		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 9`)) {
-		t.Errorf("--json output must carry schema_version 9 (the sandbox-fold, TMD-01 and reranker bumps), got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 10`)) {
+		t.Errorf("--json output must carry schema_version 10 (the sandbox-fold, TMD-01, reranker and extractor bumps), got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())
 

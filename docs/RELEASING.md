@@ -108,6 +108,7 @@ actually has:
 | backend image | `villa backend set <target>`, a real generation probe **and** the residency proof |
 | Open WebUI | `villa status` protocol probes |
 | Qdrant + embedder | `villa verify memory` |
+| extractor | `villa verify memory` (its closing probe PUTs a plain-text document to Tika; the smoke upload itself bypasses Tika) |
 | SearXNG + websafe | `villa verify search` |
 | Crush | `villa verify agent` |
 | whisper + Kokoro | `villa verify voice` |

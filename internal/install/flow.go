@@ -198,7 +198,7 @@ func DefaultUnits() Units {
 	_, web := subsystem.WebSearch.EveryUnit()
 	_, voice := subsystem.Voice.EveryUnit()
 	return Units{
-		Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1],
+		Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Extract: mem[3], Searxng: web[0], Websafe: web[1],
 		Stt: voice[0], Tts: voice[1],
 	}
 }
@@ -424,7 +424,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Searxng, units.Websafe, units.Stt, units.Tts, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Extract, units.Searxng, units.Websafe, units.Stt, units.Tts, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -578,14 +578,15 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	}
 
 	// (9b) The memory stack: the vector store, then the embedder, then the
-	// reranker. Each start is gated on its unit being in the written plan, never on
-	// the flag alone.
+	// reranker and the extractor. Each start is gated on its unit being in the
+	// written plan, never on the flag alone.
 	if gates.Memory {
 		if !UnitPresent(unitPlan, orchestrate.QdrantContainerUnitName()) ||
 			!UnitPresent(unitPlan, orchestrate.EmbedContainerUnitName()) ||
-			!UnitPresent(unitPlan, orchestrate.RerankContainerUnitName()) {
-			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
-				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName(), orchestrate.RerankContainerUnitName())
+			!UnitPresent(unitPlan, orchestrate.RerankContainerUnitName()) ||
+			!UnitPresent(unitPlan, orchestrate.ExtractContainerUnitName()) {
+			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s, %s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName(), orchestrate.RerankContainerUnitName(), orchestrate.ExtractContainerUnitName())
 		}
 		if err := start(units.Qdrant); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Qdrant, err)
@@ -595,6 +596,9 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		if err := start(units.Rerank); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Rerank, err)
+		}
+		if err := start(units.Extract); err != nil {
+			return refuse("install: start %s failed: %v\n", units.Extract, err)
 		}
 	}
 

@@ -136,11 +136,13 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 // will write. The workspace agent raises tools mode and never lowers it, because an
 // operator who entered tools mode deliberately keeps it when the addon is off; the
 // reranker follows memory, since install is the one verb that stages its weights
-// (ADR-0028). Coding mode is not here: its fields carry the coder identity the
+// (ADR-0028), and so does the extractor, since install is the one verb that starts
+// and proves it (ADR-0033). Coding mode is not here: its fields carry the coder identity the
 // recommendation resolves, so AssemblePlan writes them.
 func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 	cfg.MemoryEnabled = g.Memory
 	cfg.Reranker = g.Memory
+	cfg.Extractor = g.Memory
 	cfg.WebSearchEnabled = g.WebSearch
 	cfg.AgentEnabled = g.Agent
 	cfg.WorkspaceAgent = g.Sandbox
@@ -152,8 +154,8 @@ func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 }
 
 // PlannedReservations sizes the pick against the config this run will persist,
-// not the one it read: the install that turns memory, the reranker or web search
-// on must reserve for them BEFORE the fit, or it picks a model and a ctx for an
+// not the one it read: the install that turns memory, the reranker, the extractor
+// or web search on must reserve for them BEFORE the fit, or it picks a model and a ctx for an
 // envelope its own services then shrink (every later verb would count them).
 // The gates that reserve do not depend on the recommendation, so an empty one
 // resolves them.

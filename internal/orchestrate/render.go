@@ -192,7 +192,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +269,15 @@ func Render(in RenderInput) ([]Unit, error) {
 				return nil, err
 			}
 			units = append(units, Unit{Name: rerankContainerUnitName, Text: rerankContainerText})
+		}
+		// The extractor (ADR-0033) runs its own image, so it resolves its pin under
+		// its own component.
+		if subsystem.ExtractOn(in.Cfg) {
+			extractContainerText, err := execTemplate(tmpl, "extract.container.tmpl", buildExtractView(in.pinOr(ComponentExtractor, extractImage), mv.ExtractAddr))
+			if err != nil {
+				return nil, err
+			}
+			units = append(units, Unit{Name: extractContainerUnitName, Text: extractContainerText})
 		}
 	}
 

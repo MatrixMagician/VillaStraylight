@@ -102,7 +102,11 @@ const (
 //     the status rows like v4/v5: one more health finding when the reranker is
 //     rendered, no new finding type. Reranker-off output is byte-identical except
 //     this bump.
-const reportSchemaVersion = 9
+//   - v10: the villa-extract.service health finding (ADR-0033), folded for free
+//     from the status rows like v9: one more health finding when the extractor is
+//     rendered, no new finding type. Extractor-off output is byte-identical except
+//     this bump.
+const reportSchemaVersion = 10
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight

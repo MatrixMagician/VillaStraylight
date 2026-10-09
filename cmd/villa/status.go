@@ -545,6 +545,18 @@ func liveRerankHealth(addr string, port int) status.HealthState {
 	})
 }
 
+// extractHealthCache bounds the extractor probe to one per memoryHealthTTL window,
+// like the reranker's.
+var extractHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
+
+// liveExtractHealth probes the Tika server's /tika banner in-network with the same
+// coded mapping as the reranker's (ADR-0033).
+func liveExtractHealth(addr string, port int) status.HealthState {
+	return extractHealthCache.Get(func() status.HealthState {
+		return probeMemoryURL("http://" + net.JoinHostPort(addr, strconv.Itoa(port)) + "/tika")
+	})
+}
+
 // liveReadRecallState loads recall-state.json READ-ONLY through the shared
 // liveRecallStateLoad (recall.go): an absent store yields a pointer to the ZERO
 // State — "no index yet" is a CONFIDENT empty, not nil (status renders "empty"); a
@@ -829,6 +841,13 @@ func liveStatusServices() []status.Service {
 			Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState {
 				return liveRerankHealth(config.RerankAddr, config.RerankPort)
+			},
+		},
+		{
+			Unit: unitServiceName(orchestrate.ExtractContainerUnitName()),
+			Kind: status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState {
+				return liveExtractHealth(config.ExtractAddr, config.ExtractPort)
 			},
 		},
 		{

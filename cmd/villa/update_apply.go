@@ -160,7 +160,7 @@ func liveCapture(cfg config.VillaConfig, k subsystem.Kind) (updateflow.Capture, 
 		state = pinstate.State{}
 	}
 	r := resolverFor(state)
-	for _, res := range r.For(k) {
+	for _, res := range r.For(k, cfg) {
 		snapshot.Refs[string(res.Component)] = res.Current.Ref
 	}
 	// The snapshot the CURRENT retained tuple points at, read now because by the

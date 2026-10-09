@@ -23,6 +23,7 @@
 package pinresolve
 
 import (
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -123,12 +124,14 @@ func (r Resolver) All() []Resolved {
 	return out
 }
 
-// For answers for every component of one subsystem, in table order. It is what the
-// update flow walks, because the proof unit is the subsystem.
-func (r Resolver) For(k subsystem.Kind) []Resolved {
+// For answers for every component of one subsystem that a host running cfg
+// renders, in table order. It is what the update flow walks, because the proof
+// unit is the subsystem; a pin bound to a unit the config does not render is left
+// out, so a capture never records a pin for a service the host does not run.
+func (r Resolver) For(k subsystem.Kind, cfg config.VillaConfig) []Resolved {
 	var out []Resolved
 	for _, e := range r.table {
-		if e.Subsystem == k {
+		if e.Subsystem == k && e.RenderedBy(cfg) {
 			out = append(out, r.resolveEntry(e))
 		}
 	}

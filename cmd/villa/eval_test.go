@@ -17,9 +17,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 )
 
-// evalTestSuite is a fixed five-case suite, so the verb's contract is frozen
-// independently of the embedded cases.json. The last case is a rerank case, which
-// the test config (memory off) skips.
+// evalTestSuite is a fixed six-case suite, so the verb's contract is frozen
+// independently of the embedded cases.json. The last two are a rerank case and an
+// extract case, which the test config (memory off) skips.
 var evalTestSuite = []eval.Case{
 	{ID: "arith-a", Prompt: "pa", MaxTokens: 8, Grader: eval.Grader{Kind: eval.KindExact, Want: "4"}},
 	{ID: "code-b", Prompt: "pb", MaxTokens: 8, Grader: eval.Grader{Kind: eval.KindExact, Want: "30"}},
@@ -27,13 +27,15 @@ var evalTestSuite = []eval.Case{
 	{ID: "tool-d", Prompt: "pd", MaxTokens: 8, Tools: []llm.Tool{{Type: "function", Function: llm.ToolFunction{Name: "f"}}},
 		Grader: eval.Grader{Kind: eval.KindTool, Want: "f", Keys: map[string]any{"x": 1.0}}},
 	{ID: "retrieval-e", Prompt: "pe", Documents: []string{"d0", "d1"}, Grader: eval.Grader{Kind: eval.KindRerank, Top: 1}},
+	{ID: "extract-f", Prompt: "pf", Document: "handbook.docx", Mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		Grader: eval.Grader{Kind: eval.KindExtract, Pattern: "6 minutes"}},
 }
 
 // evalCompletionCases counts the suite's cases that are sent as completions.
 func evalCompletionCases() int {
 	n := 0
 	for _, c := range evalTestSuite {
-		if c.Grader.Kind != eval.KindRerank {
+		if c.Grader.Kind != eval.KindRerank && c.Grader.Kind != eval.KindExtract {
 			n++
 		}
 	}
@@ -91,7 +93,10 @@ func fakeEvalDeps(cfg config.VillaConfig, store *evalStoreMem, replies map[strin
 			}
 		},
 		rerank: func(context.Context, string, []string) ([]float64, error) { return []float64{-2, 0.5}, nil },
-		store:  store.deps(),
+		extract: func(context.Context, string, string, []byte) (string, error) {
+			return "Pre-heat: run the timer for 6 minutes below -12 degrees.", nil
+		},
+		store: store.deps(),
 	}
 }
 

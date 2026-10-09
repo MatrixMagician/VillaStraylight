@@ -20,7 +20,7 @@ import (
 func TestEveryRenderedContainerHasAStatusRow(t *testing.T) {
 	cfg := config.VillaConfig{
 		Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
-		MemoryEnabled: true, EmbeddingModel: "nomic-embed-text-v1.5", EmbeddingDim: 768, Reranker: true,
+		MemoryEnabled: true, EmbeddingModel: "nomic-embed-text-v1.5", EmbeddingDim: 768, Reranker: true, Extractor: true,
 		WebSearchEnabled: true,
 		AgentEnabled:     true,
 		CodingMode:       true,
