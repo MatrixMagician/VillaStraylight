@@ -178,8 +178,9 @@ generated tokens at `release()` (`tools/server/server-context.cpp`), so only a r
 after the drain is whole. The difference rides in the detail as `the server
 prefilled N prompt tokens at R tok/s and generated M`. A round that took prompt
 tokens and generated none gets `and generated none, so no agent request reached its
-first token`. Its remediation names Crush's 60 s limit and #323, and says a longer
-budget cannot help. The verdict stays FAIL, because the agent cannot complete a
+first token`. Its remediation names Crush's 60 s limit and the whole-prompt
+prefill every Crush session opens with, and says a longer budget cannot help. It
+names no checkpoint fix, for the reason given at the end of this record. The verdict stays FAIL, because the agent cannot complete a
 round trip on that model. A killed round that generated tokens keeps the budget
 remediation. A counter that could not be read, or that went backwards because the
 unit restarted, reads as `the server's token counters could not be read around the
@@ -283,7 +284,13 @@ cold read of the kind recorded above, not the sampler, since the second doctor
 used the same sampler. The agent stays unusable on Gemma through Crush until its
 prefill fits inside Crush's limit, and doctor now says why.
 
-Each probe run plants a fresh working directory, and Crush writes it into the
-`<env>` block of its system prompt. Two runs' agent requests differ only in that
-line, 28% of the way into the request. A cached prefix, with or without context
-checkpoints, can therefore cover at most that first part of a new run's prompt.
+Context checkpoints (ADR-0034, #323) do not change this. Both doctors ran with
+llama-server's default of 32 checkpoints, and the short requests restored theirs
+(`restored context checkpoint` for the probe and Crush's title request). Every
+agent request logged `forcing full prompt re-processing due to lack of cache
+data`. Two reasons stack. Each probe run plants a fresh working directory, and
+Crush writes it into the `<env>` block of its system prompt. Recorded against a
+stub server, two runs' agent requests differ only in that line, 28% of the way
+into the request. And a prefill cancelled at 60 s never reaches the end of its
+prompt, where the newest checkpoint would sit. ADR-0034 lowers the cap from 32 to
+1, so it cannot add a checkpoint that 32 did not hold.
