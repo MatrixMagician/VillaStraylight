@@ -227,10 +227,13 @@ func TestImageOffWarnsOnAStaleRunningImageUnit(t *testing.T) {
 	if !strings.Contains(f.Detail, "9 GB") {
 		t.Errorf("Detail %q does not name the memory the unit holds outside the fit", f.Detail)
 	}
-	for _, want := range []string{"disable --now villa-image.service", "villa-image.container", "daemon-reload"} {
+	for _, want := range []string{"systemctl --user stop villa-image.service", "villa-image.container", "daemon-reload"} {
 		if !strings.Contains(f.Remediation, want) {
 			t.Errorf("Remediation %q does not carry %q", f.Remediation, want)
 		}
+	}
+	if strings.Contains(f.Remediation, "disable") {
+		t.Errorf("Remediation %q runs systemctl disable, which refuses a generated Quadlet unit", f.Remediation)
 	}
 
 	if _, ok := findingByID(newDoctorDeps().aggregate(), "IMG-DOC-stale"); ok {

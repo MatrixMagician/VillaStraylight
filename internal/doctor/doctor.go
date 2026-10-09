@@ -1000,7 +1000,7 @@ func imageResidencyFinding(v inference.Verdict) Finding {
 
 // staleImageUnitFinding is the WARN for an image server running while image
 // generation is off: its eager load holds about 9 GB that no fit counts, and
-// doctor never stops a service, so the finding carries the disable sequence.
+// doctor never stops a service, so the finding carries the removal sequence.
 func staleImageUnitFinding() Finding {
 	return Finding{
 		ID:          "IMG-DOC-stale",
@@ -1009,7 +1009,7 @@ func staleImageUnitFinding() Finding {
 		Status:      statusWarn,
 		Detail:      imageServiceName() + " is active but image_enabled is false: its eager-loaded params hold about 9 GB of GPU memory that no fit counts, and the unit restarts on reboot",
 		Provenance:  "systemctl --user is-active " + imageServiceName() + " + config.toml image_enabled",
-		Remediation: "run `systemctl --user disable --now " + imageServiceName() + "`, remove ~/.config/containers/systemd/" + orchestrate.ImageContainerUnitName() + ", then `systemctl --user daemon-reload`",
+		Remediation: "run `systemctl --user stop " + imageServiceName() + "`, remove ~/.config/containers/systemd/" + orchestrate.ImageContainerUnitName() + ", then `systemctl --user daemon-reload`",
 	}
 }
 

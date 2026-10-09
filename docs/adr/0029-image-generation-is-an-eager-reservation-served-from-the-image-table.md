@@ -205,8 +205,11 @@ existing path with no change to `Deps.Pick`.
   precedent), so `image_enabled = false` plus `villa up` re-renders Open WebUI
   without the image group but leaves `villa-image.container` on disk with
   `WantedBy=default.target`, and the next reboot eager-loads 9 GB that no fit
-  counts. The operator then runs `systemctl --user disable --now
-  villa-image.service`, removes `~/.config/containers/systemd/villa-image.container`
-  and runs `systemctl --user daemon-reload` (`docs/CONFIGURATION.md`). Until that
+  counts. The operator then runs `systemctl --user stop villa-image.service`,
+  removes `~/.config/containers/systemd/villa-image.container` and runs
+  `systemctl --user daemon-reload` (`docs/CONFIGURATION.md`). `systemctl disable`
+  is not a step: the service is Quadlet-generated (`UnitFileState=generated`), the
+  generator applies `WantedBy=` itself, and removing the `.container` file is what
+  takes it out of the boot set. Until that
   is done, `villa doctor` WARNs with `IMG-DOC-stale` whenever the service is
   active while the gate is off. A general reconcile-side fix is filed separately.
