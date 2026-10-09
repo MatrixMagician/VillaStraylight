@@ -167,6 +167,31 @@ Measured today the server made 2 to 3 checkpoints per prompt. The worst case, 32
 800 MiB x 4 slots, is not bounded by anything villa renders; that is filed as #323
 rather than folded into this fit.
 
+### Context checkpoints, capped and counted (#323, 2026-10-09)
+
+Both. A `gemma-4-31b` unit renders `--ctx-checkpoints 1`, and the fit counts
+4 slots x 1 x 1024 cells x 819,200 bytes = 3,355,443,200 bytes on top of the two
+caches above (ADR-0034). A checkpoint past the window logs `size = 800.013 MiB` at
+every length measured up to 8495 tokens, so one window of cells is the per-checkpoint
+bound. The value 1 came from a side-server sweep of `--ctx-checkpoints` (0, 1, 2, 4,
+default) under load: three background clients on three slots, and a six-turn
+conversation with thinking on and reasoning dropped from the history, then a
+regenerate and an edit of the last user message. At 0, turns 2 and 4, the regenerate
+and the edit were re-processed from scratch; at 1 every turn and the regenerate kept
+its prefix, and only the edit was lost (also at 2 and 4; the default 32 kept it).
+The tables are in ADR-0034; the scripts and raw turns are under
+`~/.cache/villa-run/323/` on the dev host.
+
+On the real unit (2026-10-09, the branch's static binary): `villa model swap
+gemma-4-31b` proved with offload PASS and rendered
+`... --mmproj /models/gemma-4-31B-it-mmproj-F16.gguf --mmproj-offload --ctx-checkpoints 1`.
+The same eight requests through port 8080 all kept their prefix (turn 6 7080/8496,
+regenerate 8495/8496, edit 7103/8496) with one conversation running. The journal
+logged 21 `created context checkpoint 1 of 1` and no `forcing full prompt
+re-processing`. The operator's stack was then restored: config, pin state, eval
+baselines and every unit file byte-identical to the backup. The Qwen unit carries
+no `--ctx-checkpoints`, and it answered a completion correctly.
+
 ### GLM as the coder default on 46 to 54 GB envelopes (review round 1)
 
 With `agent_ctx` 131072, GLM's coder total (17.5 GB weights + 14.2 GB KV at the
