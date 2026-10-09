@@ -185,6 +185,10 @@ func (w roundWork) prefillBound() bool {
 	return w.Known && w.PromptTokens > 0 && w.PredictedTokens == 0
 }
 
+func (w roundWork) decodeBound() bool {
+	return w.Known && w.PredictedTokens > 0
+}
+
 func (w roundWork) String() string {
 	if !w.Known {
 		return "the server's token counters could not be read around the round"
@@ -222,9 +226,11 @@ func agentToolCallVerdict(completed bool, err error, b agentBudget, kill *killed
 		remediation := agentRunRemediation
 		if kill != nil {
 			detail += "; " + kill.Work.String() + "; " + kill.Drain.String()
-			remediation = agentBudgetRemediation
-			if kill.Work.prefillBound() {
+			switch {
+			case kill.Work.prefillBound():
 				remediation = agentPrefillRemediation
+			case kill.Work.decodeBound():
+				remediation = agentBudgetRemediation
 			}
 		}
 		return inference.Verdict{

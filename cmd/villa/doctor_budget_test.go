@@ -96,6 +96,15 @@ func TestAgentToolCallVerdictNamesTheBudget(t *testing.T) {
 	if !strings.Contains(v.Detail, "the server's token counters could not be read around the round") {
 		t.Errorf("unreadable counters: Detail = %q, want the unreadable counters named", v.Detail)
 	}
+	if v.Remediation != agentRunRemediation {
+		t.Errorf("unreadable counters: Remediation = %q, want the neutral run remediation: the verdict cannot see a cause", v.Remediation)
+	}
+
+	idle := roundWork{Known: true}
+	v = agentToolCallVerdict(false, killed, b, &killedRound{Drain: slotDrain{Readable: true}, Work: idle})
+	if v.Remediation != agentRunRemediation {
+		t.Errorf("no work reached the server: Remediation = %q, want the neutral run remediation, not a decode-rate cause", v.Remediation)
+	}
 }
 
 // TestAgentToolCallVerdictNamesThePrefillCause: a round the budget killed while
