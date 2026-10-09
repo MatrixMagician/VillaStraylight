@@ -180,11 +180,11 @@ func write(d Deps, plan orchestrate.Plan) (Applied, error) {
 	if err != nil {
 		return applied, fmt.Errorf("resolve unit dir: %w", err)
 	}
-	for _, u := range plan.Removed {
-		svc, ok := service(u.Name)
-		if !ok || !running(d.IsActive, svc) {
-			continue
-		}
+	toStop, err := runningRemoved(d, plan.Removed)
+	if err != nil {
+		return applied, err
+	}
+	for _, svc := range toStop {
 		// Recorded before the stop, so a stop that half-succeeded is started again.
 		applied.Stopped = append(applied.Stopped, svc)
 		if err := d.Stop(svc); err != nil {
@@ -207,6 +207,32 @@ func write(d Deps, plan orchestrate.Plan) (Applied, error) {
 		return applied, fmt.Errorf("daemon-reload: %w", err)
 	}
 	return applied, nil
+}
+
+// runningRemoved returns the removed units' services that are up. It reads every
+// state before anything is stopped, written or removed, and refuses when one cannot
+// be read: unlike the restart gate, which treats an unreadable state as not running
+// so it never starts what the operator stopped, a removal that guessed "stopped"
+// would delete the unit file under a container that keeps running, where no
+// orphan-units finding keyed on the file can name it (#344).
+func runningRemoved(d Deps, removed []orchestrate.Unit) ([]string, error) {
+	var up []string
+	for _, u := range removed {
+		svc, ok := service(u.Name)
+		if !ok {
+			continue
+		}
+		state, err := d.IsActive(svc)
+		if err != nil {
+			return nil, fmt.Errorf("refusing to remove %s: cannot read whether %s is running (%w); "+
+				"check `systemctl --user is-active %s`, stop it by hand if it is up, then re-run `villa up`",
+				u.Name, svc, err, svc)
+		}
+		if isUp(state) {
+			up = append(up, svc)
+		}
+	}
+	return up, nil
 }
 
 // service maps a Quadlet .container unit to its service; other units are not services.

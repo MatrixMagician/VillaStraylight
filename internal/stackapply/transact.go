@@ -196,5 +196,10 @@ func Transact(d TxDeps, change Change) Outcome {
 // so this only ever gates the other changed units.)
 func running(isActive func(string) (string, error), svc string) bool {
 	state, err := isActive(svc)
-	return err == nil && (state == "active" || state == "activating" || state == "reloading")
+	return err == nil && isUp(state)
+}
+
+// isUp reports whether a systemd active-state word means the service is up.
+func isUp(state string) bool {
+	return state == "active" || state == "activating" || state == "reloading"
 }

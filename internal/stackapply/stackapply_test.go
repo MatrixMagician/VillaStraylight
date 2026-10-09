@@ -21,13 +21,14 @@ type host struct {
 	envText string
 	written []orchestrate.Unit
 
-	changed   bool               // whether Reconcile reports the rendered units as changed
-	removed   []orchestrate.Unit // what Reconcile reports as Removed
-	active    map[string]bool    // services IsActive reports running
-	envErr    error              // injected WriteInferenceSecretEnv failure
-	reloadErr error              // injected DaemonReload failure
-	removeErr error              // injected RemoveUnits failure
-	stopErr   error              // injected Stop failure
+	changed    bool               // whether Reconcile reports the rendered units as changed
+	removed    []orchestrate.Unit // what Reconcile reports as Removed
+	active     map[string]bool    // services IsActive reports running
+	unreadable map[string]bool    // services whose IsActive errors with no state
+	envErr     error              // injected WriteInferenceSecretEnv failure
+	reloadErr  error              // injected DaemonReload failure
+	removeErr  error              // injected RemoveUnits failure
+	stopErr    error              // injected Stop failure
 }
 
 var testCatalog = catalog.Catalog{Models: []catalog.Model{
@@ -66,6 +67,9 @@ func (h *host) deps() Deps {
 			return h.stopErr
 		},
 		IsActive: func(svc string) (string, error) {
+			if h.unreadable[svc] {
+				return "", errors.New("systemctl --user is-active " + svc + ": no state")
+			}
 			if h.active[svc] {
 				return "active", nil
 			}
@@ -412,6 +416,32 @@ func TestApplyStopsBeforeItWritesAndReloadsOnce(t *testing.T) {
 	want := []string{"env", "render", "reconcile", "stop:villa-searxng.service", "stop:villa-websafe.service", "write", "remove", "reload"}
 	if !reflect.DeepEqual(h.calls, want) {
 		t.Errorf("seam order = %v, want %v", h.calls, want)
+	}
+}
+
+// TestApplyRefusesToRemoveAUnitWhoseStateCannotBeRead (#344): an IsActive that errors
+// with no state does not mean stopped. Removing the file then would leave the
+// container running with nothing naming it, so the apply refuses before it stops,
+// writes, removes or reloads anything, and names the service and the way out. A
+// readable inactive orphan is still removed.
+func TestApplyRefusesToRemoveAUnitWhoseStateCannotBeRead(t *testing.T) {
+	h := &host{changed: true, removed: orphans, unreadable: map[string]bool{"villa-searxng.service": true}}
+	applied, err := Apply(h.deps(), config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+	if err == nil {
+		t.Fatal("Apply removed a unit whose running state it could not read")
+	}
+	for _, want := range []string{"villa-searxng.service", "systemctl --user"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q (service and remediation)", err, want)
+		}
+	}
+	for _, c := range h.calls {
+		if c == "write" || c == "remove" || c == "reload" || strings.HasPrefix(c, "stop:") {
+			t.Errorf("seam call %q happened before the refusal; calls %v", c, h.calls)
+		}
+	}
+	if !applied.Empty() || len(applied.Stopped) != 0 {
+		t.Errorf("applied = %+v, want nothing touched", applied)
 	}
 }
 

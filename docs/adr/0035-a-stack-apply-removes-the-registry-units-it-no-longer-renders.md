@@ -138,3 +138,16 @@ is a branch inside a message; two findings read as the two facts they are.
   join the removal set (then `model resident rm`'s own orphan path should go, so the
   removal has one home); install could remove too, at the cost of carrying the
   stopped services through its own `Mutations` and `Prior`.
+
+## Amendment (#344): removal fails closed
+
+The restart gate reads an unreadable `IsActive` as not running, so a restart never
+starts what the operator stopped. Removal has the opposite risk: reading it as not
+running deletes the unit file under a container that keeps running, and
+`orphan-units`, keyed on the file, can no longer name it. `stackapply` therefore
+reads every removed service's state before it stops, writes or removes anything, and
+refuses with the service name and the `systemctl --user` check when one cannot be
+read; through `Transact` the refusal is an apply error and takes the normal rollback.
+`orphan-units` also names a registry service that is active with its unit file absent
+(the case `IMG-DOC-stale` covered), in the same finding, so the doctor JSON shape and
+schema (12) are unchanged. `orchestrate.RemoveUnits` is a lock sink.
