@@ -11,7 +11,7 @@ import (
 
 // decode.go is the served model's measured decode rate: one bounded completion
 // whose per-token timing llama-server reports itself. The coding-agent proof sizes
-// its round-trip budget from it (#318, ADR-0030).
+// its round-trip budget from it (#318, ADR-0031).
 //
 // It is a measurement at the moment it is asked for, not a reading of a gauge:
 // the /metrics rate gauge is a per-scrape bucket that reads 0 once idle, the

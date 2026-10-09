@@ -12,7 +12,7 @@ import (
 
 // doctor_budget.go sizes the coding-agent tool-call round-trip's budget from the
 // served model's decode rate, measured at proof time, and after a round the budget
-// killed waits for llama-server to release the round's slots (#318, ADR-0030). The
+// killed waits for llama-server to release the round's slots (#318, ADR-0031). The
 // invariant: every verdict names the budget it ran under and where it came from,
 // so a bound that fell to the floor reads as a fallback, never as a measurement.
 
@@ -31,7 +31,7 @@ const (
 	// reasoning tokens per round over three rounds, with the remainder covering the
 	// prefill of Crush's prompt, which a decode rate does not measure.
 	agentProofTokens = 2048
-	// slotDrainPoll is how often awaitSlotsIdle re-reads /slots.
+	// slotDrainPoll is how often awaitSlotsIdle re-reads the busy count.
 	slotDrainPoll = 500 * time.Millisecond
 )
 
@@ -120,7 +120,7 @@ func (d slotDrain) String() string {
 // awaitSlotsIdle re-reads the busy count until it is zero, the bound passes or
 // ctx ends. It cancels nothing: llama-server cancels a round itself once the
 // killed client's socket closes and the slot reaches its next batch boundary
-// (1.9 s and 9.1 s after the kill on the dev host, ADR-0030). What it adds is the
+// (1.9 s and 9.1 s after the kill on the dev host, ADR-0031). What it adds is the
 // witness, so the next proof and the operator's next completion do not run
 // against a slot still draining, and the verdict says so when one does.
 func awaitSlotsIdle(ctx context.Context, read func() (int, bool), poll, bound time.Duration) slotDrain {
