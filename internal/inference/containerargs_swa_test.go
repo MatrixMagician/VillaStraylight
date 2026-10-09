@@ -8,14 +8,16 @@ import "testing"
 // defaults it logged on the dev host (four sequences, unified, 512). Rendering
 // any flag that moves them, or one that changes how the sliding cache is kept,
 // would make the reservation wrong without a test noticing, so this fails the
-// build the day a render path adds one.
+// build the day a render path adds one. The checkpoint cap is the exception
+// (ADR-0034): the fit counts SWACtxCheckpoints, so the cap is rendered in that
+// one spelling, and its short form and old alias stay forbidden.
 func TestContainerArgsLeaveSWASizingToDefaults(t *testing.T) {
 	forbidden := []string{
 		"-np", "--parallel",
 		"-ub", "--ubatch-size",
 		"-kvu", "--kv-unified", "--no-kv-unified",
 		"--swa-full",
-		"-ctxcp", "--ctx-checkpoints", "--swa-checkpoints",
+		"-ctxcp", "--swa-checkpoints",
 	}
 	names := []string{"", "rocm", "rocm-10.0", "rocm-7.2.4", "rocm-6.4.4", "rocm-6.4.4-rocwmma", "vulkan"}
 	for _, name := range names {
@@ -28,6 +30,7 @@ func TestContainerArgsLeaveSWASizingToDefaults(t *testing.T) {
 			spec.Tools = true
 			spec.Projector = "vision-mmproj-F16.gguf"
 			spec.Speculation = &SpeculationSpec{Mode: "ngram"}
+			spec.SlidingWindow = true
 			args := b.ContainerArgs(spec)
 			for _, flag := range forbidden {
 				if indexOf(args, flag) >= 0 {

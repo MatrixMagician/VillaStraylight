@@ -138,6 +138,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// do NOT get this descriptor: a slot's qualification is not the primary model's.
 	spec.Speculation = in.Speculation
 	spec.Projector = in.Projector
+	spec.SlidingWindow = in.SlidingWindow
 
 	cv, err := parseContainerArgs(in.Backend.Image(), in.Backend.ContainerArgs(spec))
 	if err != nil {

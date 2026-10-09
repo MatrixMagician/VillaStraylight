@@ -83,6 +83,11 @@ type RenderInput struct {
 	// the pure renderer never imports internal/catalog (the CodingMode precedent).
 	Projector string
 
+	// SlidingWindow says the served model has sliding-window layers, so the unit
+	// caps its context checkpoints (ADR-0034). The CALLER reads it off the served
+	// catalog entry; false renders byte-identical units.
+	SlidingWindow bool
+
 	// Resident are the OPTIONAL secondary resident models, one extra .container each.
 	// Empty ⇒ the off path by construction: no extra unit is rendered and Open WebUI
 	// keeps its singular endpoint env, so the rendered stack is byte-identical to a

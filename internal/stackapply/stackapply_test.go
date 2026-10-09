@@ -29,6 +29,8 @@ type host struct {
 var testCatalog = catalog.Catalog{Models: []catalog.Model{
 	{ID: "chat", Shards: []catalog.Shard{{Filename: "chat.gguf"}}},
 	{ID: "slot", Shards: []catalog.Shard{{Filename: "slot.gguf"}}},
+	{ID: "gemma", Shards: []catalog.Shard{{Filename: "gemma.gguf"}},
+		SWA: &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024}},
 	{ID: "coder", Shards: []catalog.Shard{{Filename: "coder.gguf"}}, CacheReuseSafe: true,
 		AgentSampling: &catalog.AgentSampling{Temperature: 0.7, TopP: 0.8, TopK: 20, RepeatPenalty: 1.05}},
 }}
@@ -161,6 +163,39 @@ func TestRenderResolvesTheImageModel(t *testing.T) {
 	}
 	if off.input.Image != nil {
 		t.Errorf("image off: Image = %+v, want nil", off.input.Image)
+	}
+}
+
+// TestRenderMarksSlidingWindowModels guards the derivation ADR-0034 depends on:
+// the primary unit and each resident slot are marked by their OWN catalog entry,
+// so the unit serving a model with sliding-window layers is the one that caps its
+// checkpoints, and a slot never takes the primary's answer.
+func TestRenderMarksSlidingWindowModels(t *testing.T) {
+	cases := []struct {
+		name        string
+		model       string
+		slot        string
+		wantPrimary bool
+		wantSlot    bool
+	}{
+		{"a sliding-window primary with a plain slot", "gemma", "slot", true, false},
+		{"a plain primary with a sliding-window slot", "chat", "gemma", false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &host{}
+			cfg := config.VillaConfig{Model: tc.model, Backend: "vulkan",
+				Resident: []config.ResidentModel{{Model: tc.slot, Ctx: 4096, Port: 8081}}}
+			if _, err := Render(h.deps(), cfg); err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			if h.input.SlidingWindow != tc.wantPrimary {
+				t.Errorf("primary SlidingWindow = %v, want %v", h.input.SlidingWindow, tc.wantPrimary)
+			}
+			if got := h.input.Resident[0].SlidingWindow; got != tc.wantSlot {
+				t.Errorf("slot SlidingWindow = %v, want %v", got, tc.wantSlot)
+			}
+		})
 	}
 }
 

@@ -194,7 +194,7 @@ func ResidentUnits(cat catalog.Catalog, slots []config.ResidentModel) ([]orchest
 		if !ok {
 			return nil, fmt.Errorf("resident model %q is not in the catalog — cannot resolve its weight file", r.Model)
 		}
-		units = append(units, orchestrate.ResidentUnit{Model: r.Model, ModelFile: m.PrimaryFile(), Ctx: r.Ctx, Port: r.Port})
+		units = append(units, orchestrate.ResidentUnit{Model: r.Model, ModelFile: m.PrimaryFile(), Ctx: r.Ctx, Port: r.Port, SlidingWindow: m.SWA != nil})
 	}
 	return units, nil
 }
@@ -226,6 +226,7 @@ func input(d Deps, cfg config.VillaConfig) (in orchestrate.RenderInput, err erro
 		ModelsDir:     d.ModelsDir(),
 		HostVillaPath: d.HostVillaPath(),
 		Resident:      resident,
+		SlidingWindow: m.SWA != nil,
 	}
 	if subsystem.CodingModeOn(cfg) {
 		in.CodingMode = codingSpec(m)
