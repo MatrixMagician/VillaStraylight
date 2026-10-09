@@ -50,3 +50,29 @@ func TestCaptureSurvivesAConfigTheRenderRefuses(t *testing.T) {
 		t.Error("capture must take villa's units only")
 	}
 }
+
+// TestCaptureTakesTheRegistryUnitsThePriorConfigDoesNotRender (#330): a swap's apply
+// removes a registry unit the target no longer renders, even one the prior config
+// did not render either, so the capture holds its bytes for the rollback.
+func TestCaptureTakesTheRegistryUnitsThePriorConfigDoesNotRender(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	dir, err := quadletUnitDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "villa-searxng.container"), []byte("STALE searxng\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4_K_M", Ctx: 4096, InferenceSecret: "s"}
+	got, err := captureUnits(liveStackDeps())(cfg)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if got["villa-searxng.container"] != "STALE searxng\n" {
+		t.Errorf("captured %q for the stale searxng unit, want its on-disk bytes", got["villa-searxng.container"])
+	}
+}

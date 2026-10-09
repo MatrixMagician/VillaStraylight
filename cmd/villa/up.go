@@ -95,21 +95,25 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 		return printDryRun(out, plan)
 	}
 
-	changed, err := d.applyStack(out, cfg)
+	applied, err := d.applyStack(out, cfg)
 	if err != nil {
 		fmt.Fprintf(errOut, "up: %v\n", err)
 		return exitBlocked
 	}
 
 	// Unchanged config is a TRUE no-op: no unit was written or reloaded, so nothing
-	// is (re)started — the running stack already matches.
-	if len(changed) == 0 {
+	// is (re)started — the running stack already matches. A removal alone changed no
+	// rendered unit, so it starts nothing either.
+	if applied.Empty() {
 		fmt.Fprintf(out, "no changes — stack already matches config\n")
+		return exitPass
+	}
+	if len(applied.Changed) == 0 {
 		return exitPass
 	}
 
 	changedUnits := map[string]bool{}
-	for _, u := range changed {
+	for _, u := range applied.Changed {
 		changedUnits[u.Name] = true
 	}
 	for _, svc := range targets {

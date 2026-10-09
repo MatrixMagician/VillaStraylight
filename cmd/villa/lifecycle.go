@@ -49,6 +49,7 @@ type lifecycleDeps struct {
 // dir, the unit writer, systemd, the inference-secret writers (GHSA-qxg9,
 // ADR-0011), and the crush.json key heal (ADR-0019).
 func liveStackDeps() stackapply.Deps {
+	sys := orchestrate.NewSystemd()
 	return stackapply.Deps{
 		Catalog: func() (catalog.Catalog, error) {
 			cat, _, err := catalog.Load(modelCatalogPath)
@@ -60,7 +61,10 @@ func liveStackDeps() stackapply.Deps {
 		UnitDir:                 quadletUnitDir,
 		Reconcile:               orchestrate.Reconcile,
 		WriteUnits:              orchestrate.WriteUnits,
-		DaemonReload:            orchestrate.NewSystemd().DaemonReload,
+		RemoveUnits:             orchestrate.RemoveUnits,
+		DaemonReload:            sys.DaemonReload,
+		IsActive:                sys.IsActive,
+		Stop:                    sys.Stop,
 		SaveConfig:              config.SaveVilla,
 		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
 		HealAgentConfig:         liveHealAgentConfig,
@@ -83,6 +87,21 @@ func (d *lifecycleDeps) renderStack() (units []orchestrate.Unit, unitDir string,
 		return nil, "", err
 	}
 	return units, dir, nil
+}
+
+// uninstallUnits is the rendered stack plus the registry units on disk it no longer
+// renders (ADR-0035), appended last so uninstall's reversed stop order stops them
+// first: everything villa declared is torn down, gated on or not.
+func (d *lifecycleDeps) uninstallUnits() ([]orchestrate.Unit, string, error) {
+	units, dir, err := d.renderStack()
+	if err != nil {
+		return nil, "", err
+	}
+	plan, err := d.stack.Reconcile(units, dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("reconcile: %w", err)
+	}
+	return append(units, plan.Removed...), dir, nil
 }
 
 // hostVillaPath returns the host filesystem path to the running villa binary, threaded into
@@ -148,28 +167,44 @@ func resolveTargets(errOut io.Writer, args []string, services []string) ([]strin
 	return nil, false
 }
 
-// applyStack applies cfg to the unit files and narrates the write: the apply up and
-// restart share. It returns the changed units so the caller decides between a true
-// no-op and a (re)start. printDryRun handles --dry-run, which never reaches here.
-func (d *lifecycleDeps) applyStack(out io.Writer, cfg config.VillaConfig) ([]orchestrate.Unit, error) {
-	changed, err := stackapply.Apply(d.stack, cfg)
-	if len(changed) > 0 {
-		fmt.Fprintf(out, "wrote %d changed unit(s)\n", len(changed))
+// applyStack applies cfg to the unit files and narrates the write and the removal:
+// the apply up and restart share. It returns what the apply did so the caller decides
+// between a true no-op and a (re)start. printDryRun handles --dry-run, which never
+// reaches here.
+func (d *lifecycleDeps) applyStack(out io.Writer, cfg config.VillaConfig) (stackapply.Applied, error) {
+	applied, err := stackapply.Apply(d.stack, cfg)
+	if len(applied.Changed) > 0 {
+		fmt.Fprintf(out, "wrote %d changed unit(s)\n", len(applied.Changed))
 	}
-	return changed, err
+	if len(applied.Removed) > 0 {
+		fmt.Fprintf(out, "removed %d unit(s) no longer rendered: %s\n", len(applied.Removed), unitNameList(applied.Removed))
+	}
+	return applied, err
 }
 
-// printDryRun prints the changed unit text (or a no-change note) and writes
-// nothing — the shared --dry-run body for up.
+// unitNameList joins unit names for a narration line.
+func unitNameList(units []orchestrate.Unit) string {
+	names := make([]string, 0, len(units))
+	for _, u := range units {
+		names = append(names, u.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// printDryRun prints the changed unit text and the units it would remove (or a
+// no-change note) and writes nothing — the shared --dry-run body for up.
 func printDryRun(out io.Writer, plan orchestrate.Plan) int {
-	if len(plan.Changed) == 0 {
+	if len(plan.Changed) == 0 && len(plan.Removed) == 0 {
 		fmt.Fprintf(out, "dry-run: no changes — units already match config\n")
 		return exitPass
 	}
 	for _, u := range plan.Changed {
 		fmt.Fprintf(out, "# %s\n%s\n", u.Name, u.Text)
 	}
-	fmt.Fprintf(out, "dry-run: %d unit(s) would be written (nothing written)\n", len(plan.Changed))
+	for _, u := range plan.Removed {
+		fmt.Fprintf(out, "dry-run: %s would be stopped and removed\n", u.Name)
+	}
+	fmt.Fprintf(out, "dry-run: %d unit(s) would be written, %d removed (nothing written)\n", len(plan.Changed), len(plan.Removed))
 	return exitPass
 }
 

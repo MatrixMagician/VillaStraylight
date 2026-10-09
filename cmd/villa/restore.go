@@ -548,8 +548,8 @@ func liveRestoreDeps() backup.RestoreDeps {
 			if err := restoreWriteWebsafeSecretEnv(c, orchestrate.WriteWebsafeSecretEnv); err != nil {
 				return false, err
 			}
-			changed, err := stackapply.Apply(liveStackDeps(), c)
-			return len(changed) > 0, err
+			applied, err := stackapply.Apply(liveStackDeps(), c)
+			return !applied.Empty(), err
 		},
 		Stop:     sys.Stop,
 		Start:    sys.Start,

@@ -29,6 +29,8 @@ type txFake struct {
 	prior    config.VillaConfig
 	units    map[string]string // what Capture returns
 	changed  []string          // what Apply reports as written
+	removed  []string          // what Apply reports as removed
+	stopped  []string          // what Apply reports as stopped, even when it fails
 	states   map[string]string // IsActive answers; absent = "active"
 	stateErr map[string]error  // IsActive cannot read the state of these services
 
@@ -72,14 +74,17 @@ func (f *txFake) deps() TxDeps {
 			f.calls = append(f.calls, "capture:"+c.Backend)
 			return f.units, f.captureErr
 		},
-		Apply: func(c config.VillaConfig) ([]orchestrate.Unit, error) {
+		Apply: func(c config.VillaConfig) (Applied, error) {
 			f.calls = append(f.calls, "apply:"+c.Backend)
 			if f.applyErr != nil {
-				return nil, f.applyErr
+				return Applied{Stopped: f.stopped}, f.applyErr
 			}
-			var out []orchestrate.Unit
+			out := Applied{Stopped: f.stopped}
 			for _, n := range f.changed {
-				out = append(out, orchestrate.Unit{Name: n})
+				out.Changed = append(out.Changed, orchestrate.Unit{Name: n})
+			}
+			for _, n := range f.removed {
+				out.Removed = append(out.Removed, orchestrate.Unit{Name: n})
 			}
 			return out, nil
 		},
@@ -277,6 +282,54 @@ func TestTransactNoUnitChangedIsANoOp(t *testing.T) {
 		t.Errorf("Outcome = %+v, want NoOp", o)
 	}
 	wantCalls(t, f, "lock", "load", "capture:vulkan", "save:rocm", "apply:rocm")
+}
+
+// TestTransactRemovalOnlyIsANoOp (#330): an apply whose only effect was removing a
+// unit the target no longer renders changes nothing the frame proves, so nothing is
+// restarted or proven.
+func TestTransactRemovalOnlyIsANoOp(t *testing.T) {
+	f := newTxFake()
+	f.changed = nil
+	f.removed = []string{"villa-searxng.container"}
+	f.stopped = []string{"villa-searxng.service"}
+	o := Transact(f.deps(), toRocm)
+	if !o.NoOp || o.Switched {
+		t.Errorf("Outcome = %+v, want NoOp", o)
+	}
+	wantCalls(t, f, "lock", "load", "capture:vulkan", "save:rocm", "apply:rocm")
+}
+
+// TestTransactRollbackRestartsWhatTheApplyStopped (#330): a rollback restores the
+// removed unit's captured bytes and restarts the service the apply stopped, after a
+// failed proof and after an apply that failed past its stop alike.
+func TestTransactRollbackRestartsWhatTheApplyStopped(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*txFake)
+		want  []string
+	}{
+		{"write", func(f *txFake) { f.applyErr = errors.New("remove units") },
+			[]string{"lock", "load", "capture:vulkan", "save:rocm", "apply:rocm",
+				"restore", "save:vulkan", "reload", "restart:villa-searxng.service"}},
+		{"prove", func(f *txFake) { f.proveStatus = prove.StatusFail },
+			[]string{"lock", "load", "capture:vulkan", "save:rocm", "apply:rocm",
+				"restart:villa-llama.service", "restart:villa-llama-small.service", "prove",
+				"restore", "save:vulkan", "reload", "restart:villa-searxng.service",
+				"restart:villa-llama.service", "restart:villa-llama-small.service"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newTxFake()
+			f.removed = []string{"villa-searxng.container"}
+			f.stopped = []string{"villa-searxng.service"}
+			tc.setup(f)
+			o := Transact(f.deps(), toRocm)
+			if !o.RolledBack || o.FailedStep != tc.name {
+				t.Fatalf("Outcome = %+v, want RolledBack at %q", o, tc.name)
+			}
+			wantCalls(t, f, tc.want...)
+		})
+	}
 }
 
 // TestTransactRollsBackEveryFailure: a save, write, restart or proof failure restores

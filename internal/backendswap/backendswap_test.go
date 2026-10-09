@@ -49,12 +49,12 @@ func (f *swapFake) deps() Deps {
 				f.captured = true
 				return f.units, nil
 			},
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
-				var changed []orchestrate.Unit
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
+				var applied stackapply.Applied
 				for name := range f.units {
-					changed = append(changed, orchestrate.Unit{Name: name})
+					applied.Changed = append(applied.Changed, orchestrate.Unit{Name: name})
 				}
-				return changed, nil
+				return applied, nil
 			},
 			Restore:      func(m map[string]string) error { f.restored = m; return nil },
 			DaemonReload: func() error { return nil },

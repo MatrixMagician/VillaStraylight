@@ -60,7 +60,7 @@ func liveTxDeps(lock func() (*stacklock.Lock, error)) stackapply.TxDeps {
 		LoadConfig:   config.LoadVilla,
 		SaveConfig:   config.SaveVilla,
 		Capture:      captureUnits(stack),
-		Apply:        func(c config.VillaConfig) ([]orchestrate.Unit, error) { return stackapply.Apply(stack, c) },
+		Apply:        func(c config.VillaConfig) (stackapply.Applied, error) { return stackapply.Apply(stack, c) },
 		Restore:      func(m map[string]string) error { return stackapply.Restore(stack, m) },
 		DaemonReload: sys.DaemonReload,
 		IsActive:     sys.IsActive,
@@ -72,8 +72,9 @@ func liveTxDeps(lock func() (*stacklock.Lock, error)) stackapply.TxDeps {
 
 // captureUnits reads the verbatim prior bytes of EVERY unit the prior config
 // renders — the main inference unit and every resident unit (#232) — through the
-// same stackapply.Render the apply uses. A unit render names but has never written
-// is simply absent, which Restore then has nothing to do for.
+// same stackapply.Plan the apply uses, plus every registry unit on disk the prior
+// config does not render, which the apply may remove (ADR-0035). A unit render names
+// but has never written is simply absent, which Restore then has nothing to do for.
 //
 // A prior config the render refuses (vision on for an entry without a projector,
 // #299) is the state a swap exists to leave, so capture then takes every villa unit
@@ -85,9 +86,11 @@ func captureUnits(stack stackapply.Deps) func(config.VillaConfig) (map[string]st
 			return nil, err
 		}
 		var names []string
-		if units, err := stackapply.Render(stack, cfg); err == nil {
-			for _, u := range units {
-				names = append(names, u.Name)
+		if plan, err := stackapply.Plan(stack, cfg); err == nil {
+			for _, units := range [][]orchestrate.Unit{plan.Changed, plan.Unchanged, plan.Removed} {
+				for _, u := range units {
+					names = append(names, u.Name)
+				}
 			}
 		} else if names, err = filepath.Glob(filepath.Join(dir, "villa*")); err != nil {
 			return nil, err

@@ -58,8 +58,8 @@ func newCodingStub(rec *codingRecorder) *codingmode.Deps {
 				rec.saved = append(rec.saved, c)
 				return nil
 			},
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
-				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
+				return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 			},
 			Restore:      func(map[string]string) error { return nil },
 			DaemonReload: func() error { return nil },

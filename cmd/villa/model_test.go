@@ -169,11 +169,11 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 				rec.saved = c
 				return nil
 			},
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
 				if rec.reconcileNoChange {
-					return nil, nil
+					return stackapply.Applied{}, nil
 				}
-				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+				return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 			},
 			Restore:      func(map[string]string) error { return nil },
 			DaemonReload: func() error { return nil },

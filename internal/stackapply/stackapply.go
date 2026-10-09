@@ -1,7 +1,9 @@
 // Package stackapply is the one home for turning a config into the unit files on
 // disk (ADR-0013). Every verb that regenerates units hands it the TARGET config and
 // gets back the units that changed; the verb still decides which services to start
-// or restart from that list.
+// or restart from that list. A registry unit the target no longer renders is stopped
+// and removed in the same apply (ADR-0035), so a gated-off subsystem leaves nothing
+// running outside the fit.
 //
 // Every render input is derived here, from the config alone: the served model's
 // weight file, the coding-mode descriptor and agent ctx when coding mode is on, the
@@ -28,6 +30,7 @@ package stackapply
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -49,9 +52,14 @@ type Deps struct {
 	Render    func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
 	UnitDir   func() (string, error)
 	Reconcile func([]orchestrate.Unit, string) (orchestrate.Plan, error)
-	// WriteUnits writes the changed units; DaemonReload re-reads them.
+	// WriteUnits writes the changed units, RemoveUnits removes the removed ones, and
+	// DaemonReload re-reads them.
 	WriteUnits   func(orchestrate.Plan, string) error
+	RemoveUnits  func(orchestrate.Plan, string) error
 	DaemonReload func() error
+	// IsActive and Stop take down a removed unit's service before its file goes.
+	IsActive func(service string) (string, error)
+	Stop     func(service string) error
 	// SaveConfig and WriteInferenceSecretEnv back the inference-secret heal.
 	SaveConfig              func(config.VillaConfig) error
 	WriteInferenceSecretEnv func(name, text string) error
@@ -106,27 +114,42 @@ func Plan(d Deps, cfg config.VillaConfig) (orchestrate.Plan, error) {
 	return plan, nil
 }
 
+// Applied is what one Apply did to the host.
+type Applied struct {
+	// Changed are the units written.
+	Changed []orchestrate.Unit
+	// Removed are the registry units removed, each carrying the bytes it had on disk.
+	Removed []orchestrate.Unit
+	// Stopped are the removed units' services that were running and were stopped:
+	// what a rollback starts again, and nothing the operator had stopped.
+	Stopped []string
+}
+
+// Empty reports whether the apply left every unit file as it found it.
+func (a Applied) Empty() bool { return len(a.Changed) == 0 && len(a.Removed) == 0 }
+
 // Apply makes the unit files match cfg: heal the inference secret, heal crush.json's
-// copy of it (ADR-0019), render, reconcile, write the changed units and
-// daemon-reload. It returns the units it wrote, and still returns them when the
-// reload after the write fails, so a caller's rollback knows what is on disk.
-// Nothing changed means no unit written and no reload; the heal still rewrites the
+// copy of it (ADR-0019), render, reconcile, stop the running services of the units
+// cfg no longer renders, write the changed units, remove the removed ones and
+// daemon-reload once (ADR-0035). It reports what it did even when a later step
+// fails, so a caller's rollback knows what is on disk and what it stopped. Nothing
+// changed or removed means no unit touched and no reload; the heal still rewrites the
 // inference-secret env file on every apply.
 //
 // Its mutating callers are the swap transaction frame (Transact, through its live
 // binding) and the verbs that hold the stack lock themselves;
 // TestEveryStackMutationHoldsTheLock (cmd/villa) keeps it that way.
-func Apply(d Deps, cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+func Apply(d Deps, cfg config.VillaConfig) (Applied, error) {
 	cfg, err := heal(d, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("ensure inference secret: %w", err)
+		return Applied{}, fmt.Errorf("ensure inference secret: %w", err)
 	}
 	if err := healAgentConfig(d, cfg); err != nil {
-		return nil, err
+		return Applied{}, err
 	}
 	plan, err := Plan(d, cfg)
 	if err != nil {
-		return nil, err
+		return Applied{}, err
 	}
 	return write(d, plan)
 }
@@ -143,23 +166,53 @@ func healAgentConfig(d Deps, cfg config.VillaConfig) error {
 	return nil
 }
 
-// write writes a plan's changed units and reloads systemd; an unchanged plan is a
-// no-op. The changed units are returned even when the reload fails.
-func write(d Deps, plan orchestrate.Plan) ([]orchestrate.Unit, error) {
-	if len(plan.Changed) == 0 {
-		return nil, nil
+// write stops the removed units' running services, writes the changed units, removes
+// the removed ones and reloads systemd; a plan with neither is a no-op. A service is
+// stopped while its generated unit is still loaded, before its file goes. A Quadlet
+// unit cannot be disabled (is-enabled reports generated), so removing the file and
+// reloading is its disable.
+func write(d Deps, plan orchestrate.Plan) (Applied, error) {
+	var applied Applied
+	if len(plan.Changed) == 0 && len(plan.Removed) == 0 {
+		return applied, nil
 	}
 	dir, err := d.UnitDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve unit dir: %w", err)
+		return applied, fmt.Errorf("resolve unit dir: %w", err)
 	}
-	if err := d.WriteUnits(plan, dir); err != nil {
-		return nil, fmt.Errorf("write units: %w", err)
+	for _, u := range plan.Removed {
+		svc, ok := service(u.Name)
+		if !ok || !running(d.IsActive, svc) {
+			continue
+		}
+		// Recorded before the stop, so a stop that half-succeeded is started again.
+		applied.Stopped = append(applied.Stopped, svc)
+		if err := d.Stop(svc); err != nil {
+			return applied, fmt.Errorf("stop %s: %w", svc, err)
+		}
+	}
+	if len(plan.Changed) > 0 {
+		if err := d.WriteUnits(plan, dir); err != nil {
+			return applied, fmt.Errorf("write units: %w", err)
+		}
+		applied.Changed = plan.Changed
+	}
+	if len(plan.Removed) > 0 {
+		applied.Removed = plan.Removed
+		if err := d.RemoveUnits(plan, dir); err != nil {
+			return applied, fmt.Errorf("remove units: %w", err)
+		}
 	}
 	if err := d.DaemonReload(); err != nil {
-		return plan.Changed, fmt.Errorf("daemon-reload: %w", err)
+		return applied, fmt.Errorf("daemon-reload: %w", err)
 	}
-	return plan.Changed, nil
+	return applied, nil
+}
+
+// service maps a Quadlet .container unit to its service; other units are not services.
+func service(unit string) (string, bool) {
+	name, ok := strings.CutSuffix(unit, ".container")
+	return name + ".service", ok
 }
 
 // Restore writes captured unit bytes back verbatim, keyed by unit filename. A
