@@ -199,7 +199,7 @@ func parseSize(s string) (uint64, error) {
 	return uint64(v * scale), nil
 }
 
-// mib renders bytes in MiB with two decimals, the placement line's own spelling.
+// mib renders bytes in MiB with two decimals, the precision the placement line prints.
 func mib(b uint64) string {
 	return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20))
 }

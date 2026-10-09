@@ -204,7 +204,7 @@ func TestImageOffEmitsNoImageFinding(t *testing.T) {
 // TestImageOffWarnsOnAStaleRunningImageUnit: reconcile never deletes a unit, so
 // turning image generation off leaves villa-image.container on disk and running,
 // eager-holding about 9 GB that no fit counts. With the gate off and the service
-// active, doctor emits one WARN, IMG-DOC-stale, whose remediation is the disable
+// active, doctor emits one WARN, IMG-DOC-stale, whose remediation is the removal
 // sequence; an inactive service, or the gate on, emits no such finding.
 func TestImageOffWarnsOnAStaleRunningImageUnit(t *testing.T) {
 	activeImage := func(unit string) (string, error) {
