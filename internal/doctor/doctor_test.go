@@ -100,8 +100,8 @@ const servedUnit = "[Container]\nExec=llama-server -m x --port 8080\n"
 // optional subsystem off, and seams that read a benign host. Each test copies it and
 // overrides exactly one knob. Probe returns a benign typed-Unknown HostProfile
 // (off-hardware honest default), StatusReport the all-PASS report above, and the fake
-// unit dir holds the inference unit and renders no units, so there is no drift and
-// tools mode matches (off).
+// unit dir holds the inference unit the render produces, so there is no drift, no
+// orphan and tools mode matches (off).
 func newDoctorDeps() *run {
 	r := &run{
 		cfg:   config.VillaConfig{Backend: "vulkan"},
@@ -122,7 +122,9 @@ func newDoctorDeps() *run {
 			}
 			return nil, fs.ErrNotExist
 		},
-		RenderUnits:  func(config.VillaConfig, string) ([]orchestrate.Unit, error) { return nil, nil },
+		RenderUnits: func(config.VillaConfig, string) ([]orchestrate.Unit, error) {
+			return []orchestrate.Unit{{Name: inferenceUnitName(), Text: servedUnit}}, nil
+		},
 		RunningVilla: func() string { return "/usr/local/bin/villa" },
 		// Every seam is wired, as liveDoctorDeps wires them, and the config decides
 		// which ones Aggregate calls. The preflight bindings answer no checks and the
@@ -472,6 +474,36 @@ func TestDriftWarn(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a WARN drift finding with remediation; findings: %+v", r.Findings)
+	}
+}
+
+// TestOrphanUnitsWarn (#330): a registry unit on disk that the loaded config no
+// longer renders is its own WARN naming the unit and `villa up` as the fix; a host
+// with none carries no such finding (ADR-0035).
+func TestOrphanUnitsWarn(t *testing.T) {
+	llama := orchestrate.Unit{Name: inferenceUnitName(), Text: servedUnit}
+
+	d := newDoctorDeps()
+	d.render(llama)
+	if _, ok := findingByID(d.aggregate(), "orphan-units"); ok {
+		t.Fatal("a host with no orphan carries an orphan-units finding")
+	}
+
+	d.units["villa-searxng.container"] = "[Container]\nImage=searxng\n"
+	d.units["my-own.container"] = "operator's"
+	r := d.aggregate()
+	f, ok := findingByID(r, "orphan-units")
+	if !ok {
+		t.Fatalf("no orphan-units finding; findings: %+v", r.Findings)
+	}
+	if f.Status != "WARN" || !strings.Contains(f.Detail, "villa-searxng.container") || !strings.Contains(f.Remediation, "villa up") {
+		t.Errorf("orphan-units = %s %q (remediation %q), want a WARN naming the unit and `villa up`", f.Status, f.Detail, f.Remediation)
+	}
+	if strings.Contains(f.Detail, "my-own.container") {
+		t.Errorf("orphan-units named a unit villa never declared: %q", f.Detail)
+	}
+	if r.Overall != "WARN" {
+		t.Errorf("Overall = %q, want WARN", r.Overall)
 	}
 }
 
@@ -1273,13 +1305,13 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 // TestDoctorSchemaVersionIsTen: doctor's OWN --json contract self-version was
 // bumped append-only 6→7 for the sandbox fold (SBX-01/SBX-02, issue #176), 7→8
 // for the TMD-01 tools-mode drift finding (issue #173), 8→9 for the reranker
-// health row (ADR-0028) and 9→10 for the extractor health row (ADR-0033). The
-// const is the single source of truth — Aggregate stamps it on every Report.
-// INDEPENDENT of status's reportSchemaVersion.
-func TestDoctorSchemaVersionIsTen(t *testing.T) {
+// health row (ADR-0028), 9→10 for the extractor health row (ADR-0033) and 10→11
+// for the orphan-units finding (ADR-0035). The const is the single source of truth
+// — Aggregate stamps it on every Report. INDEPENDENT of status's reportSchemaVersion.
+func TestDoctorSchemaVersionIsEleven(t *testing.T) {
 	r := newDoctorDeps().aggregate()
-	if r.SchemaVersion != 10 {
-		t.Fatalf("Report.SchemaVersion = %d, want 10 (append-only bumps for the sandbox fold, TMD-01, the reranker row and the extractor row)", r.SchemaVersion)
+	if r.SchemaVersion != 11 {
+		t.Fatalf("Report.SchemaVersion = %d, want 11 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row and orphan-units)", r.SchemaVersion)
 	}
 }
 

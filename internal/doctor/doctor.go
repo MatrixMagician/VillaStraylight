@@ -106,7 +106,10 @@ const (
 //     from the status rows like v9: one more health finding when the extractor is
 //     rendered, no new finding type. Extractor-off output is byte-identical except
 //     this bump.
-const reportSchemaVersion = 10
+//   - v11: the orphan-units finding (ADR-0035) — a NEW doctor-owned finding type: a
+//     registry unit on disk the loaded config no longer renders is a WARN whose fix
+//     is `villa up`. A host with none is byte-identical except this bump.
+const reportSchemaVersion = 11
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -576,6 +579,22 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 			Status:     statusPass,
 			Detail:     "on-disk units match the rendered-from-config units",
 			Provenance: "orchestrate.Reconcile (empty Plan.Changed)",
+		})
+	}
+
+	// ORPHANS — a registry unit on disk the loaded config no longer renders keeps
+	// running outside every fit until a stack apply removes it (ADR-0035). It is its
+	// own finding because its fix is `villa up`, which removes, not a re-install,
+	// which only writes.
+	if err == nil && len(plan.Removed) > 0 {
+		findings = append(findings, Finding{
+			ID:          "orphan-units",
+			Name:        "Units no longer rendered",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      "on-disk Quadlet units the config no longer renders: " + changedUnitNames(plan.Removed),
+			Remediation: "run `villa up` to stop and remove them",
+			Provenance:  "orchestrate.Orphans (non-empty Plan.Removed)",
 		})
 	}
 

@@ -61,7 +61,8 @@ func (d Deps) mountedVilla() (string, bool) {
 // installed, and comparing against nothing would report every rendered unit as
 // Changed and misreport "units no longer match". The caller degrades any error to the
 // typed-Unknown WARN. An absent unit file IS drift (Changed), as orchestrate.Reconcile
-// reads it.
+// reads it, and a registry unit on disk the config does not render is Removed through
+// the same orchestrate.Orphans Reconcile uses (ADR-0035).
 func (d Deps) unitDrift(cfg config.VillaConfig) (orchestrate.Plan, error) {
 	exists, err := d.UnitDirExists()
 	if err != nil {
@@ -95,6 +96,10 @@ func (d Deps) unitDrift(cfg config.VillaConfig) (orchestrate.Plan, error) {
 		default:
 			plan.Changed = append(plan.Changed, u)
 		}
+	}
+	plan.Removed, err = orchestrate.Orphans(units, d.ReadUnit)
+	if err != nil {
+		return orchestrate.Plan{}, err
 	}
 	return plan, nil
 }
