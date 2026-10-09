@@ -675,16 +675,19 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 func liveAgentToolCallVerdict(parent context.Context, cfg config.VillaConfig, budget func() agentBudget) func() inference.Verdict {
 	return func() inference.Verdict {
 		b := budget()
+		client := inferenceClient(cfg)
+		before, _ := client.Counters(parent)
 		ctx, cancel := context.WithTimeout(parent, b.Budget)
 		completed, err := liveAgentToolCallProbe(ctx)()
 		killed := err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
 		cancel()
-		var drain *slotDrain
+		var kill *killedRound
 		if killed {
-			d := liveSlotDrain(parent, cfg)
-			drain = &d
+			drain := liveSlotDrain(parent, cfg)
+			after, _ := client.Counters(parent)
+			kill = &killedRound{Drain: drain, Work: roundWorkBetween(before, after)}
 		}
-		return agentToolCallVerdict(completed, err, b, drain)
+		return agentToolCallVerdict(completed, err, b, kill)
 	}
 }
 

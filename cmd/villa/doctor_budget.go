@@ -147,20 +147,90 @@ func liveSlotDrain(ctx context.Context, cfg config.VillaConfig) slotDrain {
 	return awaitSlotsIdle(ctx, func() (int, bool) { return processingSlots(client.Perf(ctx)) }, slotDrainPoll, agentProofBudgetFloor)
 }
 
+// roundWork is what llama-server did, for every client, between a read of its
+// cumulative counters before a round and a read after the killed round's slots
+// drained. The drain matters: the server flushes a cancelled prefill's prompt
+// tokens when its slots go idle and a slot's generated tokens when it is released.
+type roundWork struct {
+	PromptTokens    uint64
+	PromptSeconds   float64
+	PredictedTokens uint64
+	Known           bool
+}
+
+// roundWorkBetween is the difference of two counter reads. An unreadable counter,
+// or one that went backwards because the unit restarted in between, makes the
+// reading Unknown.
+func roundWorkBetween(before, after metrics.CounterSample) roundWork {
+	known := before.PromptTokensKnown && after.PromptTokensKnown &&
+		before.PromptSecondsKnown && after.PromptSecondsKnown &&
+		before.PredictedTokensKnown && after.PredictedTokensKnown &&
+		after.PromptTokensTotal >= before.PromptTokensTotal &&
+		after.PromptSecondsTotal >= before.PromptSecondsTotal &&
+		after.PredictedTokensTotal >= before.PredictedTokensTotal
+	if !known {
+		return roundWork{}
+	}
+	return roundWork{
+		PromptTokens:    after.PromptTokensTotal - before.PromptTokensTotal,
+		PromptSeconds:   after.PromptSecondsTotal - before.PromptSecondsTotal,
+		PredictedTokens: after.PredictedTokensTotal - before.PredictedTokensTotal,
+		Known:           true,
+	}
+}
+
+// prefillBound is a round in which the server took prompt tokens and generated
+// none: no request reached its first token, so the decode rate never limited it.
+func (w roundWork) prefillBound() bool {
+	return w.Known && w.PromptTokens > 0 && w.PredictedTokens == 0
+}
+
+func (w roundWork) String() string {
+	if !w.Known {
+		return "the server's token counters could not be read around the round"
+	}
+	prefill := fmt.Sprintf("the server prefilled %d prompt tokens", w.PromptTokens)
+	if w.PromptSeconds > 0 {
+		prefill += fmt.Sprintf(" at %.0f tok/s", float64(w.PromptTokens)/w.PromptSeconds)
+	}
+	if w.prefillBound() {
+		return prefill + " and generated none, so no agent request reached its first token"
+	}
+	return fmt.Sprintf("%s and generated %d", prefill, w.PredictedTokens)
+}
+
+// killedRound is the evidence the proof gathers after its budget killed a round.
+type killedRound struct {
+	Drain slotDrain
+	Work  roundWork
+}
+
+const (
+	agentRunRemediation     = "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`"
+	agentBudgetRemediation  = "the served model generated tokens but could not finish a tool call inside a budget sized from its measured decode rate; check `villa verify agent` and `villa logs`, or serve a faster model (`villa model swap`)"
+	agentPrefillRemediation = "the served model is too slow at prefill for the agent: Crush abandons a request that sends nothing for 60 s (its request_timeout), and the server had not finished prefilling the agent's prompt in that time, so a longer doctor budget cannot help; a sliding-window model cannot reuse a cached prompt prefix without context checkpoints (#323); serve a model that prefills the agent's prompt in under a minute (`villa model swap`) to use the agent"
+)
+
 // agentToolCallVerdict maps one round trip's outcome to the doctor verdict. Every
 // detail carries the budget and its source; a killed round also carries what the
-// server's slots did afterwards.
-func agentToolCallVerdict(completed bool, err error, b agentBudget, drain *slotDrain) inference.Verdict {
+// server did during the round and what its slots did afterwards, and its
+// remediation names the cause that evidence points to.
+func agentToolCallVerdict(completed bool, err error, b agentBudget, kill *killedRound) inference.Verdict {
 	switch {
 	case err != nil:
 		detail := fmt.Sprintf("the agent tool-call round-trip failed to run: %v (%s", err, b)
-		if drain != nil {
-			detail += "; " + drain.String()
+		remediation := agentRunRemediation
+		if kill != nil {
+			detail += "; " + kill.Work.String() + "; " + kill.Drain.String()
+			remediation = agentBudgetRemediation
+			if kill.Work.prefillBound() {
+				remediation = agentPrefillRemediation
+			}
 		}
 		return inference.Verdict{
 			Status:      inference.StatusFail,
 			Detail:      detail + ")",
-			Remediation: "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; a round trip killed at its budget means the served model cannot finish a tool call at its measured decode rate, so check `villa verify agent` and `villa logs`",
+			Remediation: remediation,
 		}
 	case !completed:
 		return inference.Verdict{

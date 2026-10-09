@@ -72,22 +72,89 @@ func TestAgentToolCallVerdictNamesTheBudget(t *testing.T) {
 	}
 
 	killed := errors.New("crush run: signal: killed")
-	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 9 * time.Second, Readable: true})
+	decoding := roundWork{PromptTokens: 17125, PromptSeconds: 15.6, PredictedTokens: 812, Known: true}
+	v = agentToolCallVerdict(false, killed, b, &killedRound{Drain: slotDrain{Elapsed: 9 * time.Second, Readable: true}, Work: decoding})
 	if v.Status != inference.StatusFail {
 		t.Fatalf("killed round: Status = %v, want FAIL", v.Status)
 	}
-	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m19s, measured 10.3 tok/s; the server's slots went idle 9s after the kill)"; v.Detail != want {
+	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m19s, measured 10.3 tok/s; the server prefilled 17125 prompt tokens at 1098 tok/s and generated 812; the server's slots went idle 9s after the kill)"; v.Detail != want {
 		t.Errorf("killed round: Detail = %q, want %q", v.Detail, want)
 	}
+	if !strings.Contains(v.Remediation, "measured decode rate") {
+		t.Errorf("killed while decoding: Remediation = %q, want the budget named as the limit", v.Remediation)
+	}
 
-	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 90 * time.Second, Busy: 1, Readable: true})
+	v = agentToolCallVerdict(false, killed, b, &killedRound{Drain: slotDrain{Elapsed: 90 * time.Second, Busy: 1, Readable: true}, Work: decoding})
 	if !strings.Contains(v.Detail, "1 slot still generating 1m30s after the kill") {
 		t.Errorf("undrained kill: Detail = %q, want the busy slot named", v.Detail)
 	}
 
-	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 0})
+	v = agentToolCallVerdict(false, killed, b, &killedRound{})
 	if !strings.Contains(v.Detail, "the slot count could not be read after the kill") {
 		t.Errorf("unreadable slots: Detail = %q, want the unreadable read named", v.Detail)
+	}
+	if !strings.Contains(v.Detail, "the server's token counters could not be read around the round") {
+		t.Errorf("unreadable counters: Detail = %q, want the unreadable counters named", v.Detail)
+	}
+}
+
+// TestAgentToolCallVerdictNamesThePrefillCause: a round the budget killed while
+// the server generated no token at all was never limited by the decode rate. On
+// gemma-4-31b (2026-10-09) Crush's 16988-token prompt prefilled at 240 tok/s, Crush
+// abandoned it at 60 s for sending nothing (its request_timeout), and the server
+// generated nothing until the 3m14s budget killed the run. The verdict stays FAIL,
+// since the agent really cannot work on that model, but the detail and the
+// remediation name the prefill, not the budget.
+func TestAgentToolCallVerdictNamesThePrefillCause(t *testing.T) {
+	b := agentBudget{Budget: 194 * time.Second, Source: "measured 10.6 tok/s"}
+	prefilling := &killedRound{
+		Drain: slotDrain{Readable: true},
+		Work:  roundWork{PromptTokens: 14541, PromptSeconds: 60, PredictedTokens: 0, Known: true},
+	}
+	v := agentToolCallVerdict(false, errors.New("crush run: signal: killed"), b, prefilling)
+	if v.Status != inference.StatusFail {
+		t.Fatalf("Status = %v, want FAIL: the agent cannot complete a round trip on this model", v.Status)
+	}
+	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m14s, measured 10.6 tok/s; the server prefilled 14541 prompt tokens at 242 tok/s and generated none, so no agent request reached its first token; the server's slots went idle 0s after the kill)"; v.Detail != want {
+		t.Errorf("Detail = %q, want %q", v.Detail, want)
+	}
+	for _, want := range []string{"prefill", "request_timeout", "60 s", "#323"} {
+		if !strings.Contains(v.Remediation, want) {
+			t.Errorf("Remediation = %q, want it to name %q", v.Remediation, want)
+		}
+	}
+	if strings.Contains(v.Remediation, "decode rate") {
+		t.Errorf("Remediation = %q, want no decode-rate cause on a round that generated nothing", v.Remediation)
+	}
+}
+
+// TestRoundWorkBetween: what the server did during a killed round is the difference
+// of its cumulative /metrics counters, read before the round and after its slots
+// drained. A counter that could not be read, or that went backwards because the unit
+// restarted in between, makes the whole reading Unknown rather than a fabricated 0.
+func TestRoundWorkBetween(t *testing.T) {
+	sample := func(prompt uint64, seconds float64, predicted uint64) metrics.CounterSample {
+		return metrics.CounterSample{
+			PromptTokensTotal: prompt, PromptTokensKnown: true,
+			PromptSecondsTotal: seconds, PromptSecondsKnown: true,
+			PredictedTokensTotal: predicted, PredictedTokensKnown: true,
+		}
+	}
+	before := sample(1000, 10, 500)
+
+	if got, want := roundWorkBetween(before, sample(15541, 70, 500)), (roundWork{PromptTokens: 14541, PromptSeconds: 60, PredictedTokens: 0, Known: true}); got != want {
+		t.Errorf("roundWorkBetween = %+v, want %+v", got, want)
+	}
+	if got := roundWorkBetween(before, metrics.CounterSample{}); got.Known {
+		t.Errorf("unreadable after: %+v, want Known=false", got)
+	}
+	unknownSeconds := sample(15541, 70, 500)
+	unknownSeconds.PromptSecondsKnown = false
+	if got := roundWorkBetween(before, unknownSeconds); got.Known {
+		t.Errorf("unknown prompt seconds: %+v, want Known=false", got)
+	}
+	if got := roundWorkBetween(before, sample(200, 2, 10)); got.Known {
+		t.Errorf("counters reset by a restart: %+v, want Known=false", got)
 	}
 }
 

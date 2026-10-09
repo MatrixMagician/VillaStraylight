@@ -46,9 +46,12 @@ type PerfSnapshot struct {
 // These are the ONLY new metric literals introduced for the cumulative-usage feature
 // and — like the existing gauge names above — are confined to this package
 // per 's single-home discipline (enforced by the grep gate in 15-VALIDATION.md).
+// mPromptSecondsTotal is the prompt-processing time the doctor's killed-round
+// reading divides by (#318).
 const (
 	mPromptTokensTotal    = "llamacpp:prompt_tokens_total"
 	mPredictedTokensTotal = "llamacpp:tokens_predicted_total"
+	mPromptSecondsTotal   = "llamacpp:prompt_seconds_total"
 )
 
 // mCacheTokensTotal and mPromptCacheTokensTotal are the cache-effectiveness counter
@@ -84,6 +87,11 @@ type CounterSample struct {
 	PredictedTokensTotal uint64
 	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal.
 	PredictedTokensKnown bool
+	// PromptSecondsTotal is llamacpp:prompt_seconds_total, the time spent in prompt
+	// processing; valid only when PromptSecondsKnown.
+	PromptSecondsTotal float64
+	// PromptSecondsKnown is the typed-Unknown signal for PromptSecondsTotal.
+	PromptSecondsKnown bool
 }
 
 // CacheSample is the cache-effectiveness counterpart to CounterSample (
@@ -224,7 +232,7 @@ func ParsePerf(body []byte) PerfSnapshot {
 	}
 }
 
-// ParseCounters surfaces the two monotonic _total counters of a /metrics body as a
+// ParseCounters surfaces the three monotonic _total counters of a /metrics body as a
 // typed-Unknown CounterSample: each counter's Known flag reflects its presence and
 // finiteness, so an absent counter is Known=false, never a fabricated 0. The body
 // must be whole: the client refuses an over-cap or errored read, because a counter
@@ -234,11 +242,18 @@ func ParseCounters(body []byte) CounterSample {
 	m := parsePromText(string(body))
 	prompt, promptKnown := counterFromMap(m, mPromptTokensTotal)
 	predicted, predictedKnown := counterFromMap(m, mPredictedTokensTotal)
+	seconds, secondsKnown := m[mPromptSecondsTotal]
+	secondsKnown = secondsKnown && !math.IsNaN(seconds) && !math.IsInf(seconds, 0) && seconds >= 0
+	if !secondsKnown {
+		seconds = 0
+	}
 	return CounterSample{
 		PromptTokensTotal:    prompt,
 		PromptTokensKnown:    promptKnown,
 		PredictedTokensTotal: predicted,
 		PredictedTokensKnown: predictedKnown,
+		PromptSecondsTotal:   seconds,
+		PromptSecondsKnown:   secondsKnown,
 	}
 }
 
