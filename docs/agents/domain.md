@@ -48,4 +48,4 @@ A concept missing from the glossary is a signal: either you're inventing languag
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR-0007 (event-sourced orders), but worth reopening because..._
+> _Contradicts ADR-0013 (one stack apply module), but worth reopening because..._

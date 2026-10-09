@@ -36,7 +36,8 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle), v1.9 (speculation, the vision projector sidecar, and the PRE-08 device-access gate, each licensed by an on-hardware measurement; ADR-0006), v1.10 (the draft sidecar: the first dense catalog entry, its MTP head shipped as a sidecar and proven as a second model; ADR-0009), v1.11 (the workspace agent: `villa work` runs one instruction against one registered folder inside a per-task libkrun microVM, approvals answered by a table, a post-run claim audit that flags and never edits; the runner lives in the dashboard service), v1.12 (the first signed pin manifest on a table re-vetted on hardware, a cutover probe that asserts the answer, `up` that applies what it writes, and doctor reading the last check), v1.13 (the dashboard reskin with its read-only pins and journal endpoints, catalog 2026.09.4, and the ROCm preflight gate reading the firmware date and HSA viability detect already probed, which put `firmware_date` on `HostProfile` as schema 4), v1.14 (ten security advisories closed, a required llama-server api key with `villa-inferproxy` as the sandbox's only route to inference, rollbacks that restore what they captured, and the cross-process stack lock; ADR-0010, ADR-0011), v1.15 (the architecture-review deepening: `stackapply` owns the stack apply, `inference.Client` owns every llama-server call, one swap transaction owns the lock, restart set, proof and rollback, status takes one host reading per run, and doctor decides from the loaded config; ADR-0013 to ADR-0017), and v1.16 (`villa eval` and its recorded baselines, ADR-0018; the stale crush.json inference key healed on every stack apply, ADR-0019; backup entries as one registry with eval baselines backed up, manifest schema 5, ADR-0020; the 8 GiB prompt cache rendered and counted in the fit, `recommend` schema 8, ADR-0021), and v1.17 (ROCm 10.0 as the default backend, ADR-0022; `model swap` decides vision for its target, ADR-0023; the v1.17.1 patch sizes a swap's target at the ctx it will serve, falling back to its default, ADR-0024), and v1.18 (the versatility wave, #306: auxiliary reservations as one ordered registry, `recommend` schema 9, ADR-0027; the reranker as a memory service with a measured footprint, ADR-0028; a sliding-window layer is not a KV-bearing layer, catalog 2026.10.1 schema 5 with `gemma-4-31b` and `glm-4.7-flash`, ADR-0029; voice as one subsystem with two units, `install --voice`, ADR-0030, and a proof that asks where whisper ran, ADR-0037; the agent proof budget sized from the measured decode rate, ADR-0031; image generation as an eager reservation served from the image table, `install --image`, ADR-0032; document extraction on Apache Tika, ADR-0033; a sliding-window entry caps its context checkpoints, ADR-0034; a stack apply removes the registry units it no longer renders, ADR-0035; services with no runtime egress on the closed `villa-closed` network, ADR-0036, and Qdrant's telemetry switched off, #348; an update restarts every unit its apply changed, ADR-0038; `status` schema 12, `doctor` schema 12, eval suite 3; ADR-0025 and ADR-0026 record Kyojin and the NPU as not backends yet) are complete. v1.0 through v1.18 are tagged on `main`; v1.11 landed as three stacked wave branches (PRs #186, #187, #188), the follow-ups the build filed (#194 to #197) and the three fixes the first end-to-end run surfaced. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 through v1.18, each tagged on `main`; the tags, their GitHub
+release notes and `docs/adr/` are the history. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
@@ -161,8 +162,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - **Inference seam grep-gate (`TestSeamGrepGate`):** backend marker strings (`ROCm0`,
   `Vulkan0`, `HSA_OVERRIDE…`, image tags) must stay behind `internal/inference` +
-  `internal/orchestrate`. The gate walks both `internal/` and `cmd/villa` — a leaked literal
-  fails the build.
+  `internal/detect/gpu_amd.go`; a managed-service image literal in `internal/orchestrate`
+  is allowed only in the files the gate's allowlist names. The gate walks both `internal/`
+  and `cmd/villa` — a leaked literal fails the build.
 
 - **Inference client gate (`TestInferenceReachedOnlyThroughClient`, ADR-0014):** call
   llama-server only through `inferenceClient(cfg)` / `inNetworkInferenceClient(cfg)`
@@ -196,7 +198,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
 - **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls.
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
-- **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, later Qdrant/SearXNG); build only the control plane.
+- **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, Qdrant, SearXNG); build only the control plane.
 
 ## Technology Stack
 
@@ -220,7 +222,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: see the code map above — `newRoot` in `cmd/villa/root.go` is the single authoritative list.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden*`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
-- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally at the SAME pinned version (`.golangci-version`), diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree — as of PR #61 that is **0 issues**, so the
+- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally at the SAME pinned version (`.golangci-version`), diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree, and the tree is clean, so the
   new-issues gate is a floor to hold, not a workaround around a backlog. Do not reintroduce one.
 
 ### Key Dependencies
@@ -234,7 +236,7 @@ convenience.
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
 - `github.com/microcosm-cc/bluemonday` v1.0.27 - HTML sanitiser for the web-search guard layer (`internal/websafe/sanitize.go`): strips all markup from fetched, untrusted page content before it reaches the model.
-- `golang.org/x/text` v0.23.0 - Unicode normalisation (NFKC) in the same guard layer, so an injection cannot hide behind confusable or zero-width characters.
+- `golang.org/x/text` v0.39.0 - Unicode normalisation (NFKC) in the same guard layer, so an injection cannot hide behind confusable or zero-width characters.
 - Indirect: `spf13/pflag` (via cobra), `inconshreveable/mousetrap` (cobra Windows helper), `aymerick/douceur` + `gorilla/css` + `golang.org/x/net` (via bluemonday).
 
 ### Configuration
@@ -249,7 +251,7 @@ convenience.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
 - `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): one per service — `ls internal/orchestrate/quadlet/` is the list, not this line.
 - `internal/dashboard/assets/` - embedded dashboard UI (`//go:embed all:assets` in `internal/dashboard/embed.go`); `dashboard.html` is parsed as an `html/template` shell (chat-link port injected), css/js served verbatim.
-- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `lint`, `check` (vet+test+test-race), `dev-deploy` (dev host only: build-static, dashboard restart, doctor), `tidy`, `clean`.
+- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `lint`, `check` (vet+test+test-race), `dev-deploy` (dev host only: build-static, dashboard restart, doctor), `govulncheck`, `ci`, `tidy`, `clean`.
 - `.golangci.yml` - linter config (used by `make lint`).
 
 ### Platform Requirements
@@ -389,7 +391,7 @@ convenience.
 | prove | The ONE cutover verdict the three transactional cores gate on | `internal/prove/prove.go` |
 | residency | The residency-proof drive protocol (idle + under-load), seamed for tests | `internal/residency/residency.go`, `underload.go` |
 | openwebui | The Open WebUI HTTP protocol, seamed at the transport; endpoint paths live here and nowhere else | `internal/openwebui/*.go` |
-| subsystem | The four optional-subsystem gates: is this subsystem on? | `internal/subsystem/subsystem.go` |
+| subsystem | The optional-subsystem gates (`On` and its named `*On` accessors): is this subsystem on? Also the unit registry (`units.go`) | `internal/subsystem/subsystem.go` |
 | verify | The verify family's shape: gate → drive → resolve → exit code | `internal/verify/verify.go` |
 | install | The whole install flow behind `Run(ctx, Deps, Opts) Result`: decisions, ordering, transaction, narration via `Emit` | `internal/install/*.go` |
 | pins | The compiled-in, enumerable pin registry: schema, allowlist, fallback, serial floor | `internal/pins/pins.go` |
@@ -411,10 +413,9 @@ convenience.
 | taskrun | The runner: one task at a time, hosted by the dashboard service; every decision through `approval`, every terminal state through `taskstore` | `internal/taskrun/*.go` |
 | catalog.Image + inference.ImageOffloadVerdict | Image generation (ADR-0032): the compiled-in image table, the eager-loaded `villa-image` sd-server unit rendered from the seam's flags and device access, and the two-signal placement proof (any param byte in RAM is a FAIL) | `internal/catalog/image.go`, `internal/orchestrate/image.go`, `internal/inference/image_server.go`, `internal/inference/image_offload.go` |
 
-This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules and the v1.11 workspace-agent packages. The
-v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
-`backup`, `usage`, `pathsafe`, `jsonstore`, `benchstore`, `verifystate`) follow the
-same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
+Packages missing from the table (`memory`, `recall`, `agent`, `codingmode`, `websafe`,
+`backup`, `usage`, `pathsafe`, `jsonstore`, `benchstore`, `verifystate`, `voice`, `eval`,
+`evalstore`) follow the same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
 
 ### Pattern Overview
 
@@ -423,7 +424,7 @@ same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.
 - **Config is the single source of truth.** `config.toml` drives recommend → orchestrate; Quadlet units are regenerated from config, never hand-edited as the authority.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
-- **A gate is answered once.** `subsystem.MemoryOn`/`WebSearchOn`/`AgentOn`/`CodingModeOn` are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
+- **A gate is answered once.** The `subsystem` package's `*On` predicates (`MemoryOn`, `WebSearchOn`, `ImageOn`, …) are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
 - **Every stack-mutating flow is transactional and holds the stack lock.** Every swap runs in one frame, `stackapply.Transact` (ADR-0015), which takes the lock (ADR-0010) and restarts every changed running unit; `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
 
 - **The image is not always the state being changed.** Chat and memory own a mutable data volume (`subsystem.OwnsPersistentState`), so their update is a stopped window — stop → snapshot → mutate → start — and their rollback restores the data as well as the pin. The stop is load-bearing: a volume exported from under a running service is a torn copy. A failed capture REFUSES, unlike the failed prune/cleanup that WARNs, because a capture failure happens before any mutation while cleanup happens after the update already succeeded.
@@ -483,7 +484,7 @@ server guards its one cached value with a `sync` mutex.
 ### Architectural Constraints
 
 - **Backend literals are seam-locked.** Container image/device/`podman`/marker literals MUST live in `internal/inference/` (and `internal/detect/gpu_amd.go`). Enforced by `TestSeamGrepGate` (`internal/inference/seam_test.go`) over both `internal/` and `cmd/villa`.
-- **Impurity is confined to named seams.** `os/exec` touch lives in `internal/orchestrate/systemd.go`; unit writing in `WriteUnits`; all other filesystem access goes through `internal/pathsafe` (containment + atomic writes) and `internal/jsonstore`. Render/Reconcile must stay pure, and a core must not reach for `os` directly.
+- **Impurity is confined to named seams.** Host commands run through the `Deps` seams wired in `cmd/villa` and the few internal edges that own one (`orchestrate/systemd.go`, `inference/runner_podman.go`, `detect/gpu_amd.go`, `preflight/exec.go`, `inprobe`); a pure core never imports `os/exec`. Unit writing in `WriteUnits`; all other filesystem access goes through `internal/pathsafe` (containment + atomic writes) and `internal/jsonstore`. Render/Reconcile must stay pure, and a core must not reach for `os` directly.
 - **No silent CPU fallback.** Offload assert requires BOTH log-scrape AND sysfs GTT-delta; an unevaluable signal → WARN, a confident absence → FAIL.
 - **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
 - **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
