@@ -156,11 +156,15 @@ const (
 )
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs
-// (or are absent) versus those already identical on disk. An empty Changed slice is
-// a true no-op (idempotency core).
+// (or are absent) versus those already identical on disk, plus the registry units on
+// disk the render no longer produces. An empty Changed and Removed is a true no-op
+// (idempotency core).
 type Plan struct {
 	// Changed are units that must be (re)written — absent or hash-mismatched on disk.
 	Changed []Unit
 	// Unchanged are units already byte-identical on disk (no write, no restart).
 	Unchanged []Unit
+	// Removed are units the subsystem registry declares that are on disk but no
+	// longer rendered, each carrying its on-disk bytes (ADR-0035).
+	Removed []Unit
 }

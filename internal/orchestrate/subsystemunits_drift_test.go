@@ -78,20 +78,18 @@ func TestSubsystemUnitsMatchTheRenderedUnits(t *testing.T) {
 	}
 }
 
-// TestSandboxRendersANetworkAndNoContainer is the sandbox half of the same binding.
-//
-// The sandbox is the first subsystem that renders a unit while declaring none, and
-// the asymmetry is the point: a task's container is per-task and started by the
-// runner, so there is nothing for update to capture or restart. The network IS
-// rendered, and a declaration that named it would make update try to restart a
-// .network as a .service.
-func TestSandboxRendersANetworkAndNoContainer(t *testing.T) {
-	if us, svcs := subsystem.Sandbox.EveryUnit(); len(us) != 0 || len(svcs) != 0 {
-		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is per-task, not a unit", us, svcs)
+// TestSandboxDeclaresTheProxyAndNoTaskContainer is the sandbox half of the same
+// binding (#330). villa-inferproxy is the one unit the workspace agent renders and
+// manages (ADR-0011), so the registry declares it and turning the agent off removes
+// it. The task container is per-task and started by the runner, so it is never
+// rendered, and the network is not a service.
+func TestSandboxDeclaresTheProxyAndNoTaskContainer(t *testing.T) {
+	us, svcs := subsystem.Sandbox.EveryUnit()
+	if !slices.Equal(us, []string{InferproxyContainerUnitName()}) || !slices.Equal(svcs, []string{"villa-inferproxy.service"}) {
+		t.Errorf("Sandbox.EveryUnit() = (%v, %v), want the proxy alone", us, svcs)
 	}
 
 	in := statefulFixtureInput()
-	in.Cfg.WorkspaceAgent = true
 	units, err := Render(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
