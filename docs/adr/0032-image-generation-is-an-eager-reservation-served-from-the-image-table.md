@@ -57,8 +57,8 @@ reservation true at some moments and false at others; worse, the measured lazy
 journal prints the placement line and answers ready while holding nothing, so a
 readiness 200 would prove nothing. `--eager-load` makes the row true from the
 moment the unit starts and puts the placement line in the invocation journal
-before the proof's first request. `ReservationsFor` gains one row, `image`, after
-web search (ADR-0027), sized `weight_bytes + compute_bytes`, with the memory row's
+before the proof's first request. `ReservationsFor` gains one row, `image`, last,
+after the voice rows (ADR-0027, ADR-0030), sized `weight_bytes + compute_bytes`, with the memory row's
 miss semantics (a conservative 24 GiB and a note naming the id).
 
 **2. The footprint comes from a compiled-in image table, not a constant.** ADR-0027
@@ -190,11 +190,11 @@ existing path with no change to `Deps.Pick`.
 
 ## Consequences
 
-- `subsystem.Image` is appended at iota 7, in `All` and `Every`, with inference's
-  update budget (an eager load plus a generation, before and after the mutation).
-  `config.ImageEnabled` and `ImageModel` are tail-appended and omitted on disk
-  while off; `ImageAddr`/`ImagePort` are constants. `recommend.golden.json` and
-  every existing rendered-unit and cmd golden are unchanged; two goldens are added
+- `subsystem.Image` is appended at iota 8, after `Voice`, in `All` and `Every`,
+  with inference's update budget (an eager load plus a generation, before and
+  after the mutation). `config.ImageEnabled` and `ImageModel` are tail-appended
+  and omitted on disk while off; `ImageAddr`/`ImagePort` are constants.
+  `recommend.golden.json` and every existing rendered-unit and cmd golden are unchanged; two goldens are added
   (`villa-image.container`, `villa-openwebui.container.image`).
 - The image server's pin, `image-server`, is a `RollingDigest` on `ghcr.io`
   (master-vulkan is rebuilt on every upstream push). It is not yet named in the

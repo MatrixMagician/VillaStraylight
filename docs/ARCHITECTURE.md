@@ -143,7 +143,7 @@ graph TD
     inferproxy -.villa.network.-> llama
     stackapply["internal/stackapply<br/>the one stack apply (ADR-0013)"] --> catalog
     stackapply -.catalog.Image → ImageServe.-> orchestrate
-    orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0029)"]
+    orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
     owui -.automatic1111 engine, villa.network.-> image
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
