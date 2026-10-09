@@ -192,7 +192,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, gateway) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
@@ -490,7 +490,7 @@ server guards its one cached value with a `sync` mutex.
 - **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
 - **`--json`/dashboard contracts are byte-frozen.** Evolve append-only + bump schema version; golden tests guard them (`cmd/villa/testdata/*.golden*` — most end `.golden`, a couple `.golden.json`; nothing ends `.json.golden`).
 - **No telemetry.** First-party components emit none; outbound limited to image/model pulls (asserted in `status`).
-- **Single static binary.** No Podman full-bindings dependency; Podman is controlled via fixed-arg CLI / REST-over-socket.
+- **Single static binary.** No Podman full-bindings dependency; Podman is controlled only through its fixed-arg CLI.
 
 ### Error Handling
 
