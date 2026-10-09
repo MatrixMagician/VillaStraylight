@@ -158,29 +158,12 @@ func Transact(d TxDeps, change Change) Outcome {
 	if len(applied.Changed) == 0 {
 		return Outcome{NoOp: true}
 	}
-	restart := func(svc string) error {
-		restarted = append(restarted, svc)
-		return d.Restart(svc)
-	}
-	for _, u := range applied.Changed {
-		svc, ok := service(u.Name)
-		if !ok {
-			continue
-		}
-		if svc != d.Service && !running(d.IsActive, svc) {
-			continue
-		}
-		if err := restart(svc); err != nil {
-			return rollback("restart", "", err, prove.Verdict{})
-		}
-	}
 	// The proven service is restarted whether or not its own unit changed or it was
 	// running: the proof drives it, so it must be freshly serving the applied stack.
-	// It goes last when nothing above restarted it.
-	if !slices.Contains(restarted, d.Service) {
-		if err := restart(d.Service); err != nil {
-			return rollback("restart", "", err, prove.Verdict{})
-		}
+	cutover, err := RestartChanged(applied, []string{d.Service}, d.IsActive, d.Restart)
+	restarted = append(restarted, cutover...)
+	if err != nil {
+		return rollback("restart", "", err, prove.Verdict{})
 	}
 
 	v := d.Prove(context.Background(), next.Backend)
@@ -188,6 +171,37 @@ func Transact(d TxDeps, change Change) Outcome {
 		return rollback("prove", v.Detail, nil, v)
 	}
 	return Outcome{Switched: true, Prove: v}
+}
+
+// RestartChanged is the restart rule of every apply that runs under a transaction
+// (ADR-0015, ADR-0038): restart each service whose unit applied changed and that is
+// running, in render order, then each service in always that is not yet restarted,
+// whether or not its unit changed or it runs. It returns every service it restarted
+// or tried to, including the one that failed, which is the set a rollback restarts.
+func RestartChanged(applied Applied, always []string, isActive func(string) (string, error), restart func(string) error) ([]string, error) {
+	var restarted []string
+	try := func(svc string) error {
+		restarted = append(restarted, svc)
+		return restart(svc)
+	}
+	for _, u := range applied.Changed {
+		svc, ok := service(u.Name)
+		if !ok || (!slices.Contains(always, svc) && !running(isActive, svc)) {
+			continue
+		}
+		if err := try(svc); err != nil {
+			return restarted, err
+		}
+	}
+	for _, svc := range always {
+		if slices.Contains(restarted, svc) {
+			continue
+		}
+		if err := try(svc); err != nil {
+			return restarted, err
+		}
+	}
+	return restarted, nil
 }
 
 // running reports whether svc is up. A state that cannot be read counts as NOT

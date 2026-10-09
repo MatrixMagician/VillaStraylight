@@ -121,7 +121,8 @@ is a branch inside a message; two findings read as the two facts they are.
   never did. The removal is idempotent: a second run finds nothing on disk.
 - `villa update` and `villa restore` apply through the same `Apply`, so they also
   remove an orphan they meet; their rollbacks do not bring it back running.
-  `update` restores the units of the subsystem it captured, and `restore`
+  `update` restores the units it captured (since ADR-0038, every unit the config
+  renders, which leaves the orphan out), and `restore`
   re-applies the prior config, which writes the unit file again but starts only
   the services restore itself stopped. The gap is a stopped unit that
   `villa restart <service>` starts, never a unit running outside the fit.

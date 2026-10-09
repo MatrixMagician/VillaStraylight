@@ -198,13 +198,15 @@ type Deps struct {
 	// a mutation of the running stack — a pulled-but-unused image is inert.
 	Pull func(ctx context.Context, refs map[string]string) error
 	// Mutate writes the new pins into the rendered units and restarts the
-	// subsystem's services. ANY error rolls back.
+	// subsystem's services, plus every running service whose unit the stack apply
+	// rewrote (ADR-0038). It returns every service it restarted or tried to, even
+	// with an error, and the rollback hands that set to Restore. ANY error rolls back.
 	//
 	// For a stateful subsystem it runs INSIDE the stopped window, so the services
 	// it would restart are already down and Start brings them back afterwards. The
 	// caller's implementation restarts either way, which is idempotent against a
 	// stopped unit.
-	Mutate func(ctx context.Context, k subsystem.Kind, refs map[string]string) error
+	Mutate func(ctx context.Context, k subsystem.Kind, refs map[string]string) (restarted []string, err error)
 	// Stop stops the subsystem's services, opening the window in which a volume can
 	// be exported cleanly. It is called ONLY for a subsystem that owns persistent
 	// state; a stateless one keeps its single atomic restart.
@@ -219,8 +221,9 @@ type Deps struct {
 	Start func(ctx context.Context, k subsystem.Kind) error
 	// ProveNew proves the mutated subsystem. Only a true pass commits.
 	ProveNew func(ctx context.Context, k subsystem.Kind) Proof
-	// Restore puts the captured tuple back, verbatim.
-	Restore func(ctx context.Context, k subsystem.Kind, c Capture) error
+	// Restore puts the captured tuple back, verbatim, and restarts the services the
+	// mutation restarted.
+	Restore func(ctx context.Context, k subsystem.Kind, c Capture, restarted []string) error
 	// RestoreData imports the data snapshot back into the subsystem's volume, and
 	// is called ONLY while the subsystem is stopped.
 	//
@@ -401,13 +404,14 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 		return runStatefulMutation(subCtx, d, sr, capture, t)
 	}
 
-	if err := d.Mutate(subCtx, t.Subsystem, t.Pins); err != nil {
-		return rollback(subCtx, d, sr, capture,
+	restarted, err := d.Mutate(subCtx, t.Subsystem, t.Pins)
+	if err != nil {
+		return rollback(subCtx, d, sr, capture, restarted,
 			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be moved to the new pins: %v", err)},
 			RolledBackReject, err, "mutate")
 	}
 
-	return finishAfterMutation(subCtx, d, sr, capture, t)
+	return finishAfterMutation(subCtx, d, sr, capture, restarted, t)
 }
 
 // runStatefulMutation is the stopped window for a subsystem whose data, not whose
@@ -459,13 +463,14 @@ func runStatefulMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 	capture.Data = snapshot
 	sr.Snapshot = snapshot
 
-	if err := d.Mutate(ctx, t.Subsystem, t.Pins); err != nil {
+	restarted, err := d.Mutate(ctx, t.Subsystem, t.Pins)
+	if err != nil {
 		// Past the point of no return: the mutation may have written pins and
 		// re-rendered units before it failed. The services stay DOWN into the
 		// rollback, which owns the window from here — it restores the data volume
 		// while stopped and starts them once the whole tuple is back. Starting them
 		// here only to stop them again would churn the service for no gain.
-		return rollback(ctx, d, sr, capture,
+		return rollback(ctx, d, sr, capture, restarted,
 			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be moved to the new pins: %v", err)},
 			RolledBackReject, err, "mutate")
 	}
@@ -474,12 +479,12 @@ func runStatefulMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 		// The mutation landed but the subsystem is down, so the post-mutation proof
 		// cannot run. That is a Reject and it rolls back, which is the same posture
 		// as an unprovable new image.
-		return rollback(ctx, d, sr, capture,
+		return rollback(ctx, d, sr, capture, restarted,
 			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be started after the update: %v", err)},
 			RolledBackReject, err, "start")
 	}
 
-	return finishAfterMutation(ctx, d, sr, capture, t)
+	return finishAfterMutation(ctx, d, sr, capture, restarted, t)
 }
 
 // joinStartErr folds a failed restart of villa's OWN stop into the cause.
@@ -496,7 +501,7 @@ func joinStartErr(cause, startErr error) error {
 
 // finishAfterMutation proves the new state and commits, the half of the transaction
 // that is identical whether or not there was a stopped window.
-func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, t Target) SubsystemResult {
+func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, restarted []string, t Target) SubsystemResult {
 	// (5) PROVE THE NEW STATE. ONLY a true pass commits.
 	p := d.ProveNew(ctx, t.Subsystem)
 	if !p.Pass() {
@@ -507,7 +512,7 @@ func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 			// and only one of them was observed.
 			outcome = RolledBackReject
 		}
-		return rollback(ctx, d, sr, capture, p, outcome, nil, "prove")
+		return rollback(ctx, d, sr, capture, restarted, p, outcome, nil, "prove")
 	}
 
 	// (6) COMMIT. The pin becomes effective and the captured tuple becomes the
@@ -548,12 +553,13 @@ func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 	return sr
 }
 
-// rollback restores the captured tuple and re-proves the restored state.
+// rollback restores the captured tuple, restarts what the mutation restarted, and
+// re-proves the restored state.
 //
 // Re-proving is what makes "rolled back" a demonstrated claim rather than an
 // assumption. ADR-0003 requires honesty when a rollback is incomplete, and a
 // restore that silently did not take is exactly the case that honesty is for.
-func rollback(ctx context.Context, d Deps, sr SubsystemResult, capture Capture,
+func rollback(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, restarted []string,
 	p Proof, outcome Outcome, cause error, step string) SubsystemResult {
 	sr.Outcome = outcome
 	sr.Proof = p
@@ -616,7 +622,7 @@ func rollback(ctx context.Context, d Deps, sr SubsystemResult, capture Capture,
 		restoredData = true
 	}
 
-	if err := d.Restore(ctx, sr.Subsystem, capture); err != nil {
+	if err := d.Restore(ctx, sr.Subsystem, capture, restarted); err != nil {
 		// The restore itself failed. This is the worst state and must never be
 		// reported as a clean rollback.
 		sr.RollbackIncomplete = true
