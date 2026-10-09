@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,6 +64,8 @@ type residentFixture struct {
 	changed []string
 	// active names the services isActive reports as running.
 	active map[string]bool
+	// orphans are the registry units the reconcile reports as Removed.
+	orphans []orchestrate.Unit
 
 	// Failure injection.
 	saveErr    error
@@ -140,7 +144,7 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 			Render:        func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return f.rendered, nil },
 			UnitDir:       func() (string, error) { return "/unit/dir", nil },
 			Reconcile: func(units []orchestrate.Unit, _ string) (orchestrate.Plan, error) {
-				var plan orchestrate.Plan
+				plan := orchestrate.Plan{Removed: f.orphans}
 				for _, u := range units {
 					if contains(f.changed, u.Name) {
 						plan.Changed = append(plan.Changed, u)
@@ -159,6 +163,12 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 					names = append(names, u.Name)
 				}
 				rec.written = append(rec.written, names)
+				return nil
+			},
+			RemoveUnits: func(plan orchestrate.Plan, _ string) error {
+				for _, u := range plan.Removed {
+					rec.removed = append(rec.removed, u.Name)
+				}
 				return nil
 			},
 			DaemonReload: func() error {
@@ -206,6 +216,8 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 			return "inactive", nil
 		},
 	}
+	d.stack.Stop = d.stop
+	d.stack.IsActive = d.isActive
 	// A rollback restores unit text through writeUnitText, which is a real filesystem
 	// call. The tests that exercise rollback point the unit dir at a temp dir so that
 	// write lands somewhere harmless, or inject rollbackWr to make it fail.
@@ -501,6 +513,38 @@ func TestResidentAddRollsConfigBackWhenAStepAfterTheSaveFails(t *testing.T) {
 	}
 	if len(rec.saved[1].Resident) != 0 {
 		t.Errorf("restored config = %+v, want the prior config with no resident slot", rec.saved[1])
+	}
+	if !strings.Contains(errOut.String(), "rolled back to the prior state") {
+		t.Errorf("stderr = %q, want a clean-rollback report", errOut.String())
+	}
+}
+
+// TestResidentAddRollbackRestoresARemovedRegistryUnit (#330): a resident add whose
+// apply stopped and removed a gated-off registry unit, and then failed, writes that
+// unit's captured bytes back and starts its service again.
+func TestResidentAddRollbackRestoresARemovedRegistryUnit(t *testing.T) {
+	f := newResidentFixture()
+	f.orphans = []orchestrate.Unit{{Name: "villa-searxng.container", Text: "STALE"}}
+	f.diskUnits["villa-searxng.container"] = "STALE"
+	f.active["villa-searxng.service"] = true
+	f.startErr = errors.New("no such image")
+	d, rec := f.deps()
+	dir := t.TempDir()
+	d.stack.UnitDir = func() (string, error) { return dir, nil }
+	cmd, _, errOut := newResidentCmd()
+
+	if code := runResidentAdd(cmd, testCandidate, d); code != exitBlocked {
+		t.Fatalf("exit = %d, want %d", code, exitBlocked)
+	}
+	if !contains(rec.stopped, "villa-searxng.service") || !contains(rec.removed, "villa-searxng.container") {
+		t.Fatalf("stopped %v removed %v, want the gated-off unit stopped and removed", rec.stopped, rec.removed)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "villa-searxng.container"))
+	if err != nil || string(got) != "STALE" {
+		t.Errorf("restored villa-searxng.container = %q (%v), want its captured bytes", got, err)
+	}
+	if !contains(rec.restarted, "villa-searxng.service") {
+		t.Errorf("restarted %v, want the stopped villa-searxng.service started again", rec.restarted)
 	}
 	if !strings.Contains(errOut.String(), "rolled back to the prior state") {
 		t.Errorf("stderr = %q, want a clean-rollback report", errOut.String())

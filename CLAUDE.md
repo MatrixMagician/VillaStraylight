@@ -80,7 +80,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
   `podman`/`systemctl` seam), `stackapply` (the one path from a target config to written units:
   every render input, the inference-secret heal, then crush.json's stale copy of that key through
-  `HealAgentConfig` (ADR-0019), write + reload, ADR-0013; and `Transact`,
+  `HealAgentConfig` (ADR-0019), write, stop and remove the orphaned units + reload, ADR-0013,
+  ADR-0035; and `Transact`,
   the swap transaction frame that owns the stack lock, restart set, proof and rollback,
   ADR-0015), `backendswap` (the backend / speculation / tools-mode swap changes), `bench` (pure A/B core),
   `residentset` (pure admission control for holding several models loaded at once), plus `status`,
@@ -135,6 +136,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - **Config is the single source of truth.** Quadlet units are regenerated from config,
   never hand-edited.
+
+- **A new `.container` unit joins the subsystem unit registry** (`internal/subsystem/units.go`)
+  under the subsystem it moves with. `TestSubsystemUnitsMatchTheRenderedUnits` fails the build
+  on a rendered `.container` the registry does not name, and the registry is also the removal
+  set: a stack apply stops and removes a registry unit the config no longer renders, and only
+  those (`orchestrate.Orphans`, ADR-0035).
 
 - **Dynamic binary trap:** `make build` links `./villa` dynamically, and `villa-websafe`,
   `villa-inferproxy`, and every task VM bind-mount that file into a distroless image, so
@@ -367,7 +374,7 @@ convenience.
 | preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
 | inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof; `Client`, the one authenticated caller of llama-server (address, api key, every route; ADR-0014) | `internal/inference/*.go`, `client.go` |
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
-| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret and then crush.json's stale copy of it (`HealAgentConfig`, ADR-0019), render, write what changed, reload; every unit-writing verb but install goes through it (ADR-0013). `Transact` is the swap transaction frame: stack lock, capture, apply, restart of every changed running unit, proof, rollback (ADR-0015) | `internal/stackapply/stackapply.go`, `transact.go` |
+| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret and then crush.json's stale copy of it (`HealAgentConfig`, ADR-0019), render, write what changed, stop and remove the registry units it no longer renders (`orchestrate.Orphans`, ADR-0035), reload; every unit-writing verb but install goes through it (ADR-0013). `Transact` is the swap transaction frame: stack lock, capture, apply, restart of every changed running unit, proof, rollback (ADR-0015) | `internal/stackapply/stackapply.go`, `transact.go` |
 | backendswap | The `backend set` / `speculation set` / `tools-mode` swap changes: no-op test, guards, the field written; run through `stackapply.Transact` | `internal/backendswap/backendswap.go` |
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
 | residentset | Pure `Admit()` → `Plan`/`Refusal` for the resident model set (LRU evict, no host I/O) | `internal/residentset/admit.go` |

@@ -56,8 +56,8 @@ func mountedVolumeNames(unitText string) map[string]bool {
 	return out
 }
 
-// statefulFixtureInput renders the whole stack with every stateful subsystem on, so
-// the walk sees the units chat and memory actually run.
+// statefulFixtureInput renders the whole stack with every subsystem that renders a
+// unit on, so the walks see every unit the registry declares.
 func statefulFixtureInput() RenderInput {
 	in := memoryFixtureInput()
 	in.Cfg.Reranker = true
@@ -66,6 +66,7 @@ func statefulFixtureInput() RenderInput {
 	in.Cfg.VoiceEnabled = true
 	img := imageFixtureInput()
 	in.Cfg.ImageEnabled, in.Cfg.ImageModel, in.Image = true, img.Cfg.ImageModel, img.Image
+	in.Cfg.WorkspaceAgent = true
 	return in
 }
 

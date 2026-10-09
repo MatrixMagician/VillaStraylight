@@ -21,9 +21,13 @@ type host struct {
 	envText string
 	written []orchestrate.Unit
 
-	changed   bool  // whether Reconcile reports the rendered units as changed
-	envErr    error // injected WriteInferenceSecretEnv failure
-	reloadErr error // injected DaemonReload failure
+	changed   bool               // whether Reconcile reports the rendered units as changed
+	removed   []orchestrate.Unit // what Reconcile reports as Removed
+	active    map[string]bool    // services IsActive reports running
+	envErr    error              // injected WriteInferenceSecretEnv failure
+	reloadErr error              // injected DaemonReload failure
+	removeErr error              // injected RemoveUnits failure
+	stopErr   error              // injected Stop failure
 }
 
 var testCatalog = catalog.Catalog{Models: []catalog.Model{
@@ -47,9 +51,23 @@ func (h *host) deps() Deps {
 		Reconcile: func(units []orchestrate.Unit, _ string) (orchestrate.Plan, error) {
 			h.calls = append(h.calls, "reconcile")
 			if h.changed {
-				return orchestrate.Plan{Changed: units}, nil
+				return orchestrate.Plan{Changed: units, Removed: h.removed}, nil
 			}
-			return orchestrate.Plan{Unchanged: units}, nil
+			return orchestrate.Plan{Unchanged: units, Removed: h.removed}, nil
+		},
+		RemoveUnits: func(p orchestrate.Plan, _ string) error {
+			h.calls = append(h.calls, "remove")
+			return h.removeErr
+		},
+		Stop: func(svc string) error {
+			h.calls = append(h.calls, "stop:"+svc)
+			return h.stopErr
+		},
+		IsActive: func(svc string) (string, error) {
+			if h.active[svc] {
+				return "active", nil
+			}
+			return "inactive", nil
 		},
 		WriteUnits: func(p orchestrate.Plan, _ string) error {
 			h.calls = append(h.calls, "write")
@@ -217,8 +235,8 @@ func TestApplyHealsTheSecretBeforeRendering(t *testing.T) {
 	if !strings.Contains(h.envText, secret) {
 		t.Errorf("env file text %q does not carry the persisted secret", h.envText)
 	}
-	if len(changed) != 2 {
-		t.Errorf("Apply returned %d changed units, want the 2 written", len(changed))
+	if len(changed.Changed) != 2 {
+		t.Errorf("Apply returned %d changed units, want the 2 written", len(changed.Changed))
 	}
 }
 
@@ -235,7 +253,7 @@ func TestApplyReusesTheSecretAndWritesNothingUnchanged(t *testing.T) {
 	if want := []string{"env", "render", "reconcile"}; !reflect.DeepEqual(h.calls, want) {
 		t.Errorf("seam order = %v, want %v (no save, no write, no reload)", h.calls, want)
 	}
-	if !strings.Contains(h.envText, "kept") || changed != nil {
+	if !strings.Contains(h.envText, "kept") || !changed.Empty() {
 		t.Errorf("env text %q / changed %v, want the kept secret and no changed units", h.envText, changed)
 	}
 }
@@ -316,8 +334,84 @@ func TestApplyReportsWrittenUnitsWhenTheReloadFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "daemon-reload") {
 		t.Fatalf("Apply error = %v, want a daemon-reload failure", err)
 	}
-	if len(changed) != 2 {
-		t.Errorf("Apply returned %d units, want the 2 it wrote before the reload failed", len(changed))
+	if len(changed.Changed) != 2 {
+		t.Errorf("Apply returned %d units, want the 2 it wrote before the reload failed", len(changed.Changed))
+	}
+}
+
+// orphans is a web-search pair the target config no longer renders.
+var orphans = []orchestrate.Unit{
+	{Name: "villa-searxng.container", Text: "SEARXNG"},
+	{Name: "villa-websafe.container", Text: "WEBSAFE"},
+}
+
+// TestApplyStopsRemovesAndReloadsTheUnitsItNoLongerRenders (#330): a registry unit
+// on disk that the target config no longer renders has its running service stopped,
+// its file removed and systemd reloaded, inside the one apply. Only the services that
+// were running are reported as stopped, so a rollback restarts exactly those.
+func TestApplyStopsRemovesAndReloadsTheUnitsItNoLongerRenders(t *testing.T) {
+	h := &host{removed: orphans, active: map[string]bool{"villa-searxng.service": true}}
+	applied, err := Apply(h.deps(), config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := []string{"env", "render", "reconcile", "stop:villa-searxng.service", "remove", "reload"}
+	if !reflect.DeepEqual(h.calls, want) {
+		t.Errorf("seam order = %v, want %v", h.calls, want)
+	}
+	if !reflect.DeepEqual(applied.Removed, orphans) || !reflect.DeepEqual(applied.Stopped, []string{"villa-searxng.service"}) {
+		t.Errorf("applied = %+v, want both orphans removed and villa-searxng.service stopped", applied)
+	}
+	if applied.Empty() {
+		t.Error("an apply that removed units reports Empty")
+	}
+}
+
+// TestApplyStopsBeforeItWritesAndReloadsOnce: a change and a removal in one apply
+// stop first, write, remove, then reload once.
+func TestApplyStopsBeforeItWritesAndReloadsOnce(t *testing.T) {
+	h := &host{changed: true, removed: orphans, active: map[string]bool{"villa-searxng.service": true, "villa-websafe.service": true}}
+	if _, err := Apply(h.deps(), config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := []string{"env", "render", "reconcile", "stop:villa-searxng.service", "stop:villa-websafe.service", "write", "remove", "reload"}
+	if !reflect.DeepEqual(h.calls, want) {
+		t.Errorf("seam order = %v, want %v", h.calls, want)
+	}
+}
+
+// TestApplyReportsWhatItStoppedWhenItFails: a failed stop or removal still names the
+// services it stopped and the units it set out to remove, so the rollback brings them
+// back.
+func TestApplyReportsWhatItStoppedWhenItFails(t *testing.T) {
+	for name, h := range map[string]*host{
+		"removal fails": {removed: orphans, active: map[string]bool{"villa-searxng.service": true}, removeErr: errors.New("busy")},
+		"stop fails":    {removed: orphans, active: map[string]bool{"villa-searxng.service": true}, stopErr: errors.New("timeout")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			applied, err := Apply(h.deps(), config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+			if err == nil {
+				t.Fatal("Apply swallowed the failure")
+			}
+			if !reflect.DeepEqual(applied.Stopped, []string{"villa-searxng.service"}) {
+				t.Errorf("Stopped = %v, want the service it stopped or tried to", applied.Stopped)
+			}
+		})
+	}
+}
+
+// TestApplyReportsTheChangedUnitsWhenTheWriteFails: a write that failed partway may
+// have written some units, so the caller's rollback must be told every one it tried.
+func TestApplyReportsTheChangedUnitsWhenTheWriteFails(t *testing.T) {
+	h := &host{changed: true}
+	d := h.deps()
+	d.WriteUnits = func(orchestrate.Plan, string) error { return errors.New("no space left") }
+	applied, err := Apply(d, config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+	if err == nil || !strings.Contains(err.Error(), "write units") {
+		t.Fatalf("Apply error = %v, want a write failure", err)
+	}
+	if len(applied.Changed) != 2 {
+		t.Errorf("Apply reported %d changed units, want the 2 it tried to write", len(applied.Changed))
 	}
 }
 

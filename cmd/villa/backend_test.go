@@ -65,12 +65,12 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 				rec.saved = append(rec.saved, c)
 				return nil
 			},
-			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+			Apply: func(config.VillaConfig) (stackapply.Applied, error) {
 				rec.written++
 				if rec.writeErr != nil {
-					return nil, rec.writeErr
+					return stackapply.Applied{}, rec.writeErr
 				}
-				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+				return stackapply.Applied{Changed: []orchestrate.Unit{{Name: "villa-llama.container"}}}, nil
 			},
 			Restore: func(map[string]string) error {
 				rec.restored++

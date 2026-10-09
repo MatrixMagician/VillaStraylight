@@ -225,3 +225,5 @@ existing path with no change to `Deps.Pick`.
   takes it out of the boot set. Until that
   is done, `villa doctor` WARNs with `IMG-DOC-stale` whenever the service is
   active while the gate is off. A general reconcile-side fix is filed separately.
+  Superseded by ADR-0035 (#330): `villa up` now stops and removes the unit itself,
+  and doctor's `orphan-units` replaces `IMG-DOC-stale`.

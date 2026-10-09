@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // reconcile.go is the content-hash idempotency core plus the only
@@ -22,10 +24,17 @@ const unitFileMode os.FileMode = 0o644
 
 // Reconcile compares each rendered unit's content hash against the same-named file
 // already on disk in unitDir. A unit whose on-disk file is absent or whose hash
-// differs is Changed; a byte-identical one is Unchanged. It performs NO writes:
-// identical config yields an empty Changed slice — a true no-op.
+// differs is Changed; a byte-identical one is Unchanged; a registry unit on disk that
+// is not rendered is Removed (Orphans). It performs NO writes: identical config
+// yields an empty Changed and Removed — a true no-op.
 func Reconcile(units []Unit, unitDir string) (Plan, error) {
-	var plan Plan
+	removed, err := Orphans(units, func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(unitDir, name)) //nolint:gosec // unitDir + a registry unit name
+	})
+	if err != nil {
+		return Plan{}, err
+	}
+	plan := Plan{Removed: removed}
 	for _, u := range units {
 		path := filepath.Join(unitDir, u.Name)
 		onDisk, err := os.ReadFile(path) //nolint:gosec // path = unitDir + validated unit name
@@ -43,6 +52,51 @@ func Reconcile(units []Unit, unitDir string) (Plan, error) {
 		}
 	}
 	return plan, nil
+}
+
+// Orphans returns every unit the subsystem registry declares (subsystem.Every ×
+// EveryUnit) that read finds on disk and rendered does not name, in registry order,
+// each carrying its on-disk bytes. read reports an absent unit as fs.ErrNotExist.
+// A unit outside the registry (the operator's own file, a resident slot) is never an
+// orphan, so nothing villa did not declare is ever removed (ADR-0035).
+func Orphans(rendered []Unit, read func(name string) ([]byte, error)) ([]Unit, error) {
+	names := make(map[string]bool, len(rendered))
+	for _, u := range rendered {
+		names[u.Name] = true
+	}
+	var orphans []Unit
+	for _, k := range subsystem.Every {
+		declared, _ := k.EveryUnit()
+		for _, name := range declared {
+			if names[name] {
+				continue
+			}
+			onDisk, err := read(name)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("orchestrate: read unit %q: %w", name, err)
+			}
+			orphans = append(orphans, Unit{Name: name, Text: string(onDisk)})
+		}
+	}
+	return orphans, nil
+}
+
+// RemoveUnits removes every Removed unit's file from unitDir, traversal-guarded like
+// WriteUnits; an already absent file is the goal state. It never touches Changed.
+func RemoveUnits(plan Plan, unitDir string) error {
+	for _, u := range plan.Removed {
+		target := filepath.Join(unitDir, u.Name)
+		if err := pathsafe.Inside(target, unitDir); err != nil {
+			return fmt.Errorf("orchestrate: remove unit %q: %w", u.Name, err)
+		}
+		if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("orchestrate: remove unit %q: %w", u.Name, err)
+		}
+	}
+	return nil
 }
 
 // WriteUnits writes every Changed unit atomically into unitDir: render to
