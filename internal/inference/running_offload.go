@@ -87,18 +87,25 @@ type PropsInfo struct {
 	NCtx      int
 }
 
-// loadTensors marker fragments — assembled (not a single contiguous literal) so
-// they describe the parsed journald shape without being mistaken for a backend
-// assumption. These two are backend-NEUTRAL (every llama.cpp backend emits the same
-// "load_tensors: <device> model buffer size = N MiB" shape); the device token that
-// distinguishes a real GPU buffer from a CPU buffer is backend-owned and supplied via
-// ResidencyMarkers.DeviceToken. The residency line looks like:
+// bufferLine is the grammar of a per-device weight-buffer line. It is
+// backend-NEUTRAL: every ggml backend prints the same shape, and the device token
+// that tells a GPU buffer from a CPU buffer is backend-owned, supplied via
+// ResidencyMarkers.DeviceToken. llama.cpp and whisper.cpp differ only in the
+// grammar:
 //
 //	load_tensors:      Vulkan0 model buffer size = 21504.49 MiB
-const (
-	loadTensorsPrefix = "load_tensors:"
-	bufferSizePhrase  = "model buffer size"
-)
+//	whisper_model_load:      Vulkan0 total size =  1623.92 MB
+type bufferLine struct {
+	prefix string
+	phrase string
+	unit   string
+}
+
+// loadTensorsLine is llama.cpp's buffer line.
+var loadTensorsLine = bufferLine{prefix: "load_tensors:", phrase: "model buffer size", unit: "MiB"}
+
+// name is the prefix as the details print it.
+func (g bufferLine) name() string { return strings.TrimSuffix(g.prefix, ":") }
 
 // scrapeLoadTensorsResidency parses the journal for the load_tensors device-buffer
 // residency line, keyed on the backend-owned ResidencyMarkers so the
@@ -123,24 +130,24 @@ const (
 // always had, applied per block. When false the result is byte-identical to the
 // pre-draft behavior.
 func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers, draftExpected bool) OffloadResult {
-	target := scrapeLoadTensorsResidencyTarget(journal, m)
+	target := scrapeBufferResidency(journal, m, loadTensorsLine)
 	if !draftExpected {
 		return target
 	}
 	return foldDraft(target, judgeDraftBlock(modelBlocks(journal), m))
 }
 
-// scrapeLoadTensorsResidencyTarget is the unchanged, pre-draft target-only scrape:
-// the whole journal text scanned for load_tensors buffer lines. It is unaffected
-// by a second model-load block in the common case (the target's own device buffer
-// dominates the max), and callers needing exact block scoping pass draftExpected
-// through scrapeLoadTensorsResidency instead.
-func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) OffloadResult {
+// scrapeBufferResidency is the target-only scrape: the whole journal text scanned
+// for g's buffer lines. For llama.cpp it is unaffected by a second model-load
+// block in the common case (the target's own device buffer dominates the max), and
+// callers needing exact block scoping pass draftExpected through
+// scrapeLoadTensorsResidency instead.
+func scrapeBufferResidency(journal string, m ResidencyMarkers, g bufferLine) OffloadResult {
 	if strings.TrimSpace(journal) == "" {
 		return OffloadResult{
 			Status: StatusWarn,
 			Signal: detect.UnknownBool("journal empty/unreadable (could not evaluate residency)", ""),
-			Detail: "load_tensors residency line not found (journal empty)",
+			Detail: g.name() + " residency line not found (journal empty)",
 		}
 	}
 
@@ -155,7 +162,7 @@ func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) Offloa
 		return OffloadResult{
 			Status: StatusWarn,
 			Signal: detect.UnknownBool("residency markers missing a device token (could not evaluate residency)", ""),
-			Detail: "load_tensors residency could not be evaluated (no device token in markers)",
+			Detail: g.name() + " residency could not be evaluated (no device token in markers)",
 		}
 	}
 
@@ -172,17 +179,17 @@ func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) Offloa
 
 	var (
 		sawDeviceBuffer bool
-		deviceMiB       float64
+		deviceSize      float64
 		sawCPUBuffer    bool
 	)
 
 	sc := bufio.NewScanner(strings.NewReader(journal))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if !strings.Contains(line, loadTensorsPrefix) || !strings.Contains(line, bufferSizePhrase) {
+		if !strings.Contains(line, g.prefix) || !strings.Contains(line, g.phrase) {
 			continue
 		}
-		mib, ok := parseBufferMiB(line)
+		size, ok := parseBufferSize(line)
 		if !ok {
 			continue
 		}
@@ -195,8 +202,8 @@ func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) Offloa
 			// first-pass estimate line bearing the same token (see backend_vulkan.go
 			// on -lv 5). Last-write-wins would flip a genuine residency PASS to a
 			// false "0 MiB → no weights resident" FAIL; max() is robust to ordering.
-			if mib > deviceMiB {
-				deviceMiB = mib
+			if size > deviceSize {
+				deviceSize = size
 			}
 		} else {
 			// A non-device buffer line (CPU_Mapped / CPU model buffer size).
@@ -205,36 +212,36 @@ func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) Offloa
 	}
 
 	switch {
-	case sawDeviceBuffer && deviceMiB > 0:
+	case sawDeviceBuffer && deviceSize > 0:
 		return OffloadResult{
 			Status: StatusPass,
-			Signal: detect.KnownBool(true, "load_tensors "+m.DeviceToken+" model buffer size"),
-			Detail: fmt.Sprintf("%s model buffer %.2f MiB resident on the iGPU", m.DeviceToken, deviceMiB),
+			Signal: detect.KnownBool(true, g.name()+" "+m.DeviceToken+" "+g.phrase),
+			Detail: fmt.Sprintf("%s model buffer %.2f %s resident on the iGPU", m.DeviceToken, deviceSize, g.unit),
 		}
-	case sawDeviceBuffer && deviceMiB == 0:
+	case sawDeviceBuffer && deviceSize == 0:
 		return OffloadResult{
 			Status: StatusFail,
-			Signal: detect.KnownBool(false, "load_tensors "+m.DeviceToken+" model buffer size"),
-			Detail: fmt.Sprintf("%s model buffer size = 0 — no weights resident on the iGPU", m.DeviceToken),
+			Signal: detect.KnownBool(false, g.name()+" "+m.DeviceToken+" "+g.phrase),
+			Detail: fmt.Sprintf("%s %s = 0 — no weights resident on the iGPU", m.DeviceToken, g.phrase),
 		}
 	case sawCPUBuffer:
 		return OffloadResult{
 			Status: StatusFail,
-			Signal: detect.KnownBool(false, "load_tensors CPU buffer only"),
+			Signal: detect.KnownBool(false, g.name()+" CPU buffer only"),
 			Detail: "only a CPU model buffer was loaded — server fell back to CPU",
 		}
 	default:
 		return OffloadResult{
 			Status: StatusWarn,
-			Signal: detect.UnknownBool("no load_tensors buffer line found in journal", ""),
-			Detail: "residency could not be confirmed from the journal (no load_tensors buffer line)",
+			Signal: detect.UnknownBool("no "+g.name()+" buffer line found in journal", ""),
+			Detail: "residency could not be confirmed from the journal (no " + g.name() + " buffer line)",
 		}
 	}
 }
 
-// parseBufferMiB extracts the MiB value from a "... model buffer size = N MiB"
-// line. Returns ok=false on a shape it cannot parse.
-func parseBufferMiB(line string) (mib float64, ok bool) {
+// parseBufferSize extracts the number from a "... = N <unit>" buffer line, in the
+// line's own unit. Returns ok=false on a shape it cannot parse.
+func parseBufferSize(line string) (size float64, ok bool) {
 	_, after, found := strings.Cut(line, "=")
 	if !found {
 		return 0, false

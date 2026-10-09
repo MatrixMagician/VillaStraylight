@@ -470,10 +470,10 @@ func judgeDraftBlock(blocks [][]string, m ResidencyMarkers) OffloadResult {
 	)
 	for _, raw := range blocks[1] {
 		line := strings.TrimSpace(raw)
-		if !strings.Contains(line, loadTensorsPrefix) || !strings.Contains(line, bufferSizePhrase) {
+		if !strings.Contains(line, loadTensorsLine.prefix) || !strings.Contains(line, loadTensorsLine.phrase) {
 			continue
 		}
-		mib, ok := parseBufferMiB(line)
+		mib, ok := parseBufferSize(line)
 		if !ok {
 			continue
 		}

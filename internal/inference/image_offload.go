@@ -84,17 +84,17 @@ func scrapeImagePlacement(journal string, m ResidencyMarkers) (OffloadResult, ui
 		}, 0
 	}
 
+	if sw, ok := softwareRenderer(journal, m); ok {
+		return sw, 0
+	}
+
 	var (
-		sawLine        bool
-		vram, ram      uint64
-		softwareDevice string
+		sawLine   bool
+		vram, ram uint64
 	)
 	sc := bufio.NewScanner(strings.NewReader(journal))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if name, ok := startLogDeviceName(line, m); ok && m.RejectSoftwareRenderer && detect.IsSoftwareRendererName(name) {
-			softwareDevice = name
-		}
 		if !strings.Contains(line, sdParamsPhrase) {
 			continue
 		}
@@ -104,13 +104,6 @@ func scrapeImagePlacement(journal string, m ResidencyMarkers) (OffloadResult, ui
 	}
 
 	switch {
-	case softwareDevice != "":
-		return OffloadResult{
-			Status: StatusFail,
-			Signal: detect.KnownBool(false, "vulkan device line"),
-			Detail: fmt.Sprintf("software renderer %q enumerated, not a real GPU", softwareDevice),
-			Raw:    softwareDevice,
-		}, 0
 	case !sawLine:
 		return OffloadResult{
 			Status: StatusWarn,

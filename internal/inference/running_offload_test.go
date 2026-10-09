@@ -348,7 +348,7 @@ func TestScrapeLoadTensorsResidencyDraftExpected(t *testing.T) {
 	}
 
 	journal := readFixture(t, "draft_mtp_two_block.txt")
-	want := scrapeLoadTensorsResidencyTarget(journal, markers)
+	want := scrapeBufferResidency(journal, markers, loadTensorsLine)
 	got := scrapeLoadTensorsResidency(journal, markers, false)
 	if got != want {
 		t.Fatalf("draftExpected=false: got %+v, want byte-identical %+v", got, want)
