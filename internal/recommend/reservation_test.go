@@ -92,8 +92,8 @@ func TestVoiceRowsAreTheMeasuredFootprints(t *testing.T) {
 // note naming it, never a silent 0 (the embedding row's miss semantics).
 func TestImageReservationIsTheMeasuredFootprint(t *testing.T) {
 	res := ReservationsFor(config.VillaConfig{ImageEnabled: true, ImageModel: "z-image-turbo-q4"})
-	if len(res) != 1 || res[0].Name != "image" || res[0].Bytes != 6523315200+1258291200 || len(res[0].Notes) != 0 {
-		t.Errorf("image row = %+v, want image / %d with no note", res, uint64(6523315200+1258291200))
+	if len(res) != 1 || res[0].Name != "image" || res[0].Bytes != 8257659904 || len(res[0].Notes) != 0 {
+		t.Errorf("image row = %+v, want image / 8257659904 with no note", res)
 	}
 
 	miss := ReservationsFor(config.VillaConfig{ImageEnabled: true, ImageModel: "no-such-image"})

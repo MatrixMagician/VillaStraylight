@@ -25,6 +25,18 @@ resident, printing the placement line but holding nothing until the first reques
 and without `--vae-tiling` the 1024x1024 VAE decode asks for a 5.8 GB buffer the
 device refuses.
 
+The reservation is sized from the peak during a generation, not from the ready
+state. `mem_info_gtt_used` sampled through two 1024x1024 8-step generations on a
+quiet GPU, with the rendered flags, peaked 10,129,330,176 B above the pre-start
+baseline for Q8_0 (every 0.25 s) and 7,506,677,760 B for Q4_K; the PR review's own
+sampling of a Q8_0 generation (every 0.5 s) peaked at 10,457,440,256 B, and the
+larger figure is used. The row is the peak plus a 10% margin, so
+`compute_bytes = ceil(1.10 × peak) − weight_bytes`, rounded up to a MiB:
+2,267,021,312 B for Q8_0 (a row of 11,503,612,928 B) and 1,734,344,704 B for Q4_K
+(8,257,659,904 B). The first rows had been sized from the compute buffers sd-server
+logs (1200 MiB), which left a 37 MB margin under the reviewed peak: noise, not a
+reservation.
+
 ## Decisions
 
 | call | options | verdict |

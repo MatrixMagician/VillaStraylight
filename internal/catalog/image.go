@@ -51,8 +51,9 @@ type ImageModel struct {
 	// reference the proof compares the running server's figure against (ADR-0007:
 	// catalog truth, runtime witness, disagreement reported, never auto-corrected).
 	WeightBytes uint64 `json:"weight_bytes"`
-	// ComputeBytes is the MEASURED peak working memory above WeightBytes during one
-	// generation at this preset. The reservation row is WeightBytes + ComputeBytes.
+	// ComputeBytes is the working memory the reservation adds to WeightBytes: the
+	// MEASURED peak GTT delta during a generation at this preset, plus a 10% margin,
+	// minus WeightBytes, rounded up to a MiB. The row is WeightBytes + ComputeBytes.
 	ComputeBytes uint64 `json:"compute_bytes"`
 
 	// The preset: sd-server's argv defaults and Open WebUI's IMAGE_STEPS and

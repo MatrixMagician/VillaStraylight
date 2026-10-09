@@ -23,12 +23,12 @@
         "size_bytes": 335304388
       },
       "weight_bytes": 9236591616,
-      "compute_bytes": 1258291200,
+      "compute_bytes": 2267021312,
       "steps": 8,
       "cfg_scale": 1.0,
       "width": 1024,
       "height": 1024,
-      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 8808.62MB (VRAM 8808.62MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM); GTT delta 9.19 GB at ready, 9.36 GB after a 1024x1024 8-step generation (compute buffers 690+416+2 MiB, rounded to 1200 MiB); 512x512 in 19.2 s at 100% gpu_busy; the chat model kept serving"
+      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 8808.62MB (VRAM 8808.62MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM); GTT delta 9.19 GB at ready; compute_bytes = ceil(1.10 x the peak GTT delta during a 1024x1024 8-step generation) - weight_bytes, rounded up to a MiB, from a peak of 10457440256 B (the larger of two samplings of mem_info_gtt_used: the PR review's at 0.5 s during a 1024x1024 generation, and two generations on a quiet GPU at 0.25 s that peaked at 10129330176 B); 512x512 in 19.2 s at 100% gpu_busy; the chat model kept serving"
     },
     {
       "id": "z-image-turbo-q4",
@@ -53,12 +53,12 @@
         "size_bytes": 335304388
       },
       "weight_bytes": 6523315200,
-      "compute_bytes": 1258291200,
+      "compute_bytes": 1734344704,
       "steps": 8,
       "cfg_scale": 1.0,
       "width": 1024,
       "height": 1024,
-      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 6221.12MB (VRAM 6221.12MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 3685.21MB(VRAM), vae 160.00MB(VRAM); GTT delta 6.56 GB at ready, 6.82 GB cold after a 1024x1024 8-step generation (compute buffers as Q8_0, rounded to 1200 MiB); 512x512 in 19.7 s at 100% gpu_busy; about 5% slower than Q8_0 and marginally less clean"
+      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 6221.12MB (VRAM 6221.12MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 3685.21MB(VRAM), vae 160.00MB(VRAM); GTT delta 6.56 GB at ready; compute_bytes = ceil(1.10 x the peak GTT delta during a 1024x1024 8-step generation) - weight_bytes, rounded up to a MiB, from a peak of 7506677760 B (two generations on a quiet GPU, gtt_used sampled every 0.25 s); 512x512 in 19.7 s at 100% gpu_busy; about 5% slower than Q8_0 and marginally less clean"
     }
   ]
 }

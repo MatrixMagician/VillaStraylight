@@ -13,15 +13,15 @@ func TestImageResolvesBothRows(t *testing.T) {
 	if !ok {
 		t.Fatal("z-image-turbo is not in the image table")
 	}
-	if q8.Diffusion.Filename != "z_image_turbo-Q8_0.gguf" || q8.WeightBytes != 9236591616 || q8.ComputeBytes != 1258291200 {
-		t.Errorf("z-image-turbo = %s / %d / %d, want z_image_turbo-Q8_0.gguf / 9236591616 / 1258291200", q8.Diffusion.Filename, q8.WeightBytes, q8.ComputeBytes)
+	if q8.Diffusion.Filename != "z_image_turbo-Q8_0.gguf" || q8.WeightBytes != 9236591616 || q8.ComputeBytes != 2267021312 {
+		t.Errorf("z-image-turbo = %s / %d / %d, want z_image_turbo-Q8_0.gguf / 9236591616 / 2267021312", q8.Diffusion.Filename, q8.WeightBytes, q8.ComputeBytes)
 	}
 	q4, ok := Image("z-image-turbo-q4")
 	if !ok {
 		t.Fatal("z-image-turbo-q4 is not in the image table")
 	}
-	if q4.Diffusion.Filename != "z_image_turbo-Q4_K.gguf" || q4.WeightBytes != 6523315200 {
-		t.Errorf("z-image-turbo-q4 = %s / %d, want z_image_turbo-Q4_K.gguf / 6523315200", q4.Diffusion.Filename, q4.WeightBytes)
+	if q4.Diffusion.Filename != "z_image_turbo-Q4_K.gguf" || q4.WeightBytes != 6523315200 || q4.ComputeBytes != 1734344704 {
+		t.Errorf("z-image-turbo-q4 = %s / %d / %d, want z_image_turbo-Q4_K.gguf / 6523315200 / 1734344704", q4.Diffusion.Filename, q4.WeightBytes, q4.ComputeBytes)
 	}
 	if q8.TextEncoder != q4.TextEncoder || q8.VAE != q4.VAE {
 		t.Error("the two quants share one text encoder and one VAE; the rows disagree")
