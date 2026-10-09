@@ -192,10 +192,10 @@ func write(d Deps, plan orchestrate.Plan) (Applied, error) {
 		}
 	}
 	if len(plan.Changed) > 0 {
+		applied.Changed = plan.Changed
 		if err := d.WriteUnits(plan, dir); err != nil {
 			return applied, fmt.Errorf("write units: %w", err)
 		}
-		applied.Changed = plan.Changed
 	}
 	if len(plan.Removed) > 0 {
 		applied.Removed = plan.Removed

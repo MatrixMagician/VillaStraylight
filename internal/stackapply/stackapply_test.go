@@ -400,6 +400,21 @@ func TestApplyReportsWhatItStoppedWhenItFails(t *testing.T) {
 	}
 }
 
+// TestApplyReportsTheChangedUnitsWhenTheWriteFails: a write that failed partway may
+// have written some units, so the caller's rollback must be told every one it tried.
+func TestApplyReportsTheChangedUnitsWhenTheWriteFails(t *testing.T) {
+	h := &host{changed: true}
+	d := h.deps()
+	d.WriteUnits = func(orchestrate.Plan, string) error { return errors.New("no space left") }
+	applied, err := Apply(d, config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+	if err == nil || !strings.Contains(err.Error(), "write units") {
+		t.Fatalf("Apply error = %v, want a write failure", err)
+	}
+	if len(applied.Changed) != 2 {
+		t.Errorf("Apply reported %d changed units, want the 2 it tried to write", len(applied.Changed))
+	}
+}
+
 // TestPlanWritesNothing: the --dry-run preview and a transaction's capture render and
 // reconcile only — no secret, no env file, no unit, no reload.
 func TestPlanWritesNothing(t *testing.T) {
