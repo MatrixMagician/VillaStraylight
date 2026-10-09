@@ -49,6 +49,9 @@ type Opts struct {
 	// Voice opts into the voice subsystem (ADR-0030), with the same
 	// persist-and-inherit behaviour as WebSearch.
 	Voice bool
+	// Image opts into local image generation (#312), with the same
+	// persist-and-inherit behaviour as WebSearch.
+	Image bool
 	// DryRun prints the rendered changed units and mutates NOTHING: no write, no
 	// pull, no persist, no privileged host-prep, no wizard.
 	DryRun bool
@@ -79,6 +82,8 @@ type Gates struct {
 	Sandbox bool
 	// Voice is the resolved voice gate.
 	Voice bool
+	// Image is the resolved image-generation gate (#312).
+	Image bool
 }
 
 // On reports the resolved gate for a subsystem, so a caller can ask by kind rather
@@ -97,6 +102,8 @@ func (g Gates) On(k subsystem.Kind) bool {
 		return g.Sandbox
 	case subsystem.Voice:
 		return g.Voice
+	case subsystem.Image:
+		return g.Image
 	case subsystem.Inference, subsystem.Chat:
 		// Always on: an install renders both units unconditionally, so there is no
 		// resolved gate to hold and nothing a flag could turn off. Answered here
@@ -124,6 +131,7 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 		Agent:     subsystem.AgentOn(cfg) || opts.CodingAgent,
 		Sandbox:   subsystem.SandboxOn(cfg) || opts.WorkspaceAgent,
 		Voice:     subsystem.VoiceOn(cfg) || opts.Voice,
+		Image:     subsystem.ImageOn(cfg) || opts.Image,
 	}
 	// Coding mode is entered by the addon opt-in, and only with a coder to serve.
 	if opts.CodingAgent && rec.Coder.Model != "" {
@@ -150,6 +158,7 @@ func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 	if g.Sandbox {
 		cfg.ToolsMode = true
 	}
+	cfg.ImageEnabled = g.Image
 	return cfg
 }
 

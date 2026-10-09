@@ -92,6 +92,15 @@ type fakeDeps struct {
 	inferenceSecretEnvName  string
 	inferenceSecretEnvText  string
 
+	imageEnabled      bool
+	imageModel        string
+	imagePresent      bool
+	imagePresentCalls int
+	imageEnsureCalls  int
+	imageProofCalls   int
+	imageProofStatus  preflight.Status
+	imageProofDetail  string
+
 	agentEnabled         bool
 	agentCat             catalog.Catalog
 	agentCatOK           bool
@@ -135,6 +144,9 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		agentCatOK:         true,
 		voicePresent:       true,
 		voiceProofStatus:   preflight.StatusPass,
+		imagePresent:       true,
+		imageProofStatus:   preflight.StatusPass,
+		imageProofDetail:   "params 8808.62 MiB on VRAM, 0 B in RAM",
 		// A single coder entry whose id matches the default pick's Coder.Model, so an
 		// agent-on test resolves a shard without extra setup.
 		agentCat: catalog.Catalog{Models: []catalog.Model{
@@ -272,7 +284,25 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		cfg.WebSearchEnabled = f.webSearchEnabled
 		cfg.AgentEnabled = f.agentEnabled
 		cfg.VoiceEnabled = f.voiceEnabled
+		cfg.ImageEnabled = f.imageEnabled
+		if f.imageModel != "" {
+			cfg.ImageModel = f.imageModel
+		}
 		return cfg, nil
+	}
+	d.ImageModelPresent = func(string, catalog.ImageModel) bool {
+		f.imagePresentCalls++
+		return f.imagePresent
+	}
+	d.EnsureImageModel = func(string, catalog.ImageModel) error {
+		f.imageEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureImageModel")
+		return nil
+	}
+	d.ProveImage = func(context.Context, config.VillaConfig) Proof {
+		f.imageProofCalls++
+		f.callOrder = append(f.callOrder, "imageProof")
+		return Proof{Status: f.imageProofStatus, Detail: f.imageProofDetail}
 	}
 	d.EmbedModelPresent = func(string) bool {
 		f.embedPresentCalls++

@@ -235,6 +235,10 @@ type Deps struct {
 	// villa-searxng/villa-websafe Services rows (Plan 03) which flow through the existing
 	// healthFinding loop — no new finding type is added here (composition, RESEARCH A1).
 	SearchResidencyUnderLoad func() inference.Verdict
+	// ImageResidency is the image offload proof (#312): one real txt2img drive
+	// against villa-image with the sd-server placement fold. Called only when
+	// subsystem.ImageOn(cfg).
+	ImageResidency func() inference.Verdict
 
 	// The Quadlet unit directory, read-only. Doctor never creates it.
 	//
@@ -522,6 +526,15 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	if subsystem.WebSearchOn(cfg) {
 		findings = append(findings, searchEgressFinding(d.ReadVerifyState(), reportErr))
 		findings = append(findings, searchResidencyFinding(d.SearchResidencyUnderLoad()))
+	}
+
+	// 2e. IMAGE FOLD (#312): the image server's own offload proof. Its health needs
+	// no finding here (status carries the villa-image row, folded by the
+	// healthFinding loop) and its unit drift is covered by the render; what the
+	// row cannot carry is whether the params sit on the device, which only a
+	// generation can show.
+	if subsystem.ImageOn(cfg) {
+		findings = append(findings, imageResidencyFinding(d.ImageResidency()))
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -949,6 +962,33 @@ func searchResidencyFinding(v inference.Verdict) Finding {
 		f.Tier = tierWarn
 		f.Status = statusWarn
 		f.Remediation = nonEmpty(v.Remediation, "could not evaluate residency under search load — ensure the stack (incl. villa-searxng/villa-websafe) is running, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// imageResidencyFinding maps the image offload proof onto a Finding with the
+// offload-FAIL-dominates switch: a CPU or partial-RAM placement is a BLOCK-class
+// FAIL that dominates a healthy-looking row; an unevaluable proof is a WARN, never
+// a false green. Emitted only when subsystem.ImageOn(cfg).
+func imageResidencyFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "IMG-DOC-residency",
+		Name:       "Image-server offload",
+		Detail:     v.Detail,
+		Provenance: "txt2img drive + inference.ImageOffloadVerdict",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the image server's params are not on the GPU — check /dev/dri passthrough and `villa logs villa-image`, then re-run `villa doctor`")
+	default:
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate the image server's offload — ensure villa-image.service is running, then re-run `villa doctor`")
 	}
 	return f
 }

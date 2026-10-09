@@ -137,8 +137,36 @@ func TestRenderResolvesTheResidentSet(t *testing.T) {
 	}
 }
 
-// TestRenderRefusesWhatItCannotResolve: an unknown backend, served model or resident
-// slot is an error before the render, never a unit whose -m names a fabricated file.
+// TestRenderResolvesTheImageModel: with image generation on, the render input
+// carries the image table's entry translated into the renderer's ImageServe, so
+// every verb that renders carries villa-image without a per-site field; with it
+// off the field stays nil and the render is what it always was.
+func TestRenderResolvesTheImageModel(t *testing.T) {
+	h := &host{}
+	cfg := config.VillaConfig{Model: "chat", Backend: "vulkan", ImageEnabled: true, ImageModel: "z-image-turbo-q4"}
+	if _, err := Render(h.deps(), cfg); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := &orchestrate.ImageServe{
+		DiffusionFile: "z_image_turbo-Q4_K.gguf", TextEncoderFile: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", VAEFile: "z-image-turbo-ae.safetensors",
+		Steps: 8, CfgScale: 1, Width: 1024, Height: 1024,
+	}
+	if !reflect.DeepEqual(h.input.Image, want) {
+		t.Errorf("Image = %+v, want %+v", h.input.Image, want)
+	}
+
+	off := &host{}
+	if _, err := Render(off.deps(), config.VillaConfig{Model: "chat", Backend: "vulkan", ImageModel: "z-image-turbo"}); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if off.input.Image != nil {
+		t.Errorf("image off: Image = %+v, want nil", off.input.Image)
+	}
+}
+
+// TestRenderRefusesWhatItCannotResolve: an unknown backend, served model, resident
+// slot or image model is an error before the render, never a unit whose -m names a
+// fabricated file.
 func TestRenderRefusesWhatItCannotResolve(t *testing.T) {
 	cases := map[string]struct {
 		cfg  config.VillaConfig
@@ -148,6 +176,7 @@ func TestRenderRefusesWhatItCannotResolve(t *testing.T) {
 		"unknown model":    {config.VillaConfig{Model: "ghost", Backend: "vulkan"}, "resolve model file"},
 		"unknown coder":    {config.VillaConfig{Model: "chat", Backend: "vulkan", CodingMode: true, CoderModel: "ghost"}, "resolve model file"},
 		"unknown resident": {config.VillaConfig{Model: "chat", Backend: "vulkan", Resident: []config.ResidentModel{{Model: "ghost"}}}, "resident model"},
+		"unknown image":    {config.VillaConfig{Model: "chat", Backend: "vulkan", ImageEnabled: true, ImageModel: "ghost"}, "image model"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

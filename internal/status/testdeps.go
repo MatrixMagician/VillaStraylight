@@ -59,8 +59,9 @@ func StubDeps(tempDir string, units []orchestrate.Unit) (Deps, error) {
 		ResidentUnits: func(config.VillaConfig) ([]orchestrate.ResidentUnit, error) {
 			return nil, nil
 		},
-		ModelsDir: func() string { return "/home/villa/.local/share/villa/models" },
-		Render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
+		ImageServe: func(config.VillaConfig) (*orchestrate.ImageServe, error) { return nil, nil },
+		ModelsDir:  func() string { return "/home/villa/.local/share/villa/models" },
+		Render:     func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
 		// The off-hardware host: every field typed-Unknown, so readiness reads
 		// "unknown" and nothing is fabricated from a host that was not probed.
 		Probe:    func() detect.HostProfile { return detect.HostProfile{} },

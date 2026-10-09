@@ -1435,6 +1435,41 @@ func TestRunResidentSeamErrorFailsWholeReport(t *testing.T) {
 	}
 }
 
+// TestRunCarriesTheImageModelIntoTheRender: with image generation on, the render
+// input carries the seam's resolved ImageServe (the ResidentUnits shape), so the
+// villa-image row and the Open WebUI env are rendered from the same entry every
+// other verb renders; an unwired seam against an image-on config FAILs the whole
+// report naming the seam, and a seam error propagates.
+func TestRunCarriesTheImageModelIntoTheRender(t *testing.T) {
+	cfg := config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan", ImageEnabled: true, ImageModel: "z-image-turbo"}
+	serve := &orchestrate.ImageServe{DiffusionFile: "z_image_turbo-Q8_0.gguf", Steps: 8, CfgScale: 1, Width: 1024, Height: 1024}
+
+	d := newDeps(t, loopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+	d.ImageServe = func(config.VillaConfig) (*orchestrate.ImageServe, error) { return serve, nil }
+	var got *orchestrate.ImageServe
+	d.Render = func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
+		got = in.Image
+		return loopbackUnits(t), nil
+	}
+	if r := Run(d); r.Err() != nil {
+		t.Fatalf("Run: %v", r.Err())
+	}
+	if !reflect.DeepEqual(got, serve) {
+		t.Errorf("render input Image = %+v, want the seam's %+v", got, serve)
+	}
+
+	d.ImageServe = nil
+	if r := Run(d); r.Overall != inference.StatusFail.String() || r.Err() == nil || !strings.Contains(r.Err().Error(), "ImageServe") {
+		t.Errorf("unwired seam with image on: Overall = %q, Err = %v; want FAIL naming the ImageServe seam", r.Overall, r.Err())
+	}
+
+	d.ImageServe = func(config.VillaConfig) (*orchestrate.ImageServe, error) { return nil, os.ErrNotExist }
+	if r := Run(d); !errors.Is(r.Err(), os.ErrNotExist) {
+		t.Errorf("seam error not propagated: %v", r.Err())
+	}
+}
+
 // TestRunResidentlessReportIsUnchanged guards the additivity claim: with no resident
 // slots configured, threading the seam through Run produces exactly the report an
 // unwired seam produced, so every existing caller and golden is untouched.

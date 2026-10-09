@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -39,6 +40,28 @@ func init() {
 		subsystem.WebSearch: proveSearch,
 		subsystem.Agent:     proveAgent,
 		subsystem.Voice:     proveVoice,
+		subsystem.Image:     proveImage,
+	}
+}
+
+// proveImage runs the image offload proof install gates on (#312): a real
+// generation with the sd-server placement fold. A PASS commits; a WARN is a
+// Reject, because an unevaluable placement is not evidence either way (the
+// proveInference doctrine); a FAIL is a Fail, because a CPU or partial-RAM
+// placement is a confident negative about the new image.
+func proveImage(ctx context.Context) updateflow.Proof {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return updateflow.Proof{Status: updateflow.ProofReject, Detail: "could not read the config: " + err.Error()}
+	}
+	v := liveImageProof(ctx, cfg)
+	switch v.Status {
+	case inference.StatusPass:
+		return updateflow.Proof{Status: updateflow.ProofPass, Detail: v.Detail}
+	case inference.StatusFail:
+		return updateflow.Proof{Status: updateflow.ProofFail, Detail: v.Detail}
+	default:
+		return updateflow.Proof{Status: updateflow.ProofReject, Detail: v.Detail}
 	}
 }
 

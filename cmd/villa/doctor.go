@@ -295,6 +295,7 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		AgentToolCall:            liveAgentToolCallVerdict(ctx, cfg),
 		AgentResidencyUnderLoad:  liveAgentResidencyUnderLoad(ctx, cfg, sd),
 		SearchResidencyUnderLoad: liveSearchResidencyUnderLoad(ctx, cfg, sd),
+		ImageResidency:           liveImageResidency(ctx, cfg, sd),
 		UnitDirExists:            liveUnitDirExists,
 		ReadUnit:                 liveReadUnit,
 		RenderUnits:              liveRenderUnits,

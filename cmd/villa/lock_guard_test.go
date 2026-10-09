@@ -289,6 +289,9 @@ var lockRules = map[string]lockRule{
 	"liveResidencyDeps": {readOnly: true},
 	"liveStatusDeps":    {readOnly: true},
 	"liveUpdateDeps":    {readOnly: true},
+	// The image proof reads villa-image's invocation journal (#312); its callers
+	// (install, doctor, update) hold or need no lock of their own here.
+	"liveImageProof": {readOnly: true},
 }
 
 // guardFile is one non-test source file the guard reads.

@@ -132,9 +132,72 @@ func newDoctorDeps() *run {
 		AgentToolCall:            passVerdict,
 		AgentResidencyUnderLoad:  passVerdict,
 		SearchResidencyUnderLoad: passVerdict,
+		ImageResidency:           passVerdict,
 	}
 	r.cleanAgentDrift()
 	return r
+}
+
+// imageDoctorDeps is a healthy run with image generation on, on the host profile
+// the preflight checks pass (the memoryDoctorDeps base).
+func imageDoctorDeps() *run {
+	d := rocmDoctorDeps()
+	d.cfg.ImageEnabled = true
+	d.cfg.ImageModel = "z-image-turbo"
+	return d
+}
+
+// TestImageResidencyFindingFollowsTheProof: with image generation on, the image
+// offload proof is one BLOCK-class finding, IMG-DOC-residency. A confident FAIL (a
+// CPU or partial-RAM placement) raises Overall to FAIL and dominates a healthy
+// stack; an unevaluable proof degrades to a WARN with its detail kept; a PASS is a
+// PASS. Every non-PASS carries a remediation.
+func TestImageResidencyFindingFollowsTheProof(t *testing.T) {
+	cases := []struct {
+		name        string
+		verdict     inference.Verdict
+		wantOverall string
+		wantTier    string
+	}{
+		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "params 8808.62 MiB on VRAM, 0 B in RAM"}, "PASS", "BLOCK"},
+		{"fail", inference.Verdict{Status: inference.StatusFail, Detail: "2375.91 MiB of params in system RAM"}, "FAIL", "BLOCK"},
+		{"warn", inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate image offload — villa-image.service is not active"}, "WARN", "WARN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := imageDoctorDeps()
+			d.ImageResidency = func() inference.Verdict { return tc.verdict }
+			r := d.aggregate()
+			if r.Overall != tc.wantOverall {
+				t.Fatalf("Overall = %q, want %q; findings: %+v", r.Overall, tc.wantOverall, r.Findings)
+			}
+			f, ok := findingByID(r, "IMG-DOC-residency")
+			if !ok {
+				t.Fatalf("expected IMG-DOC-residency; findings: %+v", r.Findings)
+			}
+			if f.Status != tc.verdict.Status.String() || f.Tier != tc.wantTier {
+				t.Errorf("IMG-DOC-residency = (status %s, tier %s), want (%s, %s)", f.Status, f.Tier, tc.verdict.Status, tc.wantTier)
+			}
+			if f.Detail != tc.verdict.Detail {
+				t.Errorf("Detail = %q, want the proof's %q", f.Detail, tc.verdict.Detail)
+			}
+			if tc.verdict.Status != inference.StatusPass && f.Remediation == "" {
+				t.Error("a non-PASS image finding has no remediation")
+			}
+		})
+	}
+}
+
+// TestImageOffEmitsNoImageFinding: the proof is a real generation, so it runs only
+// when the gate is on; an opted-out stack gets no finding, never a PASS by default.
+func TestImageOffEmitsNoImageFinding(t *testing.T) {
+	d := newDoctorDeps()
+	calls := 0
+	d.ImageResidency = func() inference.Verdict { calls++; return passVerdict() }
+	r := d.aggregate()
+	if _, ok := findingByID(r, "IMG-DOC-residency"); ok || calls != 0 {
+		t.Errorf("image off: finding present = %v, proof calls = %d; want neither", ok, calls)
+	}
 }
 
 // passVerdict is a proof that proves.
