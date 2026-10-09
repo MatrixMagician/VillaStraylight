@@ -1,9 +1,12 @@
 package dashboard
 
 import (
+	"context"
+	"io"
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -168,6 +171,79 @@ func TestLookupPeerUIDReal(t *testing.T) {
 	wantUID := os.Getuid()
 	if uid != wantUID {
 		t.Fatalf("lookupPeerUID = %d, want %d (os.Getuid)", uid, wantUID)
+	}
+}
+
+// reuseAddrDialer dials from 127.0.0.1:port with SO_REUSEADDR, so a second dial
+// can bind a local port whose previous connection still sits in TIME_WAIT.
+func reuseAddrDialer(port int) *net.Dialer {
+	return &net.Dialer{
+		LocalAddr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: port},
+		Control: func(_, _ string, c syscall.RawConn) error {
+			var serr error
+			if err := c.Control(func(fd uintptr) {
+				serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			}); err != nil {
+				return err
+			}
+			return serr
+		},
+	}
+}
+
+// TestLookupPeerUIDRealTimeWaitDecoy reproduces the CI flake on the real
+// /proc/net/tcp: the peer's local port also names an earlier connection, now in
+// TIME_WAIT and listed with uid 0. The lookup must still resolve the live
+// connection to os.Getuid(), not the TIME_WAIT row that shares its local address.
+func TestLookupPeerUIDRealTimeWaitDecoy(t *testing.T) {
+	ctx := context.Background()
+	lnDecoy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer lnDecoy.Close()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	acceptedCh := make(chan net.Conn, 1)
+	go func() {
+		conn, err := lnDecoy.Accept()
+		if err != nil {
+			return
+		}
+		acceptedCh <- conn
+	}()
+	decoy, err := reuseAddrDialer(0).DialContext(ctx, "tcp", lnDecoy.Addr().String())
+	if err != nil {
+		t.Fatalf("dial decoy: %v", err)
+	}
+	decoyServer := <-acceptedCh
+	port := decoy.LocalAddr().(*net.TCPAddr).Port
+	decoy.Close()
+	_, _ = io.Copy(io.Discard, decoyServer)
+	decoyServer.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		acceptedCh <- conn
+	}()
+	dialed, err := reuseAddrDialer(port).DialContext(ctx, "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial from port %d: %v", port, err)
+	}
+	defer dialed.Close()
+	accepted := <-acceptedCh
+	defer accepted.Close()
+
+	uid, found := lookupPeerUID(accepted.RemoteAddr().(*net.TCPAddr))
+	if !found || uid != os.Getuid() {
+		t.Fatalf("lookupPeerUID = (%d, %v), want (%d, true)", uid, found, os.Getuid())
 	}
 }
 
