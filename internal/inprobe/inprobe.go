@@ -2,7 +2,7 @@
 // every in-network curl probe in this project must follow, behind a small
 // interface.
 //
-// The probe strategy itself is a podman-run curl inside villa.network. The
+// The probe strategy itself is a podman-run curl inside the target's network. The
 // PROCESS invocation stays in the cmd tier (the OS-orchestration layer that
 // legitimately invokes podman — see internal/inference's TestSeamGrepGate),
 // bound in through the Exec seam. Two adapters cross that seam: the live

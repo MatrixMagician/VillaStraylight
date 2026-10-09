@@ -19,7 +19,7 @@ import (
 // green is NOT sufficient: Open WebUI lazily fetches embed/reranker/Whisper models from
 // HuggingFace at RUNTIME on first RAG use, and ChromaDB posts PostHog telemetry. This
 // proof drives a REAL document upload through the OWUI REST RAG path (upload → chunk →
-// embed via villa-embed → store in Qdrant → retrieve → cite) entirely over villa.network
+// embed via villa-embed → store in Qdrant → retrieve → cite) entirely in-network
 // WHILE host egress is blocked, paired with a negative-control external probe that
 // MUST fail. Asserting zero-outbound by ABSENCE alone is a false-green; the negative
 // control proves egress is actually blocked, not merely unused (honesty-by-construction).
@@ -78,7 +78,7 @@ func evalRagSmoke(egressBlocked func() (bool, error), uploadCite func() (answer 
 	if err != nil {
 		return memoryProof{
 			status: preflight.StatusFail,
-			detail: fmt.Sprintf("could not run the egress negative-control probe (%v) — refusing to declare zero-outbound; verify the %q network and a reachable helper image, then re-run `villa verify memory`", err, memoryProofNetwork),
+			detail: fmt.Sprintf("could not run the egress negative-control probe (%v) — refusing to declare zero-outbound; verify the %q network and a reachable helper image, then re-run `villa verify memory`", err, routedNetwork),
 		}
 	}
 	if !blocked {

@@ -71,7 +71,7 @@ func evalAgentVerify(
 	if err != nil {
 		return memoryProof{
 			status: preflight.StatusFail,
-			detail: fmt.Sprintf("could not run the egress negative-control probe (%v) — refusing to declare zero-outbound; verify the %q network and a reachable helper image, then re-run `villa verify agent`", err, memoryProofNetwork),
+			detail: fmt.Sprintf("could not run the egress negative-control probe (%v) — refusing to declare zero-outbound; verify the %q network and a reachable helper image, then re-run `villa verify agent`", err, routedNetwork),
 		}
 	}
 	if !blocked {
@@ -133,7 +133,7 @@ const (
 func classifyEgressProbe(sanityErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
 	return classifyReachabilityProbe(sanityErr, externalExitCode, externalErr,
 		func(e error) error {
-			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to villa-llama's model list failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", e, memoryProofNetwork)
+			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to villa-llama's model list failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", e, routedNetwork)
 		},
 		func(code int, e error) error {
 			return fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", code, e, egressNegativeControlHost)

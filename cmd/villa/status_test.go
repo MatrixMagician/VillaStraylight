@@ -836,7 +836,9 @@ func swapMemoryProbeExec(t *testing.T, fake func(ctx context.Context, helperImag
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	orig := memoryProbeExec
-	memoryProbeExec = fake
+	memoryProbeExec = func(ctx context.Context, _, helperImage string, curlArgs ...string) ([]byte, int, error) {
+		return fake(ctx, helperImage, curlArgs...)
+	}
 	resetMemoryHealthCache()
 	t.Cleanup(func() {
 		memoryProbeExec = orig

@@ -475,21 +475,24 @@ const memoryHealthTTL = 15 * time.Second
 const memoryProbeTimeout = 10 * time.Second
 
 // memoryProbeExec is the injectable podman-probe seam. It is bound to the SHARED
-// runProbeCurlCode rather than to a local wrapper: the status path used to call the
+// probeCurl rather than to a local wrapper: the status path used to call the
 // stdout-only helper and then re-derive the exit code that helper had just
 // discarded, which was a third way of doing the same thing and could drift from the
-// other two. Package-level var so status_test.go runs the mapping/TTL tests
-// hermetically.
-var memoryProbeExec inprobe.Exec = runProbeCurlCode
+// other two. It takes the network because a row's target lives on villa or on
+// villa-closed (ADR-0036). Package-level var so status_test.go runs the mapping/TTL
+// tests hermetically.
+var memoryProbeExec = func(ctx context.Context, network, img string, args ...string) ([]byte, int, error) {
+	return probeCurl(ctx, network, img, nil, args)
+}
 
-// statusProber is the in-network HTTP-code prober for the status rows: the
-// typed-Unknown mapping doctrine lives in internal/inprobe (stated once, tested
+// statusProber is the in-network HTTP-code prober for the status rows on network:
+// the typed-Unknown mapping doctrine lives in internal/inprobe (stated once, tested
 // there); this binds it to the live exec seam, the orchestrate helper-image
 // accessor (no re-typed literal), and the status timeouts.
-func statusProber() inprobe.Prober {
+func statusProber(network string) inprobe.Prober {
 	return inprobe.Prober{
 		Exec: func(ctx context.Context, img string, args ...string) ([]byte, int, error) {
-			return memoryProbeExec(ctx, img, args...)
+			return memoryProbeExec(ctx, network, img, args...)
 		},
 		Image:   func() string { return orchestrate.EmbedImage() }, // probe helper, never a pin (spec §7.1)
 		Timeout: memoryProbeTimeout,
@@ -497,11 +500,11 @@ func statusProber() inprobe.Prober {
 	}
 }
 
-// probeMemoryURL runs one bounded in-network probe against url via the shared
+// probeMemoryURL runs one bounded probe on villa-closed against url via the shared
 // prober (curl writes ONLY the HTTP code; 200→ready, 503→loading — the
 // inprobe.MapCoded doctrine).
 func probeMemoryURL(url string) status.HealthState {
-	return statusProber().Coded(url)
+	return statusProber(closedNetwork).Coded(url)
 }
 
 // memoryHealthCache is the TTL-bounded pair cache (OQ2): one refresh probes BOTH
@@ -586,7 +589,7 @@ var webSearchHealthCache = &inprobe.PairCache{TTL: memoryHealthTTL}
 // would mis-read websafe's 401/400/405 as down.
 func webSearchHealthSnapshot(sxAddr string, sxPort int, wsAddr string, wsPort int) (status.HealthState, status.HealthState) {
 	return webSearchHealthCache.Pair(func() (status.HealthState, status.HealthState) {
-		return probeMemoryURL("http://" + net.JoinHostPort(sxAddr, strconv.Itoa(sxPort)) + "/healthz"),
+		return statusProber(routedNetwork).Coded("http://" + net.JoinHostPort(sxAddr, strconv.Itoa(sxPort)) + "/healthz"),
 			probeWebsafeURL("http://" + net.JoinHostPort(wsAddr, strconv.Itoa(wsPort)) + "/load")
 	})
 }
@@ -614,7 +617,7 @@ func liveWebsafeHealth(addr string, port int) status.HealthState {
 // down/unknown — never the searxng 200-only mapping (which would false-negative every
 // healthy websafe).
 func probeWebsafeURL(url string) status.HealthState {
-	return statusProber().Liveness(url)
+	return statusProber(routedNetwork).Liveness(url)
 }
 
 // inferproxyHealthCache bounds the villa-inferproxy probe to one per memoryHealthTTL
@@ -626,7 +629,7 @@ var inferproxyHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
 // itself: the probe proves the listener is up without reaching villa-llama.
 func liveInferproxyHealth() status.HealthState {
 	return inferproxyHealthCache.Get(func() status.HealthState {
-		return statusProber().Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
+		return statusProber(routedNetwork).Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
 	})
 }
 
