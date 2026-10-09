@@ -144,7 +144,7 @@ graph TD
     stackapply["internal/stackapply<br/>the one stack apply (ADR-0013)"] --> catalog
     stackapply -.catalog.Image → ImageServe.-> orchestrate
     orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
-    owui -.automatic1111 engine, villa.network.-> image
+    owui -.automatic1111 engine, villa-closed.-> image
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
@@ -262,9 +262,10 @@ gates every subsystem section on the config it loaded, so the long-lived dashboa
 answers each poll from that poll's config and api key (ADR-0016). `villa doctor`
 (`internal/doctor`) reuses the run's host profile and decides from the config the verb
 loaded (ADR-0017): which subsystems' findings exist, the unit drift plan, the SBX-02
-sandbox network scan, tools-mode drift and agent drift are all answered in the
-module, over raw reads (a unit file's bytes, whether the unit dir exists, a hash, the
-crush config bytes, the rendered units). `liveDoctorDeps` binds those reads, the four
+sandbox network scan, the container networks against the rendered units
+(ADR-0036), tools-mode drift and agent drift are all answered in the module, over raw
+reads (a unit file's bytes, whether the unit dir exists, a hash, the crush config
+bytes, the rendered units, `podman ps` and `podman network ls`). `liveDoctorDeps` binds those reads, the four
 proofs that drive real workloads and the preflight gates, and gates nothing.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set

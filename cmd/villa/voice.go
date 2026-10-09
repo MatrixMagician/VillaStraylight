@@ -100,7 +100,7 @@ func liveVoiceDriver(ctx context.Context) voice.Driver {
 	helper := orchestrate.EmbedImage() // probe helper, never a pin (spec §7.1)
 	return voiceDriver(
 		func(stdin []byte, args []string) ([]byte, int, error) {
-			return probeCurl(ctx, helper, stdin, args)
+			return probeCurl(ctx, closedNetwork, helper, stdin, args)
 		},
 		func() {
 			select {

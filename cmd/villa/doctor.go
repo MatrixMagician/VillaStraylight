@@ -304,6 +304,8 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		ReadUnit:                 liveReadUnit,
 		RenderUnits:              liveRenderUnits,
 		RunningVilla:             hostVillaPath,
+		ContainerNetworks:        liveContainerNetworks,
+		NetworkInternal:          liveNetworkInternal,
 		// The agent drift reads reuse the code.go accessors (agentBinPath /
 		// hashFileSHA256 / crushConfigPath) and agent.Render; no re-typed literal.
 		AgentBinarySHA:  func() (string, bool, error) { return hashFileSHA256(agentBinPath()) },
@@ -423,7 +425,7 @@ func liveResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *sta
 //     active. Any unmet precondition degrades to a typed-Unknown WARN naming the
 //     precondition (never a FAIL fabricated from a stack that simply is not running).
 //  2. DRIVE: residencyDriveRequests sequential POSTs to the
-//     config-resolved villa-embed /v1/embeddings over villa.network via runProbeCurl
+//     config-resolved villa-embed /v1/embeddings over villa-closed via runClosedProbeCurlCode
 //     (fixed-arg podman run --rm, helper image via orchestrate.EmbedImage(), model id
 //     JSON-marshaled — never interpolated into a command string). Each request is
 //     bounded by residencyRequestTimeout, the whole proof by residencyProofBudget.
@@ -489,7 +491,7 @@ func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *stat
 		},
 		Load: residency.Load{
 			Drive: func(ctx context.Context) error {
-				_, derr := runProbeCurl(ctx, helperImage,
+				_, _, derr := runClosedProbeCurlCode(ctx, helperImage,
 					"-sf", "-X", "POST", url,
 					"-H", "Content-Type: application/json",
 					"-d", string(body),

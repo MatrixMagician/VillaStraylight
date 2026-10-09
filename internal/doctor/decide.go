@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
@@ -220,4 +222,71 @@ func (d Deps) agentDrift(cfg config.VillaConfig) agent.DriftReport {
 
 func agentDriftUnknown(format string, err error) agent.DriftReport {
 	return agent.DriftReport{BinaryDriftUnknown: true, Reason: fmt.Sprintf(format, err)}
+}
+
+const networksProvenance = "rendered units vs `podman ps` + `podman network ls`"
+
+// networks compares the podman networks the rendered units declare with the host
+// (ADR-0036): every running container the units render must be on exactly the
+// networks its unit joins, and every rendered Internal=true network that exists
+// must be internal. Unit files cannot show either fault: Quadlet keeps a network
+// that already existed (`podman network create --ignore`), and a unit rewritten
+// without a restart leaves its container where it was.
+func (d Deps) networks(rendered []orchestrate.Unit) Finding {
+	f := Finding{ID: "networks", Name: "Container networks", Tier: tierBlock, Provenance: networksProvenance}
+	unread := func(err error) Finding {
+		f.Status = statusWarn
+		f.Detail = "could not read the host's podman networks to compare them with the units"
+		f.Remediation = "check that `podman ps` and `podman network ls` run for this user, then re-run `villa doctor`"
+		f.Raw = err.Error()
+		return f
+	}
+	running, err := d.ContainerNetworks()
+	if err != nil {
+		return unread(err)
+	}
+	internal, err := d.NetworkInternal()
+	if err != nil {
+		return unread(err)
+	}
+	return networksVerdict(f, orchestrate.NetworkTopology(rendered), running, internal)
+}
+
+func networksVerdict(f Finding, top orchestrate.Topology, running map[string][]string, internal map[string]bool) Finding {
+	var faults, restarts, routed []string
+	for _, container := range slices.Sorted(maps.Keys(top.Joins)) {
+		want := top.Joins[container]
+		got, up := running[container]
+		if !up || sameNetworks(got, want) {
+			continue
+		}
+		faults = append(faults, fmt.Sprintf("%s is on %s, its unit joins %s", container, strings.Join(slices.Sorted(slices.Values(got)), ", "), strings.Join(want, ", ")))
+		restarts = append(restarts, container)
+	}
+	for _, network := range slices.Sorted(maps.Keys(top.Internal)) {
+		if isInternal, exists := internal[network]; top.Internal[network] && exists && !isInternal {
+			faults = append(faults, network+" exists without Internal, so it routes off-box")
+			routed = append(routed, network)
+		}
+	}
+	if len(faults) == 0 {
+		f.Status = statusPass
+		f.Detail = "every running villa container is on the networks its unit joins, and every internal network has no route out"
+		return f
+	}
+	var fixes []string
+	if len(restarts) > 0 {
+		fixes = append(fixes, "restart each container so it rejoins its unit's networks: `villa restart "+strings.Join(restarts, "` / `villa restart ")+"`")
+	}
+	for _, network := range routed {
+		fixes = append(fixes, "stop the services on "+network+" and `systemctl --user stop "+network+"-network.service`, run `podman network rm "+network+"`, then `villa up` to recreate it internal")
+	}
+	f.Status = statusFail
+	f.Detail = strings.Join(faults, "; ")
+	f.Remediation = strings.Join(fixes, "; ")
+	return f
+}
+
+func sameNetworks(a, b []string) bool {
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }

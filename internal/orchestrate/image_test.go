@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestRenderImageUnit(t *testing.T) {
 		"Image=" + ImageServerImage(),
 		"Entrypoint=/sd-server",
 		"Volume=villa-models:/models:ro,z",
-		"Network=villa.network",
+		"Network=villa-closed.network",
 	} {
 		if !strings.Contains(c.Text, want) {
 			t.Errorf("image unit missing %q:\n%s", want, c.Text)
@@ -141,10 +142,10 @@ func TestRenderImageOffIsByteIdentical(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.container.golden", unitByName(t, units, "villa-openwebui.container").Text)
 }
 
-// TestImageUnitSitsBeforeInferproxyAndTheSandboxNetworkStaysLast pins the unit
-// order with every gate on: the image unit follows the web-search block and
-// precedes villa-inferproxy, and the sandbox network stays last.
-func TestImageUnitSitsBeforeInferproxyAndTheSandboxNetworkStaysLast(t *testing.T) {
+// TestImageUnitSitsBeforeInferproxyAndTheNetworksStayLast pins the unit order
+// with every gate on: the image unit follows the web-search block and precedes
+// villa-inferproxy, and the sandbox and closed networks stay last.
+func TestImageUnitSitsBeforeInferproxyAndTheNetworksStayLast(t *testing.T) {
 	in := imageFixtureInput()
 	in.Cfg.WebSearchEnabled = true
 	in.Cfg.WorkspaceAgent = true
@@ -166,7 +167,7 @@ func TestImageUnitSitsBeforeInferproxyAndTheSandboxNetworkStaysLast(t *testing.T
 	if websafe > image || image > inferproxy {
 		t.Errorf("unit order = %v, want websafe < image < inferproxy", names)
 	}
-	if names[len(names)-1] != "villa-sandbox.network" {
-		t.Errorf("last unit = %s, want villa-sandbox.network", names[len(names)-1])
+	if tail := names[len(names)-2:]; !slices.Equal(tail, []string{"villa-sandbox.network", "villa-closed.network"}) {
+		t.Errorf("last units = %v, want [villa-sandbox.network villa-closed.network]", tail)
 	}
 }

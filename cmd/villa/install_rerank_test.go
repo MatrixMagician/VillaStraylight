@@ -125,7 +125,7 @@ func TestRerankProbeReadsTheTopIndex(t *testing.T) {
 }
 
 // fakeMemoryNetwork answers the memory proof's in-network curl like the three
-// memory services on villa.network. Each llama-server host is still loading its
+// memory services on villa-closed. Each llama-server host is still loading its
 // model for the first loading[host] /health probes: until then /health answers
 // 503 and every other route an HTTP error (curl -f exit 22), as llama-server does
 // on the host; afterwards /health answers 200 and each route its body.

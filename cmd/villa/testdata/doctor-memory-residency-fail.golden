@@ -11,5 +11,6 @@ health:villa-rerank.service   WARN   PASS  /health is ready (200)
 health:villa-extract.service  WARN   PASS  /health is ready (200)
 MEM-DOC-residency             BLOCK  FAIL  only a CPU model buffer was loaded — the chat model fell back to CPU under embedding load — the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`
 drift                         WARN   PASS  on-disk units match the rendered-from-config units
+networks                      BLOCK  PASS  every running villa container is on the networks its unit joins, and every internal network has no route out
 
 FAULT: 1 blocking finding(s) — the running install is not healthy. See the remediation(s) above.

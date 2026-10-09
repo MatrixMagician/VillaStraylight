@@ -182,7 +182,7 @@ type memoryProof struct {
 }
 
 // memoryProofInput carries the resolved memory addresses/ports/model/dim the proof
-// probes (from the persisted config — container-DNS names on villa.network + the pinned
+// probes (from the persisted config — container-DNS names on villa-closed + the pinned
 // 768 dim). Values are config-resolved, never shell-interpolated.
 type memoryProofInput struct {
 	embedAddr    string
@@ -304,11 +304,14 @@ func topScore(scores []float64) int {
 	return top
 }
 
-// memoryProofNetwork is the podman network the proof reaches the container-DNS-only
-// memory services over (villa-embed / villa-qdrant publish NO host port).
-// It matches orchestrate's NetworkName (the Quadlet villa.network unit's NetworkName=villa);
-// a config-value name, not a backend image/device literal, so it stays seam-clean.
-const memoryProofNetwork = "villa"
+// routedNetwork and closedNetwork are the two podman networks an in-network probe
+// runs on, and a probe runs on its target's: the services with no runtime egress
+// are reachable only on the closed one (ADR-0036), while inference, the fetchers
+// and every egress negative control stay on the routed one.
+var (
+	routedNetwork = orchestrate.RoutedNetworkName()
+	closedNetwork = orchestrate.ClosedNetworkName()
+)
 
 // villaProbeCollection is the throwaway 768-dim Qdrant collection the writable round-trip
 // creates and deletes — proving the named volume is writable by the container UID,
@@ -316,7 +319,7 @@ const memoryProofNetwork = "villa"
 const villaProbeCollection = "villa-probe"
 
 // memoryProofDeps is the in-network seam the memory proof drives: the curl exec
-// (live: a `podman run --rm --network villa` curl), the helper image it runs, and
+// (live: a `podman run --rm --network villa-closed` curl), the helper image it runs, and
 // the bound on waiting for a llama-server to finish loading its model.
 type memoryProofDeps struct {
 	exec     inprobe.Exec
@@ -326,14 +329,14 @@ type memoryProofDeps struct {
 }
 
 // liveMemoryProof is the production proof seam: it reaches the container-DNS-only
-// villa-embed / villa-qdrant over villa.network via a one-shot `podman run --rm --network
-// villa` curl (no host port is opened), sourcing the helper image from the
+// villa-embed / villa-qdrant over villa-closed via a one-shot `podman run --rm --network
+// villa-closed` curl (no host port is opened), sourcing the helper image from the
 // orchestrate accessor (EmbedImage(), which ships curl) rather than a re-typed image
 // literal (keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
 // JSON body is a constant and the model id is config-resolved, never shell-interpolated.
 func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	return memoryProofWith(ctx, memoryProofDeps{
-		exec:     runProbeCurlCode,
+		exec:     runClosedProbeCurlCode,
 		image:    orchestrate.EmbedImage(),
 		timeout:  readinessTimeout,
 		interval: readinessInterval,
@@ -439,7 +442,7 @@ func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput
 }
 
 // probeCurlFn is the injectable curl-runner seam qdrantWritableProbe drives: it runs a
-// fixed-arg curl (in production, `podman run --rm --network villa <img> curl <args...>`)
+// fixed-arg curl (in production, `podman run --rm --network villa-closed <img> curl <args...>`)
 // and returns curl's stdout. Tests inject a fake to simulate a leftover probe collection.
 type probeCurlFn func(args ...string) ([]byte, error)
 
@@ -484,14 +487,21 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 // <helperImage> curl <args...>` as a FIXED-ARG exec (never a shell) and returns
 // curl's stdout together with the process exit code.
 //
-// It is one of three thin doors onto probeCurl, the ONE in-network probe strategy.
+// It is one of four thin doors onto probeCurl, the ONE in-network probe strategy.
 // There used to be three strategies: this one, a return-only-stdout twin that was
 // otherwise byte-identical, and a third in the status path that called the twin and
 // then re-derived the exit code the twin had discarded. runProbeCurl below is a thin
-// convenience for the callers that genuinely do not care about the code, and
-// runProbeCurlIn the door for a request the inference client built.
+// convenience for the callers that genuinely do not care about the code,
+// runProbeCurlIn the door for a request the inference client built, and
+// runClosedProbeCurlCode this door on the closed network.
 func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
-	return probeCurl(ctx, helperImage, nil, curlArgs)
+	return probeCurl(ctx, routedNetwork, helperImage, nil, curlArgs)
+}
+
+// runClosedProbeCurlCode is runProbeCurlCode on villa-closed, for the services
+// reachable only there (ADR-0036).
+func runClosedProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
+	return probeCurl(ctx, closedNetwork, helperImage, nil, curlArgs)
 }
 
 // runProbeCurlIn runs one llama-server request the inference client built
@@ -503,7 +513,7 @@ func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlR
 	if req.Err != nil {
 		return nil, req.Err
 	}
-	out, _, err := probeCurl(ctx, helperImage, req.Stdin, slices.Concat(flags, req.Args))
+	out, _, err := probeCurl(ctx, routedNetwork, helperImage, req.Stdin, slices.Concat(flags, req.Args))
 	return out, err
 }
 
@@ -530,22 +540,22 @@ func removeProbeContainer(name string) {
 // it always ran; a non-nil one adds `-i` and pipes it to curl.
 //
 // The helper image is sourced from the orchestrate accessor (no re-typed image
-// literal), and --entrypoint curl runs curl from INSIDE villa.network, so the
-// container-DNS-only services are reachable without opening a host port.
+// literal), and --entrypoint curl runs curl from INSIDE network, the target's, so
+// the container-DNS-only services are reachable without opening a host port.
 //
 // The exit code is what makes the egress negative control honest. podman propagates
 // the container process's (curl's) exit code, so a curl CONNECTION/TIMEOUT (6/7/28)
 // reads as a genuine block, while a container that never started reports -1 and must
 // be read as infrastructure — "the probe could not run", never "the host was
 // blocked".
-func probeCurl(ctx context.Context, helperImage string, stdin []byte, curlArgs []string) (stdout []byte, exitCode int, err error) {
+func probeCurl(ctx context.Context, network, helperImage string, stdin []byte, curlArgs []string) (stdout []byte, exitCode int, err error) {
 	name := probeContainerName()
 	args := []string{"run", "--rm", "--name", name}
 	if stdin != nil {
 		args = append(args, "-i")
 	}
 	args = append(args,
-		"--network", memoryProofNetwork,
+		"--network", network,
 		"--entrypoint", "curl",
 		helperImage,
 	)

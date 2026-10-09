@@ -629,14 +629,14 @@ var nftBridgeIfPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 // well-formed kernel ifname ever reaches the ruleset text. An empty/garbage result is an error
 // the caller maps to REJECT (the bound cannot be scoped without the bridge).
 func liveBridgeInterface(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "podman", "network", "inspect", memoryProofNetwork, "--format", "{{.NetworkInterface}}")
+	cmd := exec.CommandContext(ctx, "podman", "network", "inspect", routedNetwork, "--format", "{{.NetworkInterface}}")
 	out, runErr := cmd.Output()
 	if runErr != nil {
-		return "", fmt.Errorf("could not resolve the %q bridge interface (%w) — cannot scope the egress bound; ensure the villa network exists, then re-run `villa verify search`", memoryProofNetwork, runErr)
+		return "", fmt.Errorf("could not resolve the %q bridge interface (%w) — cannot scope the egress bound; ensure the villa network exists, then re-run `villa verify search`", routedNetwork, runErr)
 	}
 	iface := strings.TrimSpace(string(out))
 	if !nftBridgeIfPattern.MatchString(iface) {
-		return "", fmt.Errorf("the %q network reported an unusable bridge interface %q — cannot scope the egress bound; re-run `villa install`, then re-run `villa verify search`", memoryProofNetwork, iface)
+		return "", fmt.Errorf("the %q network reported an unusable bridge interface %q — cannot scope the egress bound; re-run `villa install`, then re-run `villa verify search`", routedNetwork, iface)
 	}
 	return iface, nil
 }

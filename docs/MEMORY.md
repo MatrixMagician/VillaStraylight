@@ -142,12 +142,12 @@ hand-editing the unit. The block is byte-frozen by a golden test; it evolves app
 | Environment key | Value | What it enforces |
 |-----------------|-------|------------------|
 | `VECTOR_DB` | `qdrant` | Use the local Qdrant vector store (never ChromaDB, which posts PostHog telemetry). |
-| `QDRANT_URI` | `http://villa-qdrant:6333` | Reach Qdrant by container-DNS on `villa.network`; no host port. |
+| `QDRANT_URI` | `http://villa-qdrant:6333` | Reach Qdrant by container-DNS on `villa-closed`; no host port. |
 | `ENABLE_QDRANT_MULTITENANCY_MODE` | `True` | One tenant-partitioned collection (OWUI + Qdrant recommended layout); locked before any vector exists, flipping it later disconnects collections. |
 | `QDRANT_COLLECTION_PREFIX` | `open-webui` | Stable collection-name prefix (substrate for the Phase-21 indexer / Phase-23 backup). |
 | `RAG_EMBEDDING_ENGINE` | `openai` | Route embeddings to an OpenAI-compatible endpoint (here, the **local** `villa-embed`). |
 | `RAG_OPENAI_API_BASE_URL` | `http://villa-embed:8080/v1` | The local embedder; no cloud API. |
-| `RAG_OPENAI_API_KEY` | `sk-no-key-required` | Sentinel: the private `villa.network` embedder needs no real key. |
+| `RAG_OPENAI_API_KEY` | `sk-no-key-required` | Sentinel: the embedder on `villa-closed` needs no real key. |
 | `RAG_EMBEDDING_MODEL` | `nomic-embed-text-v1.5` | The pre-staged 768-dim embedding model. |
 | `RAG_EMBEDDING_QUERY_PREFIX` | `search_query:` | nomic query task-instruction prefix (optimal retrieval). |
 | `RAG_EMBEDDING_CONTENT_PREFIX` | `search_document:` | nomic document task-instruction prefix (optimal retrieval). |
@@ -157,7 +157,7 @@ hand-editing the unit. The block is byte-frozen by a golden test; it evolves app
 | `RAG_RERANKING_ENGINE` | `external` | Rendered with the key above. Send the candidates to an external reranker instead of loading a cross-encoder inside Open WebUI (which would download it). |
 | `RAG_RERANKING_MODEL` | `bge-reranker-v2-m3` | The model name sent with each rerank request; `villa-rerank` serves exactly this one. |
 | `RAG_EXTERNAL_RERANKER_URL` | `http://villa-rerank:8080/v1/rerank` | The local reranker by container-DNS; no host port. |
-| `RAG_EXTERNAL_RERANKER_API_KEY` | `sk-no-key-required` | Sentinel: the private `villa.network` reranker needs no real key. |
+| `RAG_EXTERNAL_RERANKER_API_KEY` | `sk-no-key-required` | Sentinel: the reranker on `villa-closed` needs no real key. |
 | `CONTENT_EXTRACTION_ENGINE` | `tika` | Rendered only with `extractor = true` (ADR-0033). Hand every non-text upload to the local Tika server instead of Open WebUI's own loaders, which cannot read a scanned PDF. |
 | `TIKA_SERVER_URL` | `http://villa-extract:9998` | The local extractor by container-DNS; no host port. |
 | `TIKA_SERVER_VERSION` | `3` | The request shape for a Tika 3 server (`PUT /tika/text`, reading `X-TIKA:content`). |
@@ -223,8 +223,8 @@ out, set `extractor = false` by hand and run `villa up`; the next `villa install
 turns it back on. The unit has no weights to stage: its image
 (`docker.io/apache/tika:3.3.1.0-full`, 863 MB, pinned by digest as the `extractor`
 component) is pulled at first start. It publishes no port, mounts nothing, runs as
-the image's unprivileged user, joins `villa.network` only, and needs no network to
-start or to extract: it was measured with none.
+the image's unprivileged user, joins `villa-closed` only (ADR-0036), and needs no
+network to start or to extract: it was measured with none.
 
 The unit caps both of Tika's JVMs at a 1 GiB heap. The reservation is 2 GiB, which
 is that cap plus what the JVM and up to three OCR processes hold outside it; the

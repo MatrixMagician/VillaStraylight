@@ -124,7 +124,7 @@ func EmbedContainerUnitName() string { return embedContainerUnitName }
 
 // qdrantView is the data qdrant.container.tmpl renders: no Env, no published host port,
 // no Exec (Qdrant runs its image entrypoint with defaults; QDRANT_API_KEY is a Phase-20
-// choice). Container-DNS only on villa.network.
+// choice). Container-DNS only on villa-closed (ADR-0036).
 type qdrantView struct {
 	ContainerName string
 	Image         string
@@ -162,7 +162,7 @@ func buildQdrantView(image, qdrantAddr string) qdrantView {
 	return qdrantView{
 		ContainerName: qdrantAddr,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 		Volume:        qdrantVolumeMount,
 	}
 }
@@ -185,7 +185,7 @@ func buildEmbedView(image, ggufFilename, embedAddr string, embedPort int) embedV
 	return embedView{
 		ContainerName: embedAddr,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 		Volume:        embedModelMount,
 		Exec:          buildEmbedExec(ggufFilename, embedPort),
 	}

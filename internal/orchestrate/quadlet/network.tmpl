@@ -1,6 +1,7 @@
-# ~/.config/containers/systemd/villa.network  (GENERATED — do not edit; source: config.toml)
+# ~/.config/containers/systemd/{{.UnitFileName}}  (GENERATED — do not edit; source: config.toml)
 [Network]
 NetworkName={{.NetworkName}}
-
+{{if .Internal}}Internal=true
+{{end}}
 [Install]
 WantedBy=default.target

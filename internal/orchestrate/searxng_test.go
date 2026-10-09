@@ -230,8 +230,8 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 			t.Errorf("web search off: Render must NOT emit villa-websafe.container (got %v)", unitNames(units))
 		}
 	}
-	if len(units) != 6 {
-		t.Fatalf("web search off: Render returned %d units, want exactly 6 (v1.4 baseline + the unconditional sandbox network, issue #199): %v", len(units), unitNames(units))
+	if len(units) != 7 {
+		t.Fatalf("web search off: Render returned %d units, want exactly 7 (v1.4 baseline + the unconditional sandbox and closed networks, issue #199, ADR-0036): %v", len(units), unitNames(units))
 	}
 
 	// Sanity: turning web search ON adds exactly TWO units (the searxng container then the
@@ -241,17 +241,17 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render(on): %v", err)
 	}
-	if len(on) != 8 {
-		t.Fatalf("web search on: Render returned %d units, want 8 (5 baseline + searxng + websafe + sandbox network): %v", len(on), unitNames(on))
+	if len(on) != 9 {
+		t.Fatalf("web search on: Render returned %d units, want 9 (5 baseline + searxng + websafe + sandbox and closed networks): %v", len(on), unitNames(on))
 	}
-	if on[len(on)-3].Name != "villa-searxng.container" {
-		t.Errorf("searxng unit must be third-from-last (strictly appended before websafe), got order %v", unitNames(on))
+	if on[len(on)-4].Name != "villa-searxng.container" {
+		t.Errorf("searxng unit must sit right before websafe, got order %v", unitNames(on))
 	}
-	if on[len(on)-2].Name != "villa-websafe.container" {
-		t.Errorf("websafe unit must be second-from-last (strictly appended, before the sandbox network), got order %v", unitNames(on))
+	if on[len(on)-3].Name != "villa-websafe.container" {
+		t.Errorf("websafe unit must sit right before the two networks, got order %v", unitNames(on))
 	}
-	if on[len(on)-1].Name != "villa-sandbox.network" {
-		t.Errorf("the sandbox network must be LAST (unconditional, issue #199), got order %v", unitNames(on))
+	if on[len(on)-2].Name != "villa-sandbox.network" || on[len(on)-1].Name != "villa-closed.network" {
+		t.Errorf("the sandbox and closed networks must be LAST (unconditional, issue #199, ADR-0036), got order %v", unitNames(on))
 	}
 }
 

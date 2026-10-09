@@ -1,12 +1,12 @@
 # ~/.config/containers/systemd/villa-extract.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight document extractor (Apache Tika)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName=villa-extract
 Image=docker.io/apache/tika:3.3.1.0-full@sha256:d8e6ed96260ad89307a93195a1b856102987a818ac648502f8efbaf313d32470
-Network=villa.network
+Network=villa-closed.network
 Environment=JAVA_TOOL_OPTIONS=-Xmx1g
 
 [Service]

@@ -38,6 +38,6 @@ func buildExtractView(image, extractAddr string) extractView {
 	return extractView{
 		ContainerName: extractAddr,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 	}
 }

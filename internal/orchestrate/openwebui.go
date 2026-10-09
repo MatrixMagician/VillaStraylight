@@ -128,6 +128,9 @@ type openWebUIView struct {
 	ContainerName string
 	Image         string
 	Network       string
+	// ClosedNetwork is the second network: the services with no runtime egress
+	// are reachable only there (ADR-0036).
+	ClosedNetwork string
 	PublishPort   string
 	Volume        string
 	Env           []envPair
@@ -159,9 +162,9 @@ type openWebUIVolumeView struct {
 // telemetry test). OPENAI_API_BASE_URL sources its host from the render.go
 // containerName constant ("villa-llama") so the chat target can NEVER drift from the
 // inference unit's ContainerName= (Pitfall 3 DNS lockstep, T-4-01) — it is built from
-// the constant, never re-typed as a separate host literal. Network is set to the
-// existing networkAttach ("villa.network") so Open WebUI joins the Phase-3 network
-// unchanged. WEBUI_AUTH stays True: the first visit creates a local admin
+// the constant, never re-typed as a separate host literal. Open WebUI joins
+// villa.network for inference and the fetchers, and villa-closed for the services
+// with no runtime egress (ADR-0036). WEBUI_AUTH stays True: the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
 //
 // image is the RESOLVED pin — the effective one this host recorded, or the vetted
@@ -267,7 +270,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 			// native personalized memory store + cross-chat injection.
 			envPair{Key: "ENABLE_MEMORIES", Value: "True"},
 			// QDRANT_API_KEY intentionally omitted: empty default is accepted on the
-			// private villa.network (D-discretion, A4).
+			// closed network (D-discretion, A4, ADR-0036).
 			//
 			// NOTE: the load-bearing ENABLE_PERSISTENT_CONFIG=False
 			// switch NO LONGER lives inside this memory block — it is now emitted once,
@@ -280,7 +283,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 		// (ADR-0028), appended after the memory block it extends. With the engine
 		// external, Open WebUI posts each query and its candidate chunks to the URL
 		// and sorts by the scores that come back; the key is the no-auth sentinel
-		// because the unit is container-DNS only on villa.network.
+		// because the unit is container-DNS only on villa-closed.
 		env = append(env,
 			envPair{Key: "ENABLE_RAG_HYBRID_SEARCH", Value: "True"},
 			envPair{Key: "RAG_RERANKING_ENGINE", Value: "external"},
@@ -401,6 +404,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 		ContainerName:          openWebUIContainerName,
 		Image:                  image,
 		Network:                networkAttach,
+		ClosedNetwork:          closedNetworkAttach,
 		PublishPort:            openWebUIPublishPort,
 		Volume:                 openWebUIVolumeMount,
 		Env:                    env,

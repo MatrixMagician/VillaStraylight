@@ -1,7 +1,7 @@
 # ~/.config/containers/systemd/villa-embed.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight embeddings (llama-server /v1/embeddings)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName={{.ContainerName}}

@@ -356,6 +356,7 @@ func TestRenderFiveUnitOrder(t *testing.T) {
 		"villa-openwebui.container",
 		"villa-openwebui.volume",
 		"villa-sandbox.network",
+		"villa-closed.network",
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {

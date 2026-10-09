@@ -113,9 +113,9 @@ func liveEvalComplete(cfg config.VillaConfig, model string) func(context.Context
 	}
 }
 
-// liveEvalRerank scores docs against query through villa-rerank over villa.network.
+// liveEvalRerank scores docs against query through villa-rerank over villa-closed.
 func liveEvalRerank(ctx context.Context, query string, docs []string) ([]float64, error) {
-	return postRerank(ctx, runProbeCurlCode, orchestrate.EmbedImage(), config.RerankAddr, config.RerankPort, query, docs)
+	return postRerank(ctx, runClosedProbeCurlCode, orchestrate.EmbedImage(), config.RerankAddr, config.RerankPort, query, docs)
 }
 
 // postRerank is the one rerank request villa makes: the eval seam and the install
@@ -145,7 +145,7 @@ func postRerank(ctx context.Context, exec inprobe.Exec, helperImage, addr string
 }
 
 // liveEvalExtract extracts a fixture's text through villa-extract over
-// villa.network. The name is the fixture's, for the record; Tika reads only the
+// villa-closed. The name is the fixture's, for the record; Tika reads only the
 // bytes and the mime.
 func liveEvalExtract(ctx context.Context, _, mime string, data []byte) (string, error) {
 	return postExtract(ctx, orchestrate.EmbedImage(), config.ExtractAddr, config.ExtractPort, mime, data)
@@ -158,7 +158,7 @@ func liveEvalExtract(ctx context.Context, _, mime string, data []byte) (string, 
 // the request rides the in-network curl of the memory proof with the document on
 // stdin; helperImage is the probe helper, never a pin.
 func postExtract(ctx context.Context, helperImage, addr string, port int, mime string, data []byte) (string, error) {
-	out, _, err := probeCurl(ctx, helperImage, data, extractCurlArgs(addr, port, mime))
+	out, _, err := probeCurl(ctx, closedNetwork, helperImage, data, extractCurlArgs(addr, port, mime))
 	if err != nil {
 		return "", err
 	}

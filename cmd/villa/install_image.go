@@ -25,7 +25,7 @@ import (
 // and THE image offload proof that install, doctor and `villa update image` share.
 // The proof is residency.Prove unchanged: only Generate (one txt2img) and Fold
 // (inference.ImageOffloadVerdict) differ from the chat proof, and the probes reach
-// villa-image over villa.network through the same curl helper every managed-service
+// villa-image over villa-closed through the same curl helper every managed-service
 // probe uses, so no host port is opened.
 
 // The proof's drive: a fixed prompt and seed at the entry's steps and cfg scale,
@@ -77,7 +77,7 @@ func liveImageServe(cfg config.VillaConfig) (*orchestrate.ImageServe, error) {
 // liveImageHealth probes sd-server's readiness route in-network through the
 // shared status prober (200 ready, 503 loading, refused down).
 func liveImageHealth(config.VillaConfig) status.HealthState {
-	return statusProber().Coded(orchestrate.ImageInNetworkEndpoint() + imageReadyRoute)
+	return statusProber(closedNetwork).Coded(orchestrate.ImageInNetworkEndpoint() + imageReadyRoute)
 }
 
 // liveImageProof is THE image offload proof. It is residency.Prove with the image
@@ -141,7 +141,7 @@ func imageGenerate(m catalog.ImageModel) func(ctx context.Context, modelID strin
 		if err != nil {
 			return inference.ChatResult{Detail: "build txt2img body: " + err.Error()}
 		}
-		out, err := runProbeCurl(ctx, orchestrate.EmbedImage(),
+		out, _, err := runClosedProbeCurlCode(ctx, orchestrate.EmbedImage(),
 			"-sf", "-X", "POST", orchestrate.ImageInNetworkEndpoint()+"/sdapi/v1/txt2img",
 			"-H", "Content-Type: application/json",
 			"-d", string(body),

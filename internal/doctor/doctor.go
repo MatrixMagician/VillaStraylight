@@ -28,6 +28,7 @@ package doctor
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
@@ -111,7 +112,12 @@ const (
 //     is `villa up`. It replaces IMG-DOC-stale, the image-only manual-removal WARN,
 //     since a stack apply now removes villa-image itself. A host with neither is
 //     byte-identical except this bump.
-const reportSchemaVersion = 11
+//   - v12: the networks finding (ADR-0036) — a NEW doctor-owned finding type: each
+//     running container must be on exactly the networks its rendered unit joins, and
+//     each rendered Internal=true network must be internal on the host. Like TMD-01
+//     it is not gated on a subsystem, so every report of an installed stack gains
+//     one line.
+const reportSchemaVersion = 12
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -258,6 +264,13 @@ type Deps struct {
 	RenderUnits func(cfg config.VillaConfig, hostVilla string) ([]orchestrate.Unit, error)
 	// RunningVilla is the path of the villa binary running this doctor.
 	RunningVilla func() string
+
+	// The podman network state the rendered units are compared with (ADR-0036).
+	//
+	// ContainerNetworks maps every running container to the networks it is on.
+	ContainerNetworks func() (map[string][]string, error)
+	// NetworkInternal maps every podman network on the host to its Internal flag.
+	NetworkInternal func() (map[string]bool, error)
 
 	// The coding-agent drift inputs (agent), read from the host.
 	//
@@ -593,6 +606,13 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 			Remediation: "run `villa up` to stop and remove them",
 			Provenance:  "orchestrate.Orphans (non-empty Plan.Removed)",
 		})
+	}
+
+	// NETWORKS — the running containers and networks against the units the config
+	// renders (ADR-0036): the boundary the closed network enforces only holds if the
+	// host agrees with the units. No unit dir means no stack to judge.
+	if err == nil {
+		findings = append(findings, d.networks(slices.Concat(plan.Unchanged, plan.Changed)))
 	}
 
 	// 3a. MOVED BINARY — the running villa's path is host state, not config state, so it
