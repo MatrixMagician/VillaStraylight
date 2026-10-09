@@ -480,6 +480,44 @@ func TestOrphanUnitsWarn(t *testing.T) {
 	}
 }
 
+// TestOrphanUnitsNamesAnActiveServiceWithNoUnitFile (#344): the unit file keys the
+// orphan check, so a gated-off registry service still active after its file is gone
+// (a removal that could not read its state, or a manual rm) needs its own line. It is
+// the case IMG-DOC-stale used to cover, now for every registry service. An inactive
+// service, or one whose state cannot be read, is not named.
+func TestOrphanUnitsNamesAnActiveServiceWithNoUnitFile(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state string
+		err   error
+		want  bool
+	}{
+		{"active", "active", nil, true},
+		{"inactive", "inactive", nil, false},
+		{"unreadable", "", errors.New("exit 1"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			d.IsActive = func(unit string) (string, error) {
+				if unit == "villa-image.service" {
+					return tc.state, tc.err
+				}
+				return "inactive", nil
+			}
+			f, ok := findingByID(d.aggregate(), "orphan-units")
+			if ok != tc.want {
+				t.Fatalf("orphan-units present = %v, want %v (finding %+v)", ok, tc.want, f)
+			}
+			if !tc.want {
+				return
+			}
+			if f.Status != "WARN" || !strings.Contains(f.Detail, "villa-image.service") || !strings.Contains(f.Detail, "no unit file") || !strings.Contains(f.Remediation, "systemctl --user stop villa-image.service") {
+				t.Errorf("orphan-units = %s %q (remediation %q), want a WARN naming the running service and how to stop it", f.Status, f.Detail, f.Remediation)
+			}
+		})
+	}
+}
+
 // TestDriftReadErrorDegrades: a unit dir that is missing (a never-installed host), cannot
 // be examined, or cannot be rendered against must yield a typed-Unknown WARN Finding
 // with remediation, never a panic, never drift and never a false PASS.

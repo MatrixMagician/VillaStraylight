@@ -86,7 +86,7 @@ graph TD
     CLI --> download["internal/download<br/>verified resumable GGUF pull"]
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
-    CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → write changed → reload (ADR-0013)<br/>+ swap transaction frame Transact (ADR-0015)"]
+    CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → stop + remove orphans → write changed → reload (ADR-0013, ADR-0035)<br/>+ swap transaction frame Transact (ADR-0015)"]
     stackapply --> orchestrate
     stackapply --> catalog
     CLI --> modelswap["internal/modelswap<br/>guarded swap core"]
@@ -252,7 +252,7 @@ emits through its `Emit` seam.
 
 The day-to-day verbs (`up`/`down`/`restart`/`logs` in `cmd/villa/lifecycle.go`), like
 every other verb that regenerates units, apply the stack through `internal/stackapply`
-(ADR-0013) over the same Render→Reconcile→WriteUnits→Systemd core, so
+(ADR-0013) over the same Render→Reconcile→WriteUnits/RemoveUnits→Systemd core, so
 hand-editing `config.toml` and re-running `up`/`restart` converges exactly the changed units. `villa status`
 (`internal/status`) and the dashboard (`internal/dashboard`) fold the **same** status
 read-model, never a fork, to report per-service active state, mapped `/health`, and
@@ -585,8 +585,11 @@ internal/
   stackapply/         Stack apply: every render input derived from the config, the
                       inference-secret heal, the crush.json key heal (only a
                       drift that is villa's inference key, kept as crush.json.bak;
-                      ADR-0019), write changed + reload (ADR-0013).
-  orchestrate/        Pure Quadlet Render + sha256 Reconcile + atomic WriteUnits +
+                      ADR-0019), stop and remove the registry units the config no longer
+                      renders (refused when a service's state cannot be read, #344),
+                      write changed + reload (ADR-0013, ADR-0035).
+  orchestrate/        Pure Quadlet Render + sha256 Reconcile (changed and orphaned) + atomic
+                      WriteUnits + RemoveUnits +
                       systemd seam; Open WebUI managed-service render path.
   modelswap/          Guarded swap core (ordering-is-the-security-contract).
   backendswap/        Transactional backend-switch core (capture→prove→rollback).

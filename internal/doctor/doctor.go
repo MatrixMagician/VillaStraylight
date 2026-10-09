@@ -294,6 +294,34 @@ func changedUnitNames(changed []orchestrate.Unit) string {
 	return strings.Join(names, ", ")
 }
 
+// orphanFinding is the orphan-units WARN: files are the on-disk units the config no
+// longer renders (removed by `villa up`), stray the services still running with no
+// unit file (stopped by hand, since no apply can name them).
+func orphanFinding(files string, stray []string) Finding {
+	var detail, fix []string
+	prov := "orchestrate.Orphans (non-empty Plan.Removed)"
+	if files != "" {
+		detail = append(detail, "on-disk Quadlet units the config no longer renders: "+files)
+		fix = append(fix, "run `villa up` to stop and remove them")
+	}
+	if len(stray) > 0 {
+		detail = append(detail, "services still active with no unit file: "+strings.Join(stray, ", "))
+		for _, svc := range stray {
+			fix = append(fix, "run `systemctl --user stop "+svc+"`")
+		}
+		prov = "subsystem.Every units with no file and an active service"
+	}
+	return Finding{
+		ID:          "orphan-units",
+		Name:        "Units no longer rendered",
+		Tier:        tierWarn,
+		Status:      statusWarn,
+		Detail:      strings.Join(detail, "; "),
+		Remediation: strings.Join(fix, "; "),
+		Provenance:  prov,
+	}
+}
+
 // websafeBinaryFinding compares the villa binary villa-websafe mounts against the one
 // running doctor. They differ whenever villa was moved, copied, or rebuilt somewhere else,
 // which the container will keep serving from the OLD path until install rewrites the unit.
@@ -595,17 +623,15 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	// ORPHANS — a registry unit on disk the loaded config no longer renders keeps
 	// running outside every fit until a stack apply removes it (ADR-0035). It is its
 	// own finding because its fix is `villa up`, which removes, not a re-install,
-	// which only writes.
-	if err == nil && len(plan.Removed) > 0 {
-		findings = append(findings, Finding{
-			ID:          "orphan-units",
-			Name:        "Units no longer rendered",
-			Tier:        tierWarn,
-			Status:      statusWarn,
-			Detail:      "on-disk Quadlet units the config no longer renders: " + changedUnitNames(plan.Removed),
-			Remediation: "run `villa up` to stop and remove them",
-			Provenance:  "orchestrate.Orphans (non-empty Plan.Removed)",
-		})
+	// which only writes. The same finding names a registry service that is still
+	// active with its unit file already gone: the file keys the check above, and
+	// nothing else would name that container (#344).
+	if err == nil {
+		files := changedUnitNames(plan.Removed)
+		stray := d.strayServices(slices.Concat(plan.Unchanged, plan.Changed))
+		if files != "" || len(stray) > 0 {
+			findings = append(findings, orphanFinding(files, stray))
+		}
 	}
 
 	// NETWORKS — the running containers and networks against the units the config

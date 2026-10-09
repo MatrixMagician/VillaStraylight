@@ -195,11 +195,12 @@ func requireWaitsForStackLock(t *testing.T, run func()) {
 // mutation. orchestrate.NewSystemd is the only way cmd/villa obtains a Systemd, so a
 // function that never references it cannot stop or restart a service.
 var lockSinks = map[string]bool{
-	"stackapply.Apply":       true,
-	"stackapply.Restore":     true,
-	"orchestrate.WriteUnits": true,
-	"config.SaveVilla":       true,
-	"orchestrate.NewSystemd": true,
+	"stackapply.Apply":        true,
+	"stackapply.Restore":      true,
+	"orchestrate.WriteUnits":  true,
+	"orchestrate.RemoveUnits": true,
+	"config.SaveVilla":        true,
+	"orchestrate.NewSystemd":  true,
 }
 
 // localSinks are cmd/villa's own functions whose reference marks a stack mutation the

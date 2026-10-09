@@ -101,6 +101,36 @@ func (d Deps) unitDrift(cfg config.VillaConfig) (orchestrate.Plan, error) {
 	return plan, nil
 }
 
+// strayServices names the registry services that are active while the config does not
+// render their unit and the unit file is absent: a container nothing on disk names
+// (#344). A state that cannot be read is not named, since doctor reports only what it
+// saw; an unreadable unit file is not absence.
+func (d Deps) strayServices(rendered []orchestrate.Unit) []string {
+	if d.IsActive == nil {
+		return nil
+	}
+	names := make(map[string]bool, len(rendered))
+	for _, u := range rendered {
+		names[u.Name] = true
+	}
+	var stray []string
+	for _, k := range subsystem.Every {
+		units, services := k.EveryUnit()
+		for i, name := range units {
+			if names[name] || !strings.HasSuffix(name, ".container") {
+				continue
+			}
+			if _, err := d.ReadUnit(name); !errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if state, err := d.IsActive(services[i]); err == nil && (state == "active" || state == "activating" || state == "reloading") {
+				stray = append(stray, services[i])
+			}
+		}
+	}
+	return stray
+}
+
 // sandboxNetwork is SBX-02: the villa-sandbox.network unit must be on disk and the
 // inference PROXY unit joined to it. villa-llama itself joins villa.network only
 // (ADR-0011): the proxy is the one unit on both networks, so it is the one whose
