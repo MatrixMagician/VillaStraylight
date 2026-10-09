@@ -51,8 +51,8 @@ func TestSearchResidencyDriveOutlastsSettle(t *testing.T) {
 		t.Errorf("max_tokens %d at %d tok/s ends in %v, want >= %dx the %v settle", body.MaxTokens, searchResidencyDecodeRateMax, fastest, margin, searchResidencySettle)
 	}
 	slowest := time.Duration(float64(searchResidencyDriveRounds*body.MaxTokens) / searchResidencyDecodeRateMin * float64(time.Second))
-	if slowest > agentProofBudget {
-		t.Errorf("%d rounds x %d tokens at %d tok/s takes %v, over agentProofBudget %v", searchResidencyDriveRounds, body.MaxTokens, searchResidencyDecodeRateMin, slowest, agentProofBudget)
+	if slowest > agentProofBudgetFloor {
+		t.Errorf("%d rounds x %d tokens at %d tok/s takes %v, over agentProofBudgetFloor %v", searchResidencyDriveRounds, body.MaxTokens, searchResidencyDecodeRateMin, slowest, agentProofBudgetFloor)
 	}
 }
 

@@ -50,8 +50,8 @@ func TestRenderQdrant(t *testing.T) {
 	if !strings.Contains(c.Text, "Network=villa-closed.network") {
 		t.Errorf("qdrant unit missing Network=villa-closed.network:\n%s", c.Text)
 	}
-	if strings.Contains(c.Text, "Environment=") {
-		t.Errorf("qdrant unit must carry no Environment= block:\n%s", c.Text)
+	if got := lines(c.Text, "Environment="); len(got) != 1 || got[0] != "Environment=QDRANT__TELEMETRY_DISABLED=true" {
+		t.Errorf("qdrant unit must carry exactly the telemetry-off Environment= line, got %q", got)
 	}
 }
 

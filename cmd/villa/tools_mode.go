@@ -261,22 +261,23 @@ func liveToolsProve(on bool) func(context.Context, string) prove.Verdict {
 			return noteVerdict(v, "the tool call went unproven: the agent binary is not on disk (`villa install --coding-agent`)")
 		}
 
-		probeCtx, cancel := context.WithTimeout(ctx, agentProofBudget)
+		budget := liveAgentBudget(ctx, cfg)
+		probeCtx, cancel := context.WithTimeout(ctx, budget.Budget)
 		defer cancel()
 		completed, probeErr := liveAgentToolCallProbe(probeCtx)()
 		switch {
 		case probeErr != nil:
 			return prove.Verdict{
 				Status: prove.StatusFail,
-				Detail: fmt.Sprintf("resident, but the tool-call round-trip failed to run: %v", probeErr),
+				Detail: fmt.Sprintf("resident, but the tool-call round-trip failed to run: %v (%s)", probeErr, budget),
 			}
 		case !completed:
 			return prove.Verdict{
 				Status: prove.StatusFail,
-				Detail: "resident, but the served model did not complete the read→edit tool-call round-trip",
+				Detail: fmt.Sprintf("resident, but the served model did not complete the read→edit tool-call round-trip (%s)", budget),
 			}
 		}
-		return noteVerdict(v, "and completed a real read→edit tool-call round-trip")
+		return noteVerdict(v, "and completed a real read→edit tool-call round-trip ("+budget.String()+")")
 	}
 }
 
