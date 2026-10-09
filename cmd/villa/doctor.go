@@ -300,6 +300,8 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		ReadUnit:                 liveReadUnit,
 		RenderUnits:              liveRenderUnits,
 		RunningVilla:             hostVillaPath,
+		ContainerNetworks:        liveContainerNetworks,
+		NetworkInternal:          liveNetworkInternal,
 		// The agent drift reads reuse the code.go accessors (agentBinPath /
 		// hashFileSHA256 / crushConfigPath) and agent.Render; no re-typed literal.
 		AgentBinarySHA:  func() (string, bool, error) { return hashFileSHA256(agentBinPath()) },

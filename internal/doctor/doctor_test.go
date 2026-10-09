@@ -136,6 +136,8 @@ func newDoctorDeps() *run {
 		AgentResidencyUnderLoad:  passVerdict,
 		SearchResidencyUnderLoad: passVerdict,
 		ImageResidency:           passVerdict,
+		ContainerNetworks:        func() (map[string][]string, error) { return map[string][]string{}, nil },
+		NetworkInternal:          func() (map[string]bool, error) { return map[string]bool{}, nil },
 	}
 	r.cleanAgentDrift()
 	return r
@@ -1273,16 +1275,17 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 
 // --- issue #141: the websafe-binary finding (reportSchemaVersion 5→6) ---
 
-// TestDoctorSchemaVersionIsTen: doctor's OWN --json contract self-version was
+// TestDoctorSchemaVersionIsTwelve: doctor's OWN --json contract self-version was
 // bumped append-only 6→7 for the sandbox fold (SBX-01/SBX-02, issue #176), 7→8
 // for the TMD-01 tools-mode drift finding (issue #173), 8→9 for the reranker
 // health row (ADR-0028), 9→10 for the extractor health row (ADR-0033) and 10→11
-// for the orphan-units finding (ADR-0035). The const is the single source of truth
-// — Aggregate stamps it on every Report. INDEPENDENT of status's reportSchemaVersion.
-func TestDoctorSchemaVersionIsEleven(t *testing.T) {
+// for the orphan-units finding (ADR-0035) and 11→12 for the networks finding
+// (ADR-0036). The const is the single source of truth — Aggregate stamps it on
+// every Report. INDEPENDENT of status's reportSchemaVersion.
+func TestDoctorSchemaVersionIsTwelve(t *testing.T) {
 	r := newDoctorDeps().aggregate()
-	if r.SchemaVersion != 11 {
-		t.Fatalf("Report.SchemaVersion = %d, want 11 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row and orphan-units)", r.SchemaVersion)
+	if r.SchemaVersion != 12 {
+		t.Fatalf("Report.SchemaVersion = %d, want 12 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row, orphan-units and networks)", r.SchemaVersion)
 	}
 }
 

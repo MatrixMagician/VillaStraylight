@@ -98,8 +98,17 @@
       "detail": "on-disk units match the rendered-from-config units",
       "remediation": "",
       "provenance": "orchestrate.Reconcile (empty Plan.Changed)"
+    },
+    {
+      "id": "networks",
+      "name": "Container networks",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "every running villa container is on the networks its unit joins, and every internal network has no route out",
+      "remediation": "",
+      "provenance": "rendered units vs `podman ps` + `podman network ls`"
     }
   ],
   "overall": "PASS",
-  "schema_version": 11
+  "schema_version": 12
 }
