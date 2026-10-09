@@ -519,6 +519,16 @@ terminal is the only way in.
   mode is on). `villa status` prints `mode  tools` on the inference line and, once
   a task has run, a `last task  <id> <state>` row.
 
+## The closed network
+
+Qdrant, the embedder, the reranker, the extractor, the voice pair and image
+generation need nothing off-box at runtime, so they join `villa-closed`, a podman
+network with no route out (ADR-0036). Open WebUI joins it as well as `villa`, so
+chat works as before. After upgrading, run `villa up` once: it writes the new
+network unit and restarts each service whose unit moved. `villa doctor` then
+reports `networks` PASS; a FAIL names the container still on its old network and
+the command that fixes it.
+
 ## Common setup issues
 
 Most first-run problems are exactly the things `villa preflight` flags. Run it

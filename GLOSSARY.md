@@ -267,6 +267,12 @@ The classifier that flags prompt-injection patterns in fetched web content. It
 flags and annotates; it never drops or rewrites content.
 _Avoid_: filter, sanitiser, injection blocker, firewall
 
+**Closed network**:
+The `Internal=true` podman network (`villa-closed`) every service with no runtime
+need to reach off-box joins, so its zero egress is enforced rather than measured.
+Open WebUI joins it and the routed `villa` network (ADR-0036).
+_Avoid_: aux network, internal network (that is the sandbox's), private network
+
 **Bounded outbound**:
 The proven limit on what the stack may reach off-box — image and model pulls,
 and nothing else.

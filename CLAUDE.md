@@ -456,7 +456,13 @@ so a compromised task VM has no route through it to the internet), and
 `villa-inferproxy` joins BOTH networks, forwarding ONLY `POST
 /v1/chat/completions` and `GET /v1/models` to `villa-llama`'s bare root and
 injecting the real `LLAMA_API_KEY` bearer on that outbound leg — so a task's
-own request never needs a valid key of its own. No container unit for the task
+own request never needs a valid key of its own. `villa-closed.network`
+(`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-qdrant`,
+`villa-embed`, `villa-rerank`, `villa-extract`, `villa-stt`, `villa-tts` and
+`villa-image` join it and nothing else, so they have no route off-box; Open WebUI
+joins both it and `villa.network`. An in-network probe runs on its target's
+network (`probeCurl` takes it), and doctor's `networks` finding compares the
+running containers and networks with the rendered units. No container unit for the task
 itself: each task is one `podman run --runtime=krun` named `villa-task-<id>`,
 rendered by `orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary
 the same way (the second reason the CGO-free gate is load-bearing).

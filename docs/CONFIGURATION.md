@@ -192,6 +192,19 @@ file and re-run `villa install` to drop the inference unit's join to
 (issue #199): it renders unconditionally, like `villa.network`, and an unjoined
 `.network` unit starts no service, so there is nothing to clean up.
 
+`villa-closed.network` renders unconditionally too, with `Internal=true` (ADR-0036).
+No config field moves it. Every service with no runtime need to reach off-box joins
+it and nothing else: `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
+`villa-stt`, `villa-tts` and `villa-image`. They have no route out, and a public
+hostname does not resolve inside them. Open WebUI joins both `villa.network` and
+`villa-closed.network`, so it reaches them by container DNS. `villa-llama`, SearXNG,
+the web loader and the inference proxy stay on `villa.network`. villa's in-network
+probes run on their target's network. `villa doctor` reports `networks`: every
+running container must be on exactly the networks its unit joins, and
+`villa-closed` must be internal on the host. Quadlet creates a network with
+`podman network create --ignore`, so a `villa-closed` that existed before villa
+rendered it keeps its route; the finding names the fix.
+
 `workspace` holds absolute paths after symlink resolution. `villa workspace add`
 refuses a relative path, the home directory itself, a path outside it, a path
 overlapping villa's own XDG config or data root, a path nested with an existing
@@ -404,7 +417,7 @@ so its entrypoint never re-runs the weight download. Open WebUI gets
 `AUDIO_STT_MODEL=whisper-1`, `AUDIO_TTS_ENGINE=openai`,
 `AUDIO_TTS_OPENAI_API_BASE_URL=http://villa-tts:8880/v1`, `AUDIO_TTS_MODEL=kokoro` and
 `AUDIO_TTS_VOICE=af_heart`; both API keys carry the no-auth sentinel, because neither
-unit checks one and both are reachable only on `villa.network`.
+unit checks one and both are reachable only on `villa-closed` (ADR-0036).
 
 **Inference (llama-server) runtime flags** are fixed for Strix Halo stability and
 sourced from the backend seam (`internal/inference/backend_rocm.go` /
@@ -494,7 +507,7 @@ host port. Its flags come from `internal/inference/image_server.go`:
 
 | Flag | Purpose |
 |------|---------|
-| `--listen-ip 0.0.0.0 --listen-port 1234` | Container-internal bind only; reachable from `villa.network` alone. |
+| `--listen-ip 0.0.0.0 --listen-port 1234` | Container-internal bind only; reachable from `villa-closed` alone (ADR-0036). |
 | `--diffusion-model`, `--llm`, `--vae` | The entry's three files under `/models`, each under its own flag. |
 | `--backend Vulkan0 --params-backend Vulkan0` | Explicit placement on the Vulkan device, which disables sd-server's auto-fit (the default places params on the GPU, RAM or disk by free memory, a silent CPU fallback). |
 | `--eager-load` | Load every param at start, so the footprint is held from the first moment and the placement line is in the journal before the proof's first request. |
