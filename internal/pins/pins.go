@@ -121,6 +121,8 @@ const (
 	Whisper ComponentID = orchestrate.ComponentWhisper
 	// Kokoro is the villa-tts text-to-speech image (Kokoro-FastAPI, CPU build).
 	Kokoro ComponentID = orchestrate.ComponentKokoro
+	// ImageServer is the sd.cpp sd-server image villa-image runs (#312).
+	ImageServer ComponentID = orchestrate.ComponentImage
 )
 
 // Pin is one component's pinned value.
@@ -401,6 +403,17 @@ func Table() []Entry {
 			Registry:  registryGHCR,
 			Version:   "0.9.0",
 			Vetted:    func() Pin { return Pin{Ref: orchestrate.KokoroImage()} },
+		},
+		{
+			Component: ImageServer,
+			Subsystem: subsystem.Image,
+			// master-vulkan is rebuilt on every upstream push: a rolling digest with
+			// no version to name. Not yet named in the signed manifest (the
+			// backend-rocm-10.0 precedent, ADR-0022): it reports as current against
+			// this compiled-in pin until a later manifest offers a newer digest.
+			Shape:    RollingDigest,
+			Registry: registryGHCR,
+			Vetted:   func() Pin { return Pin{Ref: orchestrate.ImageServerImage()} },
 		},
 	}
 }

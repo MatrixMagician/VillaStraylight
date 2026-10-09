@@ -516,12 +516,12 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 		{
 			name: "memory-off",
 			in:   fixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(fixtureInput().Cfg), false, false, false, false, false, "", 0, 0, "", 0, nil, "").Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(fixtureInput().Cfg), false, false, false, false, false, "", 0, 0, "", 0, nil, "", nil).Env,
 		},
 		{
 			name: "memory-on",
 			in:   memoryFixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(memoryFixtureInput().Cfg), true, false, false, false, false, "", 0, 0, "", 0, nil, "").Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(memoryFixtureInput().Cfg), true, false, false, false, false, "", 0, 0, "", 0, nil, "", nil).Env,
 		},
 		{
 			// Phase-30 drift guard: the web-search-on view binds every web-search
@@ -533,14 +533,20 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 			// off); the literal 3 matches its WebSearchResultCount and the rendered unit.
 			name: "websearch-on",
 			in:   searxngFixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(searxngFixtureInput().Cfg), false, false, false, true, false, "villa-searxng", 8080, 3, "villa-websafe", 8090, nil, "").Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(searxngFixtureInput().Cfg), false, false, false, true, false, "villa-searxng", 8080, 3, "villa-websafe", 8090, nil, "", nil).Env,
 		},
 		{
 			// The voice-on view binds the nine audio keys and the trailing
 			// ENABLE_PERSISTENT_CONFIG=False the same way.
 			name: "voice-on",
 			in:   voiceFixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(voiceFixtureInput().Cfg), false, false, false, false, true, "", 0, 0, "", 0, nil, "").Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(voiceFixtureInput().Cfg), false, false, false, false, true, "", 0, 0, "", 0, nil, "", nil).Env,
+		},
+		{
+			// The image-on view binds every image KEY the same way (#312).
+			name: "image-on",
+			in:   imageFixtureInput(),
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(imageFixtureInput().Cfg), false, false, false, false, false, "", 0, 0, "", 0, nil, "", imageFixtureInput().Image).Env,
 		},
 	}
 

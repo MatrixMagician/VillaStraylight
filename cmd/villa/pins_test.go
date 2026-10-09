@@ -39,6 +39,17 @@ func pinnedFixtureConfig() config.VillaConfig {
 		EmbeddingDim:     768,
 		WebSearchEnabled: true,
 		VoiceEnabled:     true,
+		ImageEnabled:     true,
+		ImageModel:       "z-image-turbo",
+	}
+}
+
+// pinnedFixtureImage is the resolved image model the fixture renders villa-image
+// with; stackapply.input resolves it from the image table in the live path.
+func pinnedFixtureImage() *orchestrate.ImageServe {
+	return &orchestrate.ImageServe{
+		DiffusionFile: "z_image_turbo-Q8_0.gguf", TextEncoderFile: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", VAEFile: "z-image-turbo-ae.safetensors",
+		Steps: 8, CfgScale: 1, Width: 1024, Height: 1024,
 	}
 }
 
@@ -58,6 +69,7 @@ func renderWithState(t *testing.T, state pinstate.State) []orchestrate.Unit {
 		ModelFile:     "model.gguf",
 		ModelsDir:     "/models",
 		HostVillaPath: "/usr/local/bin/villa",
+		Image:         pinnedFixtureImage(),
 		Pin:           livePinFunc(r),
 	})
 	if err != nil {
@@ -117,6 +129,7 @@ func TestARecordedPinReachesTheRenderedUnit(t *testing.T) {
 		{pins.SearXNG, "example.invalid/searxng@sha256:eeee"},
 		{pins.Websafe, "example.invalid/websafe@sha256:ffff"},
 		{pins.Extractor, "example.invalid/tika@sha256:abab"},
+		{pins.ImageServer, "example.invalid/sd-server@sha256:1111"},
 	}
 
 	for _, tc := range cases {

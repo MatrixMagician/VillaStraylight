@@ -101,24 +101,30 @@ type GPUAccess struct {
 	Devices []string
 	// Groups are Quadlet GroupAdd= / podman --group-add values.
 	Groups []string
+	// SecurityOpts are podman --security-opt values: the kyuz0-documented
+	// seccomp=unconfined minimum, which the image server was measured under too.
+	SecurityOpts []string
 }
 
-// vulkanGPUAccess is the one home of the Vulkan device-access pair.
+// vulkanGPUAccess is the one home of the Vulkan device-access set.
 var vulkanGPUAccess = GPUAccess{
-	Devices: []string{"/dev/dri"},
-	Groups:  []string{"keep-groups"},
+	Devices:      []string{"/dev/dri"},
+	Groups:       []string{"keep-groups"},
+	SecurityOpts: []string{"seccomp=unconfined"},
 }
 
 // VulkanGPUAccess returns the Vulkan device access, copied so a caller cannot
 // append to the seam's own slices.
 func VulkanGPUAccess() GPUAccess {
 	return GPUAccess{
-		Devices: append([]string(nil), vulkanGPUAccess.Devices...),
-		Groups:  append([]string(nil), vulkanGPUAccess.Groups...),
+		Devices:      append([]string(nil), vulkanGPUAccess.Devices...),
+		Groups:       append([]string(nil), vulkanGPUAccess.Groups...),
+		SecurityOpts: append([]string(nil), vulkanGPUAccess.SecurityOpts...),
 	}
 }
 
-// deviceArgs renders a GPUAccess as podman run flags, in device-then-group order.
+// deviceArgs renders a GPUAccess as podman run flags: devices, groups, then
+// security options.
 func (g GPUAccess) deviceArgs() []string {
 	var args []string
 	for _, d := range g.Devices {
@@ -126,6 +132,9 @@ func (g GPUAccess) deviceArgs() []string {
 	}
 	for _, grp := range g.Groups {
 		args = append(args, "--group-add", grp)
+	}
+	for _, opt := range g.SecurityOpts {
+		args = append(args, "--security-opt", opt)
 	}
 	return args
 }
@@ -167,7 +176,6 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 	}
 	args = append(args, vulkanGPUAccess.deviceArgs()...)
 	args = append(args,
-		"--security-opt", "seccomp=unconfined",
 		"-p", hostPublish,
 		"-v", modelBind,
 	)

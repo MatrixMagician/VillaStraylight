@@ -192,7 +192,18 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
+	// Image generation (#312): the gate is answered once here. An on-gate with no
+	// resolved model is a refusal, never a unit with empty weight paths, and Open
+	// WebUI's image group is rendered from the same ImageServe as the unit's Exec.
+	imageOn := subsystem.ImageOn(in.Cfg)
+	if imageOn && in.Image == nil {
+		return nil, fmt.Errorf("orchestrate: image generation is on but no image model was resolved")
+	}
+	var imageEnv *ImageServe
+	if imageOn {
+		imageEnv = in.Image
+	}
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret, imageEnv))
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +329,19 @@ func Render(in RenderInput) ([]Unit, error) {
 			return nil, err
 		}
 		units = append(units, Unit{Name: websafeContainerUnitName, Text: websafeContainerText})
+	}
+
+	// Image generation (#312): the villa-image managed service, appended after the
+	// web-search block and BEFORE villa-inferproxy so the sandbox network stays last.
+	// Its device access and sd-server argv come from the inference seam; the pure
+	// renderer joins them.
+	if imageOn {
+		imageContainerText, err := execTemplate(tmpl, "image.container.tmpl",
+			buildImageView(in.pinOr(ComponentImage, imageServerImage), *in.Image, inference.VulkanGPUAccess(), config.ImageAddr, config.ImagePort))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: imageContainerUnitName, Text: imageContainerText})
 	}
 
 	// v1.11.1 workspace agent (GHSA-gvp9, ADR-0011): the villa-inferproxy

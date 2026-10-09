@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/voice"
 )
@@ -181,7 +182,11 @@ type openWebUIVolumeView struct {
 // install's first boot, and SyncEndpointsWithKey already reconciles the running
 // connection list's real keys afterward through OWUI's admin API, no file, no
 // unit.
-func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, extractOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
+//
+// imageServe is the resolved image model when image generation is on, nil
+// otherwise (#312). Non-nil appends the image env group after the web-search
+// group; the trailing persistent-config gate covers it like the other groups.
+func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, extractOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string, imageServe *ImageServe) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
@@ -369,13 +374,18 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 		)
 	}
 
-	if memoryEnabled || webSearchEnabled || voiceEnabled {
-		// (MANDATORY, load-bearing —, extended to the web-search ConfigVars):
-		// force OWUI to always read the appended ConfigVar keys (memory AND/OR web-search)
-		// from env, ignoring the DB. Without it those keys are silently ignored after
-		// first boot and config is NOT the single source of truth — its absence is a phase
-		// failure. Emitted exactly ONCE and LAST, regardless of which group(s) are on
-		// (never duplicated per-group, never dropped when web search is on but memory off).
+	if imageServe != nil {
+		env = append(env, imageOpenWebUIEnv(*imageServe, config.ImageAddr, config.ImagePort)...)
+	}
+
+	if memoryEnabled || webSearchEnabled || voiceEnabled || imageServe != nil {
+		// (MANDATORY, load-bearing —, extended to the web-search, audio and image ConfigVars):
+		// force OWUI to always read the appended ConfigVar keys (memory AND/OR web-search
+		// AND/OR audio AND/OR image) from env, ignoring the DB. Without it those keys are
+		// silently ignored after first boot and config is NOT the single source of truth —
+		// its absence is a phase failure. Emitted exactly ONCE and LAST, regardless of
+		// which group(s) are on (never duplicated per-group, never dropped when one group
+		// is on and another off).
 		env = append(env, envPair{Key: "ENABLE_PERSISTENT_CONFIG", Value: "False"})
 	}
 

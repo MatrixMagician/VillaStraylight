@@ -84,9 +84,9 @@ const (
 	// Voice is speech-to-text plus text-to-speech, villa-stt and villa-tts, proved
 	// together by one spoken round trip (ADR-0030).
 	Voice
-	// Image is local image generation: stable-diffusion.cpp's sd-server on Vulkan
-	// RADV, wired into Open WebUI. It owns no persistent state: villa-image mounts
-	// the models volume read-only.
+	// Image is local image generation: sd.cpp's sd-server on Vulkan RADV, wired
+	// into Open WebUI. It owns no persistent state: villa-image mounts the models
+	// volume read-only.
 	Image
 )
 

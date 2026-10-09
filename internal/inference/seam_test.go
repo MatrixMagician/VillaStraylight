@@ -92,7 +92,10 @@ func TestSeamGrepGate(t *testing.T) {
 		// literals still land ONLY in the seam (backend_rocm.go), and the regex extended
 		// in the SAME commit; the kyuz0|docker.io/ alternatives remain
 		// an un-anchored backstop that catches any image string regardless of tag.
-		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-10\.0|rocm-10\.0@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
+		// leejet|stable-diffusion\.cpp (#312): the sd-server image literal may live
+		// only in orchestrate/image.go (allowlisted below, the managed-service
+		// precedent) or in the seam. Added in the SAME commit as the literal.
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-10\.0|rocm-10\.0@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies|leejet|stable-diffusion\.cpp`),
 		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
 		"podman invocation":       regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}
@@ -156,12 +159,18 @@ func TestSeamGrepGate(t *testing.T) {
 		// docker.io/ literal would trip the "container image literal" regex without
 		// this allowlist; it is extended in the SAME commit as the const, mirroring the
 		// orchestrate/searxng.go precedent (Pitfall 5).
+		// orchestrate/image.go: the villa-image MANAGED-SERVICE image literal
+		// (ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:…) lives here,
+		// the same category as searxngImage. Its device access and its sd-server
+		// flags come from the seam (inference.VulkanGPUAccess, ImageServerArgs), so
+		// the image literal is the only pattern this entry exempts in practice.
 		return strings.HasPrefix(rel, "inference/") ||
 			rel == "detect/gpu_amd.go" ||
 			rel == "orchestrate/memory.go" ||
 			rel == "orchestrate/searxng.go" ||
 			rel == "orchestrate/websafe.go" ||
-			rel == "orchestrate/extract.go"
+			rel == "orchestrate/extract.go" ||
+			rel == "orchestrate/image.go"
 	}
 
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {

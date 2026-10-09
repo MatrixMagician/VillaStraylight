@@ -66,6 +66,8 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-stt.container"},
 		{name: "villa-tts.container"},
 	},
+	// villa-image has no `on`: its presence is the Image Kind's own gate.
+	Image: {{name: "villa-image.container"}},
 }
 
 // serviceOf is the Quadlet mapping: villa-x.container → villa-x.service.

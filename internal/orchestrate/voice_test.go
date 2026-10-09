@@ -115,6 +115,7 @@ func TestRenderVoiceUnitsAfterInferproxyBeforeSandboxNetwork(t *testing.T) {
 		"villa-extract.container",
 		"villa-searxng.container",
 		"villa-websafe.container",
+		"villa-image.container",
 		"villa-inferproxy.container",
 		"villa-stt.container",
 		"villa-tts.container",

@@ -91,6 +91,12 @@ type RenderInput struct {
 	// pure renderer never imports internal/catalog (the CodingMode precedent above).
 	Resident []ResidentUnit
 
+	// Image is the resolved image model villa-image serves, set by the caller when
+	// subsystem.ImageOn(Cfg) (stackapply.input resolves it from catalog.Image, the
+	// coding-descriptor precedent). Render REFUSES image-on with a nil Image rather
+	// than render a unit with empty weight paths. The renderer stays catalog-free.
+	Image *ImageServe
+
 	// Pin resolves a managed-service component to the image this host should
 	// actually run, returning "" for "use the compiled-in pin".
 	//
