@@ -182,14 +182,14 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.6 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.9 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
 
 ### Runtime
 
-- Go 1.26.6 (from `go.mod`). Compiles to a single static binary `villa`.
+- Go 1.26.9 (from `go.mod`). Compiles to a single static binary `villa`.
 - Target host OS: Fedora Workstation 44+ (Linux kernel >= 6.18.4) on AMD Strix Halo (gfx1151). The binary is the control plane; AI workloads run as rootless Podman containers under the user systemd manager.
 - Go modules (`go.mod` / `go.sum`).
 - Lockfile: present (`go.sum`).
@@ -234,7 +234,7 @@ convenience.
 
 ### Platform Requirements
 
-- Go 1.26.6 toolchain.
+- Go 1.26.9 toolchain.
 - For end-to-end runtime testing: a Fedora host with rootless Podman, `systemctl --user`, and the AMD GPU stack (`/dev/dri`, optionally `/dev/kfd` for ROCm). Host probe tools used when present: `vulkaninfo`, `rocminfo`, `rpm`, `setsebool`, `loginctl`, `journalctl`.
 - Fedora Workstation 44+ on AMD Strix Halo (gfx1151), kernel >= 6.18.4, linux-firmware >= 20260110 (firmware 20251125 explicitly denied for ROCm).
 - Rootless Podman v5 with the user socket/manager; user lingering enabled (`loginctl enable-linger`) so Quadlet services survive logout/reboot.
