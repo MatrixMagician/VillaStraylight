@@ -18,27 +18,46 @@ import (
 	"strings"
 )
 
-// procNetTCPPaths are consulted in order. tcp6 also carries IPv4-mapped
-// connections on a dual-stack listener, so both are always checked regardless of
-// the peer's address family.
-var procNetTCPPaths = []string{"/proc/net/tcp", "/proc/net/tcp6"}
+// procNetTCPFiles are consulted in order. /proc/net/tcp lists AF_INET sockets and
+// /proc/net/tcp6 lists AF_INET6 sockets, where an IPv4 connection appears
+// IPv4-mapped, so each file's addresses are encoded in that file's own family and
+// both are always checked regardless of the peer's address family.
+var procNetTCPFiles = []struct {
+	path string
+	v6   bool
+}{
+	{"/proc/net/tcp", false},
+	{"/proc/net/tcp6", true},
+}
 
-// lookupPeerUID resolves the UID that owns the local socket at addr — i.e. the
-// connecting peer's own end of the connection, which is what net.Conn.RemoteAddr
-// reports on the accepting side — by scanning /proc/net/tcp and /proc/net/tcp6.
-// It fails closed: any read error or an unmatched socket reports (0, false), never
-// a default UID.
-func lookupPeerUID(addr *net.TCPAddr) (int, bool) {
-	if addr == nil {
+// tcpEstablished is the st column of an ESTABLISHED socket.
+const tcpEstablished = "01"
+
+// lookupPeerUID resolves the UID that owns the connecting peer's socket: the
+// /proc/net/tcp[6] row whose local_address is peer (net.Conn.RemoteAddr on the
+// accepting side), whose rem_address is local (the accepting side's
+// net.Conn.LocalAddr), and whose state is ESTABLISHED. Several sockets can share
+// the peer's address:port (connections to other remotes, TIME_WAIT rows), so
+// only the whole connection names one socket. It fails closed: any read error or
+// an unmatched socket reports (0, false), never a default UID.
+func lookupPeerUID(peer, local *net.TCPAddr) (int, bool) {
+	if peer == nil || local == nil {
 		return 0, false
 	}
-	needle := encodeProcNetAddr(addr.IP, addr.Port)
-	for _, path := range procNetTCPPaths {
-		f, err := os.Open(path) //nolint:gosec // fixed procfs path
+	for _, file := range procNetTCPFiles {
+		peerAddr, ok := encodeProcNetAddr(peer.IP, peer.Port, file.v6)
+		if !ok {
+			continue
+		}
+		localAddr, ok := encodeProcNetAddr(local.IP, local.Port, file.v6)
+		if !ok {
+			continue
+		}
+		f, err := os.Open(file.path) //nolint:gosec // fixed procfs path
 		if err != nil {
 			continue
 		}
-		uid, ok := scanProcNetTCP(f, needle)
+		uid, ok := scanProcNetTCP(f, peerAddr, localAddr)
 		f.Close()
 		if ok {
 			return uid, true
@@ -47,17 +66,26 @@ func lookupPeerUID(addr *net.TCPAddr) (int, bool) {
 	return 0, false
 }
 
+// procNetTCPRow is the part of one /proc/net/tcp[6] data row the lookup reads,
+// addresses in the file's own "ADDR:PORT" hex encoding.
+type procNetTCPRow struct {
+	local, remote string
+	state         string
+	uid           int
+}
+
 // scanProcNetTCP is the pure line-scanning core: given the body of a /proc/net/tcp[6]
-// file and a needle in that file's own "ADDR:PORT" hex encoding, it returns the uid
-// column of the first matching row. Separated from lookupPeerUID so it is
-// table-testable against fixture text without a real /proc.
-func scanProcNetTCP(r io.Reader, needle string) (int, bool) {
+// file, it returns the uid of the ESTABLISHED row whose local_address is peer and
+// whose rem_address is local, both in that file's own encoding. Separated from
+// lookupPeerUID so it is table-testable against fixture text without a real /proc.
+func scanProcNetTCP(r io.Reader, peer, local string) (int, bool) {
 	sc := bufio.NewScanner(r)
 	sc.Scan() // header line ("sl local_address rem_address st ... uid ...")
 	for sc.Scan() {
-		localAddr, uid, ok := parseProcNetTCPLine(sc.Text())
-		if ok && strings.EqualFold(localAddr, needle) {
-			return uid, true
+		row, ok := parseProcNetTCPLine(sc.Text())
+		if ok && row.state == tcpEstablished &&
+			strings.EqualFold(row.local, peer) && strings.EqualFold(row.remote, local) {
+			return row.uid, true
 		}
 	}
 	return 0, false
@@ -66,34 +94,38 @@ func scanProcNetTCP(r io.Reader, needle string) (int, bool) {
 // parseProcNetTCPLine parses one data row of /proc/net/tcp[6]. The columns are
 // whitespace-separated: sl, local_address, rem_address, st, tx_queue:rx_queue,
 // tr:tm->when, retrnsmt, uid, timeout, inode, ... — so uid is field index 7.
-func parseProcNetTCPLine(line string) (localAddr string, uid int, ok bool) {
+func parseProcNetTCPLine(line string) (procNetTCPRow, bool) {
 	fields := strings.Fields(line)
 	if len(fields) < 8 {
-		return "", 0, false
+		return procNetTCPRow{}, false
 	}
 	uid, err := strconv.Atoi(fields[7])
 	if err != nil {
-		return "", 0, false
+		return procNetTCPRow{}, false
 	}
-	return fields[1], uid, true
+	return procNetTCPRow{local: fields[1], remote: fields[2], state: fields[3], uid: uid}, true
 }
 
 // encodeProcNetAddr renders ip:port in /proc/net/tcp[6]'s own encoding: uppercase
 // hex, each 32-bit word byte-reversed from network order (the kernel prints its
 // native little-endian in-memory representation of the address), colon-joined with
-// the port in plain (non-reversed) uppercase hex.
-func encodeProcNetAddr(ip net.IP, port int) string {
+// the port in plain (non-reversed) uppercase hex. v6 selects /proc/net/tcp6's four
+// words, where an IPv4 address is IPv4-mapped; /proc/net/tcp has one word, so an
+// IPv6 address has no encoding there and reports false.
+func encodeProcNetAddr(ip net.IP, port int, v6 bool) (string, bool) {
+	addr := ip.To4()
+	if v6 {
+		addr = ip.To16()
+	}
+	if addr == nil {
+		return "", false
+	}
 	var b strings.Builder
-	if v4 := ip.To4(); v4 != nil {
-		b.WriteString(encodeProcNetWord(v4))
-	} else {
-		v6 := ip.To16()
-		for i := 0; i < 16; i += 4 {
-			b.WriteString(encodeProcNetWord(v6[i : i+4]))
-		}
+	for i := 0; i < len(addr); i += 4 {
+		b.WriteString(encodeProcNetWord(addr[i : i+4]))
 	}
 	fmt.Fprintf(&b, ":%04X", port)
-	return b.String()
+	return b.String(), true
 }
 
 // encodeProcNetWord reverses one 4-byte big-endian chunk into /proc/net/tcp's
@@ -113,7 +145,7 @@ func encodeProcNetWord(b []byte) string {
 type peerUIDListener struct {
 	net.Listener
 	allowedUID int
-	lookup     func(*net.TCPAddr) (int, bool)
+	lookup     func(peer, local *net.TCPAddr) (int, bool)
 }
 
 // newPeerUIDListener wraps inner, defaulting lookup to the real /proc/net/tcp[6]
@@ -132,12 +164,13 @@ func (l *peerUIDListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
-		if !ok {
+		peer, peerOK := conn.RemoteAddr().(*net.TCPAddr)
+		local, localOK := conn.LocalAddr().(*net.TCPAddr)
+		if !peerOK || !localOK {
 			conn.Close()
 			continue
 		}
-		uid, ok := l.lookup(tcpAddr)
+		uid, ok := l.lookup(peer, local)
 		if !ok || uid != l.allowedUID {
 			conn.Close()
 			continue
