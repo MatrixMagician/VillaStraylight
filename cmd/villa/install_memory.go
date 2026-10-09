@@ -431,7 +431,7 @@ func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput
 	var extractProbe func() (string, error)
 	if in.extract {
 		extractProbe = func() (string, error) {
-			return postExtract(ctx, helperImage, in.extractAddr, in.extractPort, "text/plain", []byte(extractProbeBody))
+			return postExtract(ctx, d.image, in.extractAddr, in.extractPort, "text/plain", []byte(extractProbeBody))
 		}
 	}
 
