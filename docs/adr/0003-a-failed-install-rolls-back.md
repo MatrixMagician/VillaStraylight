@@ -48,7 +48,7 @@ restoration: the result says the stack is in an indeterminate state and names wh
 could not be undone, because a wrong "restored" claim is worse than an honest
 "partially restored".
 
-The captured state is the config, the unit files, and which services were running.
+The captured state is the config, the unit files (the native `villa-dashboard.service` in the user-unit dir among them, restored there and reloaded before the dashboard restarts), and which services were running.
 Model weights and container images are NOT captured or removed. They are large,
 expensive to re-acquire, and inert on their own: an unused GGUF on disk harms
 nothing, while re-downloading tens of gigabytes after a transient failure is a real
