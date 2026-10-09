@@ -20,7 +20,7 @@ import (
 // prescribed; RESEARCH §Package Legitimacy Audit: same provenance as the audited Vulkan
 // image — pin the digest, Pitfall 12 / T-6-04 /: the rolling tag is silently
 // rebuilt by kyuz0, the @sha256 digest is not). NEVER the ROCm nightlies tag — it carries
-// the 64 GB allocation-cap bug that blocks large models (CLAUDE.md "What NOT to Use").
+// the 64 GB allocation-cap bug that blocks large models (rocm-policy.json imageDeny).
 //
 //   - rocmImage724:     the stable ROCm 7.2.4 image — what BackendFor("rocm") still means
 //
