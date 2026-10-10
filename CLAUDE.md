@@ -64,7 +64,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
-  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--image`),
+  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`),
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
@@ -72,7 +72,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),
-  backup, restore, uninstall.
+  backup, restore, update, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -275,6 +275,10 @@ convenience.
 | Speech-to-text (whisper.cpp, Vulkan; ADR-0030) | `ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:8bbf6a98…7bc88955` | `internal/orchestrate/voice.go` |
 | Text-to-speech (Kokoro-FastAPI, CPU; ADR-0030) | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0@sha256:7f9a2569…7d9f2985` | `internal/orchestrate/voice.go` |
 
+The table is not exhaustive: the memory, web-search, extractor and image units pin their
+images in `internal/orchestrate/{memory,searxng,websafe,extract,image}.go`, and
+`pins.Table()` (`internal/pins/pins.go`) is the enumerable list of every pinned component.
+
 ## Conventions
 
 ### Naming Patterns
@@ -415,7 +419,7 @@ convenience.
 
 Packages missing from the table (`memory`, `recall`, `agent`, `codingmode`, `websafe`,
 `backup`, `usage`, `pathsafe`, `jsonstore`, `benchstore`, `verifystate`, `voice`, `eval`,
-`evalstore`) follow the same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
+`evalstore`, `llm`, `stacklock`, `uninstall`) follow the same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
 
 ### Pattern Overview
 
@@ -423,7 +427,7 @@ Packages missing from the table (`memory`, `recall`, `agent`, `codingmode`, `web
 - **Single polymorphism point for inference backends.** `inference.BackendFor(name)` is the only place a config `backend` string becomes a concrete implementation; everything else depends on the `Backend` interface.
 - **Config is the single source of truth.** `config.toml` drives recommend → orchestrate; Quadlet units are regenerated from config, never hand-edited as the authority.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
-- **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
+- **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. The residency proof, the Open WebUI protocol, the subsystem gates, the verify shape and install's decisions each have one home; extend it rather than copying it.
 - **A gate is answered once.** The `subsystem` package's `*On` predicates (`MemoryOn`, `WebSearchOn`, `ImageOn`, …) are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
 - **Every stack-mutating flow is transactional and holds the stack lock.** Every swap runs in one frame, `stackapply.Transact` (ADR-0015), which takes the lock (ADR-0010) and restarts every changed running unit; `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
 
@@ -470,7 +474,8 @@ the same way (the second reason the CGO-free gate is load-bearing).
 
 Persistent state lives in `config.toml` (the single source of truth) and in on-disk
 Quadlet units regenerated from it. Cores hold no global mutable state; the dashboard
-server guards its one cached value with a `sync` mutex.
+server holds two `sync` mutexes: `swapMu` serializes model switches and `usageMu` guards
+the cumulative-usage write.
 
 ### Entry Points
 
@@ -483,7 +488,7 @@ server guards its one cached value with a `sync` mutex.
 
 ### Architectural Constraints
 
-- **Backend literals are seam-locked.** Container image/device/`podman`/marker literals MUST live in `internal/inference/` (and `internal/detect/gpu_amd.go`). Enforced by `TestSeamGrepGate` (`internal/inference/seam_test.go`) over both `internal/` and `cmd/villa`.
+- **Backend literals are seam-locked.** Container image/device/`podman`/marker literals MUST live in `internal/inference/` (and `internal/detect/gpu_amd.go`), except in the files the gate's allowlist names (managed-service image literals in `internal/orchestrate`, fixed-arg podman lifecycle calls). Enforced by `TestSeamGrepGate` (`internal/inference/seam_test.go`) over both `internal/` and `cmd/villa`.
 - **Impurity is confined to named seams.** Host commands run through the `Deps` seams wired in `cmd/villa` and the few internal edges that own one (`orchestrate/systemd.go`, `inference/runner_podman.go`, `detect/gpu_amd.go`, `preflight/exec.go`, `inprobe`); a pure core never imports `os/exec`. Unit writing in `WriteUnits`; all other filesystem access goes through `internal/pathsafe` (containment + atomic writes) and `internal/jsonstore`. Render/Reconcile must stay pure, and a core must not reach for `os` directly.
 - **No silent CPU fallback.** Offload assert requires BOTH log-scrape AND sysfs GTT-delta; an unevaluable signal → WARN, a confident absence → FAIL.
 - **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
