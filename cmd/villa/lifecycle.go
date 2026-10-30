@@ -52,7 +52,7 @@ func liveStackDeps() stackapply.Deps {
 	sys := orchestrate.NewSystemd()
 	return stackapply.Deps{
 		Catalog: func() (catalog.Catalog, error) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			return cat, err
 		},
 		ModelsDir:               modelsDir,
@@ -248,7 +248,7 @@ func followJournalLive(service string) error {
 // "<model>.gguf" would render a container whose -m points at a non-existent file
 // that fails only at runtime after install reports success, so block here instead.
 func liveModelFile(cfg config.VillaConfig) (string, error) {
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return "", fmt.Errorf("load model catalog: %w", err)
 	}

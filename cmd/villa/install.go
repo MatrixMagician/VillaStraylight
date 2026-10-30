@@ -129,7 +129,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 	// resolveCatalogModel is the single model-id → catalog lookup for both the
 	// on-disk check and the pull, so install never fabricates a weight path.
 	resolveCatalogModel := func(rec recommend.Recommendation) (catalog.Model, bool) {
-		cat, _, err := catalog.Load(modelCatalogPath)
+		cat, _, err := loadCatalog()
 		if err != nil {
 			return catalog.Model{}, false
 		}
@@ -140,7 +140,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		LoadConfig: liveLoadedConfig,
 		Probe:      detect.Probe,
 		Pick: func(p detect.HostProfile, ov recommend.Overrides, res []recommend.Reservation) recommend.Recommendation {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return recommend.Recommendation{}
 			}
@@ -213,7 +213,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			return liveEnsureImageModel(ctx, modelsDir, m)
 		},
 		AgentCatalog: func() (catalog.Catalog, bool) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return catalog.Catalog{}, false
 			}
@@ -338,7 +338,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 // BLOCK that refuses that case.
 func liveAgentChecks(p detect.HostProfile, rec recommend.Recommendation) []preflight.CheckResult {
 	var staged uint64
-	if cat, _, err := catalog.Load(modelCatalogPath); err == nil {
+	if cat, _, err := loadCatalog(); err == nil {
 		if sh, ok := install.CoderShardFor(rec, cat); ok {
 			staged += sh.SizeBytes
 		}

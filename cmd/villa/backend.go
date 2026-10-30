@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
-	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -186,7 +185,7 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 // recommendation does.
 func proveTarget(cfg config.VillaConfig, backend inference.Backend, host detect.HostProfile) (residency.Target, error) {
 	served, ctx := stackapply.ServedTarget(cfg)
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return residency.Target{}, fmt.Errorf("resolve model file: load model catalog: %w", err)
 	}
@@ -419,7 +418,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 		// (model = config, never re-pick) — the liveSwapDeps Fits closure keyed on
 		// cfg.Model. A non-fit returns the bytes-needed-vs-usable remediation.
 		FitsModel: func(cfg config.VillaConfig) (bool, string) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return false, "catalog load failed"
 			}

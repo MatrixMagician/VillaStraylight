@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/codingmode"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -176,7 +175,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 		// is a refuse-with-remediation; the residency verdict (swap/shared) is a PURE fit-math
 		// output, never a preference.
 		ResolveCoder: func(_ config.VillaConfig) (codingmode.CoderTarget, bool, string) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return codingmode.CoderTarget{}, false, "catalog load failed"
 			}
@@ -216,7 +215,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 		// Pull: auto-download the verified coder weights (reuse the same downloader as
 		// `model pull` / `model swap` via the pullFn seam — compose, don't fork).
 		Pull: func(t codingmode.CoderTarget) error {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return err
 			}

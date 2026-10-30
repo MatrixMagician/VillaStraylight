@@ -103,7 +103,7 @@ func runInference(cmd *cobra.Command, name string, withCeiling bool) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	cat, warnings, err := catalog.Load(modelCatalogPath)
+	cat, warnings, err := loadCatalog()
 	if err != nil {
 		fmt.Fprintf(errOut, "inference: catalog load failed: %v\n", err)
 		return exitBlocked

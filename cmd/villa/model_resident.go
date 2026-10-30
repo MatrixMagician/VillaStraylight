@@ -771,14 +771,14 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 		loadConfig: config.LoadVilla,
 		saveConfig: config.SaveVilla,
 		resolveCatalog: func(id string) (catalog.Model, bool) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return catalog.Model{}, false
 			}
 			return cat.FindByID(id)
 		},
 		fit: func(m catalog.Model, ctx int) recommend.Recommendation {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return recommend.Recommendation{}
 			}
@@ -848,7 +848,7 @@ func liveResidentUnits(cfg config.VillaConfig) ([]orchestrate.ResidentUnit, erro
 	if len(cfg.Resident) == 0 {
 		return nil, nil
 	}
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return nil, fmt.Errorf("load model catalog: %w", err)
 	}

@@ -35,6 +35,12 @@ import (
 // here (nil lock; Release is nil-safe), a test that wants the real Acquire/
 // TryAcquire semantics overrides it explicitly and restores it on cleanup.
 func TestMain(m *testing.M) {
+	// Verbs now read catalog_path from the persisted config (resolvedCatalogPath), so a
+	// test that sets no XDG_CONFIG_HOME must not see the developer's real config.toml.
+	if dir, err := os.MkdirTemp("", "villa-test-xdg-"); err == nil {
+		os.Setenv("XDG_CONFIG_HOME", dir)
+		defer os.RemoveAll(dir)
+	}
 	prev := benchstoreWrite
 	benchstoreWrite = func(_ benchstore.Deps, _ benchstore.SavedReport) error { return nil }
 	prevLock := acquireStackLock
@@ -42,6 +48,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	acquireStackLock = prevLock
 	benchstoreWrite = prev
+	os.RemoveAll(os.Getenv("XDG_CONFIG_HOME"))
 	os.Exit(code)
 }
 
