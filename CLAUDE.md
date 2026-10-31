@@ -36,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 through v1.18, each tagged on `main`; the tags, their GitHub
+**Shipped:** v1.0 through v1.18, each tagged on `main`, and the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809); the tags, their GitHub
 release notes and `docs/adr/` are the history. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
