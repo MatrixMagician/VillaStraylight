@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
-	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -392,7 +391,7 @@ func liveAgentPinMatch() string {
 // cfg is consulted ONLY for the memory inputs (MemoryEnabled/EmbeddingModel) so the
 // fit reflects the post-reservation envelope.
 func liveAgentResidency(cfg config.VillaConfig, host detect.HostProfile) string {
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return "" // catalog unavailable → typed-Unknown (omitted)
 	}
@@ -770,7 +769,7 @@ func liveOpenWebUIHealth(cfg config.VillaConfig) status.HealthState {
 // (ADR-0009). An undeterminable envelope yields 0 (the GTT floor then degrades to a
 // typed-Unknown WARN, never a false PASS).
 func weightBytes(cfg config.VillaConfig, host detect.HostProfile) uint64 {
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return 0
 	}

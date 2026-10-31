@@ -323,7 +323,7 @@ func liveModelID() string {
 // `villa model swap` runs, never re-implemented. It returns (nil, false) on a catalog-load
 // failure so the dashboard renders the "No models in catalog" empty state honestly.
 func liveModelsView() ([]dashboard.ModelView, bool) {
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := loadCatalog()
 	if err != nil {
 		return nil, false
 	}

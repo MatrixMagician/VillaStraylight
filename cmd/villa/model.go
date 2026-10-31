@@ -26,10 +26,28 @@ import (
 // overridden in tests so the success path can be exercised without live network.
 var pullFn = download.PullModel
 
-// catalogPath is reserved for a future --catalog override; for now `model pull`
-// reads the embedded seed (externalPath ""). Kept as a seam so the verb's catalog
-// source is in one place.
+// modelCatalogPath is the explicit catalog override seam; empty means "defer to the
+// persisted config". Read it through resolvedCatalogPath, never directly.
 var modelCatalogPath string
+
+// resolvedCatalogPath is the one answer to "which catalog file does this verb read":
+// the explicit override, else config.toml's catalog_path, else "" (the embedded seed).
+// An unreadable config resolves to the seed, which is what the config's own load
+// reports on its first real read.
+func resolvedCatalogPath() string {
+	if modelCatalogPath != "" {
+		return modelCatalogPath
+	}
+	if cfg, err := config.LoadVilla(); err == nil {
+		return cfg.CatalogPath
+	}
+	return ""
+}
+
+// loadCatalog loads the catalog every verb shares, honoring catalog_path.
+func loadCatalog() (catalog.Catalog, []string, error) {
+	return catalog.Load(resolvedCatalogPath())
+}
 
 // newModel builds the `villa model` noun and its subcommands. The noun name is chosen
 // to NOT collide with the Phase-3 lifecycle verbs (up/down/restart/install/status).
@@ -71,7 +89,7 @@ func runModelPull(cmd *cobra.Command, name string) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	cat, warnings, err := catalog.Load(modelCatalogPath)
+	cat, warnings, err := loadCatalog()
 	if err != nil {
 		fmt.Fprintf(errOut, "model pull: catalog load failed: %v\n", err)
 		return exitBlocked
@@ -152,7 +170,7 @@ type listDeps struct {
 // catalog and the persisted config (the source of truth for the loaded model).
 func liveListDeps() *listDeps {
 	return &listDeps{
-		loadCatalog: func() (catalog.Catalog, []string, error) { return catalog.Load(modelCatalogPath) },
+		loadCatalog: loadCatalog,
 		loadConfig:  config.LoadVilla,
 	}
 }
@@ -399,14 +417,14 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 	return &modelswap.Deps{
 		Tx: liveTxDeps(acquireStackLock),
 		ResolveCatalog: func(name string) (catalog.Model, bool) {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return catalog.Model{}, false
 			}
 			return cat.FindByID(name)
 		},
 		Fits: func(m catalog.Model, cfg config.VillaConfig) modelswap.Fit {
-			cat, _, err := catalog.Load(modelCatalogPath)
+			cat, _, err := loadCatalog()
 			if err != nil {
 				return modelswap.Fit{Detail: "catalog load failed"}
 			}
