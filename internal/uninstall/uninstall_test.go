@@ -9,6 +9,8 @@ package uninstall
 
 import (
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -58,7 +60,8 @@ func TestNonModelVolumes(t *testing.T) {
 // fakeDeps records the ordered seam calls so Run's teardown sequence and its
 // short-circuit-on-failure behavior are asserted deterministically.
 type fakeDeps struct {
-	order []string
+	order       []string
+	removedVols [][]string
 
 	stopErr                error
 	disableErr             error
@@ -92,6 +95,7 @@ func (f *fakeDeps) deps() Deps {
 		},
 		RemoveVolumes: func(vols []string) error {
 			f.order = append(f.order, "rmvol")
+			f.removedVols = append(f.removedVols, vols)
 			return f.removeVolumesErr
 		},
 		RemoveModels: func() error {
@@ -157,6 +161,8 @@ func TestRunOrdering(t *testing.T) {
 		"rmunit:villa-llama.container",
 		"rmunit:villa.network",
 		"rmunit:villa-models.volume",
+		"rmunit:villa-openwebui.volume",
+		"rmunit:villa-qdrant.volume",
 		"reload",
 		"rmvol",
 		"linger",
@@ -296,5 +302,53 @@ func TestRunSurfacesSELinuxNoteNeverReverts(t *testing.T) {
 	}
 	if !sawNote {
 		t.Fatalf("must surface the left-set SELinux boolean; lines = %v", res.Lines)
+	}
+}
+
+// TestRunRemovesGatedOffStateVolume locks #342: a state volume (the qdrant
+// volume) is removed by uninstall whether or not its subsystem is gated on.
+// A memory-off render has no villa-qdrant.volume, but a host that once ran
+// memory still has the unit file and the podman volume. A stack apply keeps
+// that data on purpose; only uninstall removes it. The models volume is never
+// in the list, and a rendered state volume is not removed twice.
+func TestRunRemovesGatedOffStateVolume(t *testing.T) {
+	base := []orchestrate.Unit{
+		{Name: "villa-llama.container"}, {Name: "villa.network"},
+		{Name: "villa-models.volume"},
+		{Name: "villa-openwebui.container"}, {Name: "villa-openwebui.volume"},
+	}
+	cases := []struct {
+		name  string
+		units []orchestrate.Unit
+	}{
+		{"memory off", base},
+		{"memory on", append(append([]orchestrate.Unit{}, base...), orchestrate.Unit{Name: "villa-qdrant.volume"})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeDeps{}
+			in := sampleInput()
+			in.Units = tc.units
+			if res := Run(f.deps(), Opts{KeepModels: true}, in); res.Err != nil {
+				t.Fatalf("unexpected error: %v", res.Err)
+			}
+			if len(f.removedVols) != 1 {
+				t.Fatalf("RemoveVolumes calls = %v, want exactly one", f.removedVols)
+			}
+			got := append([]string{}, f.removedVols[0]...)
+			sort.Strings(got)
+			if want := []string{"villa-openwebui", "villa-qdrant"}; !slices.Equal(got, want) {
+				t.Fatalf("removed volumes = %v, want %v", got, want)
+			}
+			n := 0
+			for _, c := range f.order {
+				if c == "rmunit:villa-qdrant.volume" {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("rmunit:villa-qdrant.volume count = %d, want 1; order = %v", n, f.order)
+			}
+		})
 	}
 }

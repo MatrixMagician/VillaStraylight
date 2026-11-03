@@ -58,7 +58,9 @@ the orphan are the ones that apply through `internal/stackapply` (ADR-0013), plu
   never removes one.
 - **Uninstall tears down what the registry declares.** It reconciles the render
   against the unit dir and adds `Plan.Removed` to the units it removes and their
-  services to the ones it stops first.
+  services to the ones it stops first. It also removes every declared state volume
+  (`subsystem.Stateful`), gated on or not (#342): a stack apply keeps that data
+  across a gate flip, and only uninstall deletes it.
 - **`villa-inferproxy.container` is declared under `Sandbox`.** It is the one unit
   the workspace agent renders and manages (GHSA-gvp9, ADR-0011), so turning
   `workspace_agent` off now removes it like any other gated unit. The sandbox
