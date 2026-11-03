@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // ModelVolumeName is the bind-mount volume holding the model weights (matches
@@ -133,6 +134,26 @@ func NonModelVolumes(units []orchestrate.Unit) []string {
 	return vols
 }
 
+// unrenderedStateVolumes is every declared state volume (subsystem.Stateful)
+// that units does not render: a gated-off subsystem's volume (#342). A host that
+// once ran memory still has villa-qdrant.volume on disk and the podman volume
+// behind it, though a memory-off render no longer emits the unit. A stack apply
+// deliberately keeps that data across a gate flip; only uninstall removes it.
+func unrenderedStateVolumes(units []orchestrate.Unit) []string {
+	rendered := map[string]bool{}
+	for _, u := range units {
+		rendered[u.Name] = true
+	}
+	var vols []string
+	for _, k := range subsystem.Stateful() {
+		name, _ := k.StateVolume()
+		if name != ModelVolumeName && !rendered[name+".volume"] {
+			vols = append(vols, name)
+		}
+	}
+	return vols
+}
+
 // Run performs the ordered teardown and returns a Result. Any failure
 // short-circuits with NO further Deps calls — a half-torn-down host is never
 // left in a worse state than a clean stop.
@@ -203,6 +224,15 @@ func Run(d Deps, opts Opts, in Input) Result {
 		res.say("removed unit %s", u.Name)
 	}
 
+	extra := unrenderedStateVolumes(in.Units)
+	for _, name := range extra {
+		if err := d.RemoveUnitFile(in.UnitDir, name+".volume"); err != nil {
+			res.Err = fmt.Errorf("remove unit %s.volume failed: %w", name, err)
+			return res
+		}
+		res.say("removed unit %s.volume", name)
+	}
+
 	// (3) daemon-reload so the podman-system-generator drops the derived .service.
 	if err := d.DaemonReload(); err != nil {
 		res.Err = fmt.Errorf("daemon-reload failed: %w", err)
@@ -211,7 +241,7 @@ func Run(d Deps, opts Opts, in Input) Result {
 
 	// (4) remove non-model volumes. The model volume is excluded (governed by
 	// the keep/remove-models choice below).
-	if err := d.RemoveVolumes(NonModelVolumes(in.Units)); err != nil {
+	if err := d.RemoveVolumes(append(NonModelVolumes(in.Units), extra...)); err != nil {
 		res.Err = fmt.Errorf("remove volumes failed: %w", err)
 		return res
 	}
