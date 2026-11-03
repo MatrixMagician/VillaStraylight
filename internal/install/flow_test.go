@@ -262,8 +262,8 @@ func TestInstallReconcilesDashboardUnitOnNoOpPath(t *testing.T) {
 	if f.dashEnableCalls != 1 {
 		t.Errorf("reconciled dashboard unit must be enabled exactly once, enabled %d times", f.dashEnableCalls)
 	}
-	if n := countOf(f.startOrder, orchestrate.DashboardServiceName); n != 1 {
-		t.Errorf("reconciled dashboard service must be (re)started exactly once, startOrder = %v", f.startOrder)
+	if n := countOf(f.restartOrder, orchestrate.DashboardServiceName); n != 1 {
+		t.Errorf("reconciled dashboard service is active, so it must be restarted exactly once, restartOrder = %v", f.restartOrder)
 	}
 	if f.writeCalls != 0 {
 		t.Errorf("the unchanged container plan must NOT be rewritten, writeCalls = %d", f.writeCalls)
@@ -1590,6 +1590,79 @@ func TestInstallRollbackRestartsAnAlreadyActiveService(t *testing.T) {
 	}
 }
 
+// TestInstallRestartsARewrittenActiveDashboard (#338): `systemctl start` on an
+// active unit is a no-op, so a rewritten dashboard unit must be restarted or the
+// old process keeps running the old binary. A first install and an inactive
+// dashboard still start; a failed restart is rolled back against the restored unit.
+func TestInstallRestartsARewrittenActiveDashboard(t *testing.T) {
+	dash := orchestrate.DashboardServiceName
+	stale := []byte("[Unit]\nDescription=old\n\n[Service]\nExecStart=%h/.local/bin/villa dashboard\n")
+	setup := func(t *testing.T) *fakeDeps {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		return newFakeDeps(t, units, orchestrate.Plan{Unchanged: units}, passChecks())
+	}
+
+	t.Run("a stale unit on an active dashboard is restarted after the reload", func(t *testing.T) {
+		f := setup(t)
+		f.diskUnit = stale
+		f.activeState = "active"
+		if code, _, _ := f.run(Opts{}); code != exitPass {
+			t.Fatalf("exit = %d, want exitPass", code)
+		}
+		if n := countOf(f.restartOrder, dash); n != 1 {
+			t.Errorf("restarts of the dashboard = %d, want 1", n)
+		}
+		if n := countOf(f.startOrder, dash); n != 0 {
+			t.Errorf("starts of the dashboard = %d, want 0", n)
+		}
+		w, r, e, rs := lastIndex(f.callOrder, "dashWrite"), lastIndex(f.callOrder, "reload"), lastIndex(f.callOrder, "enable:"+dash), lastIndex(f.callOrder, "restart:"+dash)
+		if w < 0 || r < w || e < r || rs < e {
+			t.Errorf("want write < reload < enable < restart, got %d %d %d %d in %v", w, r, e, rs, f.callOrder)
+		}
+	})
+
+	t.Run("a first install starts", func(t *testing.T) {
+		f := setup(t)
+		f.diskUnit = nil
+		f.activeState = "active"
+		f.run(Opts{})
+		if countOf(f.startOrder, dash) != 1 || countOf(f.restartOrder, dash) != 0 {
+			t.Errorf("first install: startOrder = %v, restartOrder = %v; want one start, no restart", f.startOrder, f.restartOrder)
+		}
+	})
+
+	t.Run("a stale unit on an inactive dashboard starts", func(t *testing.T) {
+		f := setup(t)
+		f.diskUnit = stale
+		f.activeState = "inactive"
+		f.run(Opts{})
+		if countOf(f.startOrder, dash) != 1 || countOf(f.restartOrder, dash) != 0 {
+			t.Errorf("inactive: startOrder = %v, restartOrder = %v; want one start, no restart", f.startOrder, f.restartOrder)
+		}
+	})
+
+	t.Run("a failed restart is rolled back by restarting on the restored unit", func(t *testing.T) {
+		f := setup(t)
+		f.diskUnit = stale
+		f.priorUnits = map[string]string{}
+		f.activeState = "active"
+		f.restartErrFor = map[string]error{dash: errors.New("boom")}
+		res, _, _ := f.runResult(Opts{})
+		if res.Outcome != Refused {
+			t.Fatalf("outcome = %q, want %q", res.Outcome, Refused)
+		}
+		if n := countOf(f.restartOrder, dash); n != 2 {
+			t.Fatalf("restarts = %d, want 2 (forward, then rollback); callOrder = %v", n, f.callOrder)
+		}
+		if !bytes.Equal(f.diskUnit, stale) {
+			t.Errorf("dashboard unit after rollback = %q, want the stale prior bytes", f.diskUnit)
+		}
+		if lastIndex(f.callOrder, "restart:"+dash) < lastIndex(f.callOrder, "writeUnit:"+dash) {
+			t.Errorf("rollback restart must follow the unit restore; callOrder = %v", f.callOrder)
+		}
+	})
+}
+
 // TestInstallRollbackRestoresTheDashboardUnit (#327): install rewrites the native
 // dashboard unit's ExecStart to the running binary before any container unit is
 // written. A failed install must restore that unit's prior bytes, reload the
@@ -1617,8 +1690,26 @@ func TestInstallRollbackRestoresTheDashboardUnit(t *testing.T) {
 		restore := lastIndex(f.callOrder, "writeUnit:"+orchestrate.DashboardServiceName)
 		reload := lastIndex(f.callOrder, "reload")
 		restart := lastIndex(f.callOrder, "restart:"+orchestrate.DashboardServiceName)
+		if len(f.dashDisabled) != 0 {
+			t.Errorf("a re-install must leave the prior enablement alone, disabled = %v", f.dashDisabled)
+		}
 		if restore < 0 || reload < restore || restart < reload {
 			t.Errorf("the dashboard must be restored (%d), then the manager reloaded (%d), then the dashboard restarted (%d); callOrder = %v", restore, reload, restart, f.callOrder)
+		}
+	})
+
+	t.Run("a first install whose enable fails still disables", func(t *testing.T) {
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.activeState = "inactive"
+		f.priorConfigExists = false
+		f.priorUnits = map[string]string{}
+		f.diskUnit = nil
+		f.enableErr = errors.New("enable failed")
+
+		f.run(Opts{})
+
+		if len(f.dashDisabled) != 1 {
+			t.Errorf("a partly failed enable must still be disabled on rollback; disabled = %v", f.dashDisabled)
 		}
 	})
 
@@ -1638,6 +1729,12 @@ func TestInstallRollbackRestoresTheDashboardUnit(t *testing.T) {
 		}
 		if !contains(f.removedUnits, orchestrate.DashboardServiceName) {
 			t.Errorf("the dashboard unit must be removed through RemoveUnit; removed = %v", f.removedUnits)
+		}
+		if len(f.dashDisabled) != 1 || f.dashDisabled[0] != orchestrate.DashboardServiceName {
+			t.Errorf("a failed first install must disable the dashboard it enabled (#339); disabled = %v", f.dashDisabled)
+		}
+		if d, rm := lastIndex(f.callOrder, "disable:"+orchestrate.DashboardServiceName), lastIndex(f.callOrder, "removeUnit:"+orchestrate.DashboardServiceName); d < 0 || d > rm {
+			t.Errorf("disable must precede the unit removal; callOrder = %v", f.callOrder)
 		}
 	})
 }

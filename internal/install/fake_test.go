@@ -51,6 +51,8 @@ type fakeDeps struct {
 	dashWriteCalls  int
 	dashEnableCalls int
 	dashEnabled     []string
+	dashDisabled    []string
+	enableErr       error
 	dashBinaryPath  string
 	// diskUnit is the on-disk dashboard unit; nil reads as absent (first install).
 	// Every write and removal of that unit lands here, so a test reads it back
@@ -63,10 +65,12 @@ type fakeDeps struct {
 	priorUnits        map[string]string
 	priorConfigExists bool
 	stopOrder         []string
-	removedUnits      []string
-	configRemoved     bool
-	stopErr           error
-	removeUnitErr     error
+	// restartErrFor fails Restart for the named services.
+	restartErrFor map[string]error
+	removedUnits  []string
+	configRemoved bool
+	stopErr       error
+	removeUnitErr error
 
 	memoryEnabled      bool
 	embedPresent       bool
@@ -214,7 +218,7 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.restartCalls++
 		f.restartOrder = append(f.restartOrder, service)
 		f.callOrder = append(f.callOrder, "restart:"+service)
-		return nil
+		return f.restartErrFor[service]
 	}
 	d.IsActive = func(string) (string, error) { return f.activeState, nil }
 	d.Stop = func(service string) error {
@@ -262,6 +266,11 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.dashEnableCalls++
 		f.dashEnabled = append(f.dashEnabled, service)
 		f.callOrder = append(f.callOrder, "enable:"+service)
+		return f.enableErr
+	}
+	d.Disable = func(service string) error {
+		f.dashDisabled = append(f.dashDisabled, service)
+		f.callOrder = append(f.callOrder, "disable:"+service)
 		return nil
 	}
 	d.ReadDashboardUnit = func(string) ([]byte, error) {

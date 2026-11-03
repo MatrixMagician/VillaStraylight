@@ -89,6 +89,9 @@ type RollbackDeps struct {
 	WriteUnit func(name, text string) error
 	// RemoveUnit deletes a unit file this install created where none existed.
 	RemoveUnit func(name string) error
+	// DisableService revokes the boot-survival link of a service this install
+	// enabled and that had no unit before it. Nil is a no-op.
+	DisableService func(service string) error
 	// SaveConfig restores the prior config.
 	SaveConfig func(config.VillaConfig) error
 	// RemoveConfig deletes the config this install wrote on a clean host.
@@ -103,6 +106,9 @@ type RollbackDeps struct {
 type Mutations struct {
 	// Started are the services this install started, in order.
 	Started []string
+	// Enabled are the services this install enabled, in order. It is recorded
+	// BEFORE the enable call, so a partly failed enable is still undone.
+	Enabled []string
 	// WroteUnits are the unit files this install wrote, by name.
 	WroteUnits []string
 	// SavedConfig reports whether this install persisted a config.
@@ -111,6 +117,9 @@ type Mutations struct {
 
 // RecordStart notes that a service was started.
 func (m *Mutations) RecordStart(service string) { m.Started = append(m.Started, service) }
+
+// RecordEnable notes that a service is about to be enabled.
+func (m *Mutations) RecordEnable(service string) { m.Enabled = append(m.Enabled, service) }
 
 // RecordUnit notes that a unit file was written.
 func (m *Mutations) RecordUnit(name string) { m.WroteUnits = append(m.WroteUnits, name) }
@@ -171,6 +180,19 @@ func Rollback(d RollbackDeps, prior Prior, m Mutations) RollbackResult {
 		}
 		if err := d.StopService(svc); err != nil {
 			fail("could not stop %s (%v)", svc, err)
+		}
+	}
+
+	// (1b) Revoke the boot-survival link of a unit this install enabled on a host
+	// that had none, before its file is removed: `systemctl disable` needs the
+	// file. A unit that existed before keeps whatever enablement it had.
+	for i := len(m.Enabled) - 1; i >= 0; i-- {
+		svc := m.Enabled[i]
+		if _, had := prior.HadUnit(svc); had || d.DisableService == nil {
+			continue
+		}
+		if err := d.DisableService(svc); err != nil {
+			fail("could not disable %s (%v)", svc, err)
 		}
 	}
 

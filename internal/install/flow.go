@@ -152,11 +152,14 @@ type Deps struct {
 	WriteUnits         func(orchestrate.Plan, string) error
 	DaemonReload       func() error
 	Enable             func(service string) error
-	Start              func(service string) error
-	Stop               func(service string) error
-	// Restart is `systemctl restart`, used ONLY by rollback to bring a service that
-	// was running before back up against its restored unit — `start` on an
-	// already-active unit is a no-op (#128's forward-path trap, #231's rollback one).
+	// Disable reverses Enable. Rollback calls it, before the unit file is removed,
+	// for a service this install enabled on a host that had no unit for it.
+	Disable func(service string) error
+	Start   func(service string) error
+	Stop    func(service string) error
+	// Restart is `systemctl restart`, used where `start` would be a no-op on an
+	// already-active unit: rollback bringing a service back up against its restored
+	// unit (#231), and the forward path for a rewritten, active dashboard (#338).
 	Restart func(service string) error
 
 	WriteWebsafeSecretEnv   func(name, text string) error
@@ -476,7 +479,8 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			// Restart, not start: a service that was running before is being brought
 			// back against its RESTORED unit file, and `start` on an already-active
 			// unit would leave the rejected one running (#231).
-			StartService: d.Restart,
+			StartService:   d.Restart,
+			DisableService: d.Disable,
 			WriteUnit: func(name, text string) error {
 				if d.WriteUnit == nil {
 					return fmt.Errorf("no unit-write seam wired")
@@ -515,7 +519,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 
 	// (7b) Reconcile the native dashboard unit on BOTH paths, so a re-install with
 	// unchanged containers still repairs it. Idempotent: a matching unit is a no-op.
-	if err := reconcileDashboard(d, say, mutated.RecordStart, mutated.RecordUnit); err != nil {
+	if err := reconcileDashboard(d, say, &mutated); err != nil {
 		return refuse("install: %v\n", err)
 	}
 
@@ -768,7 +772,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 // on-disk unit, and only writes → reloads → enables → starts on a difference. An
 // absent unit is the normal first-install state; any other read error is fatal.
 // The binary path resolves fail-closed: never a fixed fallback path.
-func reconcileDashboard(d Deps, say func(string, ...any), recordStart, recordUnit func(string)) error {
+func reconcileDashboard(d Deps, say func(string, ...any), m *Mutations) error {
 	udir, err := d.UserUnitDir()
 	if err != nil {
 		return fmt.Errorf("cannot resolve the user-unit dir for the dashboard: %w", err)
@@ -795,20 +799,43 @@ func reconcileDashboard(d Deps, say func(string, ...any), recordStart, recordUni
 	if err := d.WriteDashboardUnit(udir, binPath); err != nil {
 		return fmt.Errorf("write dashboard unit failed: %w", err)
 	}
-	recordUnit(orchestrate.DashboardServiceName)
+	m.RecordUnit(orchestrate.DashboardServiceName)
 	say("wrote %s to %s\n", orchestrate.DashboardServiceName, udir)
 	if err := d.DaemonReload(); err != nil {
 		return fmt.Errorf("daemon-reload (dashboard) failed: %w", err)
 	}
+	m.RecordEnable(orchestrate.DashboardServiceName)
 	if err := d.Enable(orchestrate.DashboardServiceName); err != nil {
 		return fmt.Errorf("enable %s failed: %w", orchestrate.DashboardServiceName, err)
+	}
+	// `start` on an active unit is a no-op, so a rewritten unit under a running
+	// dashboard needs a restart or the old process keeps the old binary (#338).
+	// Recorded before the restart: a failed restart leaves the process in an
+	// unknown state, and rollback restarts it against the restored unit.
+	if current != nil && dashboardActive(d) {
+		m.RecordStart(orchestrate.DashboardServiceName)
+		if err := d.Restart(orchestrate.DashboardServiceName); err != nil {
+			return fmt.Errorf("restart %s failed: %w", orchestrate.DashboardServiceName, err)
+		}
+		say("restarted %s (boot-survival enabled)\n", orchestrate.DashboardServiceName)
+		return nil
 	}
 	if err := d.Start(orchestrate.DashboardServiceName); err != nil {
 		return fmt.Errorf("start %s failed: %w", orchestrate.DashboardServiceName, err)
 	}
 	say("started %s (boot-survival enabled)\n", orchestrate.DashboardServiceName)
-	recordStart(orchestrate.DashboardServiceName)
+	m.RecordStart(orchestrate.DashboardServiceName)
 	return nil
+}
+
+// dashboardActive reports whether the dashboard service is running now. An
+// unreadable state counts as not active, so the plain start path runs.
+func dashboardActive(d Deps) bool {
+	if d.IsActive == nil {
+		return false
+	}
+	state, err := d.IsActive(orchestrate.DashboardServiceName)
+	return err == nil && state == "active"
 }
 
 // rollbackUnitDir is the directory a rollback restores name into: the dashboard is

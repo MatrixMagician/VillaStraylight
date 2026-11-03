@@ -16,21 +16,23 @@ import (
 type rollbackRecorder struct {
 	calls []string
 
-	stopErr   map[string]error
-	startErr  map[string]error
-	writeErr  map[string]error
-	removeErr map[string]error
-	saveErr   error
-	rmCfgErr  error
-	reloadErr error
+	stopErr    map[string]error
+	startErr   map[string]error
+	writeErr   map[string]error
+	removeErr  map[string]error
+	disableErr map[string]error
+	saveErr    error
+	rmCfgErr   error
+	reloadErr  error
 }
 
 func newRollbackRecorder() *rollbackRecorder {
 	return &rollbackRecorder{
-		stopErr:   map[string]error{},
-		startErr:  map[string]error{},
-		writeErr:  map[string]error{},
-		removeErr: map[string]error{},
+		stopErr:    map[string]error{},
+		startErr:   map[string]error{},
+		writeErr:   map[string]error{},
+		removeErr:  map[string]error{},
+		disableErr: map[string]error{},
 	}
 }
 
@@ -47,6 +49,10 @@ func (r *rollbackRecorder) deps() RollbackDeps {
 		WriteUnit: func(name, _ string) error {
 			r.calls = append(r.calls, "writeUnit:"+name)
 			return r.writeErr[name]
+		},
+		DisableService: func(s string) error {
+			r.calls = append(r.calls, "disable:"+s)
+			return r.disableErr[s]
 		},
 		RemoveUnit: func(name string) error {
 			r.calls = append(r.calls, "removeUnit:"+name)
@@ -368,4 +374,64 @@ func TestModelWeightsAreNotCaptured(t *testing.T) {
 			t.Errorf("rollback touched model weights (%q); a retry must not re-download them", c)
 		}
 	}
+}
+
+// TestRollbackDisablesWhatItEnabledBeforeRemovingTheUnit (#339): a first install
+// that enabled a unit must revoke the default.target.wants link, and before the
+// unit file goes (systemctl disable needs the file). A re-install leaves the
+// prior stack's enablement alone.
+func TestRollbackDisablesWhatItEnabledBeforeRemovingTheUnit(t *testing.T) {
+	first := CapturePrior(config.VillaConfig{}, false, nil, nil)
+
+	t.Run("a first install disables, then removes the unit", func(t *testing.T) {
+		r := newRollbackRecorder()
+		Rollback(r.deps(), first, Mutations{Enabled: []string{"svc"}, WroteUnits: []string{"svc"}})
+		d, rm := indexOf(r.calls, "disable:svc"), indexOf(r.calls, "removeUnit:svc")
+		if d < 0 || rm < 0 || d > rm {
+			t.Errorf("want disable before removeUnit, got %v", r.calls)
+		}
+	})
+
+	t.Run("a failed enable is still undone", func(t *testing.T) {
+		r := newRollbackRecorder()
+		var m Mutations
+		m.RecordEnable("svc")
+		Rollback(r.deps(), first, m)
+		if !r.did("disable:svc") {
+			t.Errorf("recorded-before-enable service must be disabled, got %v", r.calls)
+		}
+	})
+
+	t.Run("a re-install does not disable", func(t *testing.T) {
+		r := newRollbackRecorder()
+		prior := CapturePrior(config.VillaConfig{}, true, map[string]string{"svc": "old"}, nil)
+		Rollback(r.deps(), prior, Mutations{Enabled: []string{"svc"}, WroteUnits: []string{"svc"}})
+		if r.did("disable:svc") {
+			t.Errorf("prior unit existed; enablement must be left alone, got %v", r.calls)
+		}
+	})
+
+	t.Run("a failed disable is reported", func(t *testing.T) {
+		r := newRollbackRecorder()
+		r.disableErr["svc"] = errors.New("denied")
+		res := Rollback(r.deps(), first, Mutations{Enabled: []string{"svc"}, WroteUnits: []string{"svc"}})
+		if !res.Incomplete || len(res.Failures) == 0 || !strings.Contains(res.Failures[0], "could not disable svc") {
+			t.Errorf("want incomplete with a 'could not disable svc' failure, got %+v", res)
+		}
+	})
+
+	t.Run("a nil seam is safe", func(t *testing.T) {
+		d := newRollbackRecorder().deps()
+		d.DisableService = nil
+		Rollback(d, first, Mutations{Enabled: []string{"svc"}})
+	})
+}
+
+func indexOf(order []string, want string) int {
+	for i, s := range order {
+		if s == want {
+			return i
+		}
+	}
+	return -1
 }
