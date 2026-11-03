@@ -367,6 +367,11 @@ type Deps struct {
 	// WriteQwenSettings writes b as settings.json inside home (dir 0700, file
 	// 0600, atomic in the live wiring). RunQwen calls it on every launch.
 	WriteQwenSettings func(home string, b []byte) error
+	// AgentVersion runs `<bin> --version` and returns its raw output — fixed-arg, no
+	// shell, a short timeout in the live wiring. env is the launch env, so the probe
+	// runs under the same telemetry contract as the launch. RunClaude and RunQwen call
+	// it only after every refusal gate and turn the answer into a Warning (vetted.go).
+	AgentVersion func(bin string, env []string) (string, error)
 }
 
 // Result is the typed outcome of the `villa code` flow (NOT an exit code) so the

@@ -84,6 +84,7 @@ func RunClaude(d Deps, extraArgs []string) Result {
 	res.LaunchBin = path
 	res.LaunchArgs = append([]string(nil), extraArgs...)
 	res.LaunchEnv = claudeEnv(cfg)
+	res.Warnings = checkVetted(d, path, res.LaunchEnv, "Claude Code", VettedClaudeVersion)
 	res.ReadyToLaunch = true
 	return res
 }

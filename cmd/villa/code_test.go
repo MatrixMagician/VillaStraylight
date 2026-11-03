@@ -41,6 +41,12 @@ type codeRecorder struct {
 	launchClaudeCalls []claudeLaunchCall
 
 	qwenWrites []qwenWrite
+
+	// versionOut overrides the fake `--version` output per binary; an absent entry
+	// reads as the vetted version, so tests that are not about versions stay quiet.
+	versionOut   map[string]string
+	versionErr   error
+	versionCalls []string
 }
 
 // qwenWrite records one WriteQwenSettings invocation.
@@ -73,6 +79,13 @@ func (r *codeRecorder) deps() *agent.Deps {
 		LaunchClaude: func(bin string, args, env []string) error {
 			r.launchClaudeCalls = append(r.launchClaudeCalls, claudeLaunchCall{bin, args, env})
 			return nil
+		},
+		AgentVersion: func(bin string, env []string) (string, error) {
+			r.versionCalls = append(r.versionCalls, bin)
+			if out, ok := r.versionOut[filepath.Base(bin)]; ok {
+				return out, r.versionErr
+			}
+			return map[string]string{"claude": agent.VettedClaudeVersion, "qwen": agent.VettedQwenVersion}[filepath.Base(bin)], r.versionErr
 		},
 		QwenHome: func() (string, error) { return "/cfg/villa/qwen", nil },
 		WriteQwenSettings: func(home string, b []byte) error {
