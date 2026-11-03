@@ -343,6 +343,20 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	}, in)
 }
 
+// closedHealthProbe is the in-network /health probe pollReadiness drives: one curl
+// on the target's network that returns the HTTP status code. The memory proof and
+// the update proofs (#359) wait with it, so there is one probe, not two.
+func closedHealthProbe(ctx context.Context, exec inprobe.Exec, image, addr string, port int) func() (int, error) {
+	url := fmt.Sprintf("http://%s:%d/health", addr, port)
+	return func() (int, error) {
+		out, _, err := exec(ctx, image, "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url)
+		if err != nil {
+			return 0, err
+		}
+		return strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+}
+
 // memoryProofWith drives the memory proof through d; liveMemoryProof binds the
 // host, tests a fake network.
 func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput) memoryProof {
@@ -356,14 +370,7 @@ func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput
 	// and refuses the connection for the first instants after its container starts;
 	// a request sent in that window fails, so the proof waits before its first one.
 	awaitHealth := func(addr string, port int) error {
-		url := fmt.Sprintf("http://%s:%d/health", addr, port)
-		probe := func() (int, error) {
-			out, _, err := d.exec(ctx, d.image, "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url)
-			if err != nil {
-				return 0, err
-			}
-			return strconv.Atoi(strings.TrimSpace(string(out)))
-		}
+		probe := closedHealthProbe(ctx, d.exec, d.image, addr, port)
 		if ready := pollReadiness(ctx, probe, d.timeout, d.interval); ready.Status != preflight.StatusPass {
 			return fmt.Errorf("not ready after %s: %s", d.timeout, ready.Detail)
 		}
