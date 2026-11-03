@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -126,6 +129,12 @@ func runCodeQwen(cmd *cobra.Command, d *agent.Deps, args []string) int {
 func launchPathAgent(cmd *cobra.Command, d *agent.Deps, res agent.Result, bin, label string) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
+
+	// Advisory warnings (an unvetted or unreadable agent version) print before the
+	// exec replaces the process, and never block it.
+	for _, w := range res.Warnings {
+		fmt.Fprintf(errOut, "villa code: warning [%s]: %s\n", w.Code, w.Msg)
+	}
 
 	switch {
 	case res.CodingModeOff:
@@ -266,7 +275,30 @@ func liveAgentDeps() *agent.Deps {
 		},
 		QwenHome:          qwenHome,
 		WriteQwenSettings: writeQwenSettings,
+		AgentVersion: func(bin string, env []string) (string, error) {
+			return runVersionProbe(bin, env, versionProbeTimeout)
+		},
 	}
+}
+
+// versionProbeTimeout bounds `<agent> --version`: a hung binary must not hold up a launch.
+const versionProbeTimeout = 5 * time.Second
+
+// runVersionProbe runs `<bin> --version` with a fixed argument (no shell) under env and
+// returns stdout followed by stderr, so a version printed to either stream is found and
+// stdout's wins when both carry one. A non-zero exit or a timeout is an error.
+func runVersionProbe(bin string, env []string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, bin, "--version") //nolint:gosec // bin is the LookPath result, the arg is fixed
+	c.Env = env
+	c.WaitDelay = time.Second
+	var stdout, stderr bytes.Buffer
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		return "", fmt.Errorf("%s --version: %w", filepath.Base(bin), err)
+	}
+	return stdout.String() + "\n" + stderr.String(), nil
 }
 
 // qwenHome resolves villa's own Qwen Code config directory, the QWEN_HOME the agent

@@ -137,6 +137,7 @@ func RunQwen(d Deps, extraArgs []string) Result {
 	res.LaunchBin = path
 	res.LaunchArgs = append([]string(nil), extraArgs...)
 	res.LaunchEnv = qwenEnv(cfg, home)
+	res.Warnings = checkVetted(d, path, res.LaunchEnv, "Qwen Code", VettedQwenVersion)
 	res.ReadyToLaunch = true
 	return res
 }

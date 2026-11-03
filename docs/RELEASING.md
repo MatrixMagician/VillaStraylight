@@ -300,3 +300,41 @@ Refreshing them is steps 3 and 4 above, applied to the constants in the tree,
 followed by an ordinary release. A pin in the compiled-in table carries the same
 claim as one in a manifest, proven on gfx1151, so it earns that claim the same
 way.
+
+## Re-vetting a launched coding agent
+
+`villa code --agent claude|qwen` runs a binary villa does not ship. Its egress
+capture (ADR-0039) proves one version, so `internal/agent/vetted.go` records which:
+`VettedClaudeVersion` and `VettedQwenVersion`. A launch of any other installed
+version, or one whose `--version` cannot be read, prints a warning and still
+launches. Crush is the pinned binary and its policy table governs it; it has no
+constant. Re-vet when the warning fires for a release you intend to support, and
+before changing either constant.
+
+1. Install the candidate version into a scratch prefix. Never your own `~/.claude`,
+   `~/.qwen` or the live stack.
+2. Start a throwaway model server (any `llama-server` image) on a private podman
+   network, with a dummy key: `--api-key dummy-proto-key`. Never villa's real
+   inference secret, and never the live `villa-llama`.
+3. From `docs/prototype/qwen-code/`, run the captures as the README describes
+   (network `proto-agent` for the first, `proto-qwen` for the second). Both drive
+   an interactive session in a container and run `tcpdump` in the rootless netns
+   for everything sent off the model server.
+   - Claude Code (and Crush, as a control):
+     `ROOT=<scratch> AGENTBIN=<dir holding claude> python3 -I agent_capture.py "claude-contract+CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1"`
+     (and `crush-contract` for the control)
+   - Qwen Code: `PREFIX=<npm prefix> QHOME=<empty dir> LLAMA_API_KEY=dummy-proto-key python3 -I interactive.py lockdown`
+     Do not use `run-interactive.sh` or `run-extra.sh` as written: they source the
+     live `llama.env`. Run their modes by hand with the dummy key.
+4. Require that the model server's DNS and traffic are the only things in the
+   capture: no other host, under the launch contract. Run the project-level
+   override modes too (`claude-project-override`, and `project-reenable+env` for
+   Qwen Code): a repository's own settings must not loosen the contract.
+   Compare Crush against its recorded result, not zero: it still contacts
+   `api.github.com` (#389).
+5. Any other host is a finding. Fix the contract (`claudeEnv`, `qwenEnv`, the
+   Qwen settings) or file the gap, and do not bump the constant.
+6. Record the run in `docs/prototype/` (a section in `qwen-code/RESULTS.md`, raw
+   captures under `results/`), naming the version, the date and the host set.
+7. Only then bump the constant in `internal/agent/vetted.go`, in the same PR as
+   the record. Do not touch the ADR's wording unless the result changes the claim.
