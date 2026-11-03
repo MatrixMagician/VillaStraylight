@@ -149,3 +149,59 @@ two more egress paths than headless, and both are suppressible. The launch contr
 is the env pair above, a villa-written settings file, and an isolated `HOME` (so a user-level
 file cannot loosen it). A repository's own `.qwen/settings.json` is the reason the env vars
 cannot be dropped.
+
+## Crush and Claude Code (#385)
+
+Run 2026-11-03. The same harness as #373 (`agent_capture.py`, `run-agents.sh`, `run-bisect.sh`,
+`run-proxy.sh`): pty-driven interactive sessions of two turns including a shell tool call, tcpdump
+off the model server, a throwaway llama-server with a dummy API key (villa's real inference
+secret never entered an agent). Crush v0.93.1 is the pinned binary run unmodified; Claude Code
+is 2.1.317. The contract is villa's own: `lockdownEnv` plus the rendered `crush.json` options, and
+`claudeEnv`. Raw captures and per-run dumps: `results/agents/` (`*.pcap`, `*.pcap.txt`,
+`bisect.txt`, `proxy.txt`).
+
+### Crush
+
+| Mode | Hosts contacted off the model server |
+|---|---|
+| default (no kill switches, no `options`) | `data.charm.land`, `hyper.charm.land`, `catwalk.charm.land`, `api.github.com`, CloudFront and Google CDN addresses |
+| villa contract | **`api.github.com` only** (DNS plus about 7 TLS packets) |
+| contract + project-level `crush.json` re-enabling the options | the same: `api.github.com` only |
+| contract, second launch on a settled home | the same |
+| contract + `HTTPS_PROXY` at a dead port, `NO_PROXY` the model server (full session, 5 model requests) | **none** |
+
+### Claude Code
+
+| Mode | Hosts contacted off the model server |
+|---|---|
+| default (`ANTHROPIC_*` only) | `downloads.claude.ai` (a full binary download, about 5800 packets), `api.anthropic.com` (about 340), `raw.githubusercontent.com` |
+| villa contract, fresh home | **`downloads.claude.ai` only** (about 470 to 640 packets) |
+| contract + project-level `.claude/settings.json` setting the switches to `0` | the same: no loosening |
+| contract, second launch on a settled home | **none** (88-byte capture) |
+| contract + `DISABLE_UPDATES=1`, fresh home | the `downloads.claude.ai` fetch remains |
+| contract + `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1`, fresh home | **none** |
+| contract + dead-port proxy env (full session, 4 model requests) | **none** |
+
+The cause of the surviving `downloads.claude.ai` fetch is inferred from the variable that removes
+it (the documentation ties that variable to first-launch marketplace registration); the leg is
+TLS and was not decoded. It does not repeat on a settled home, which is the home
+`villa code --agent claude` runs on.
+
+### What this settles, and what it does not
+
+- Both contracts are tighter than the Qwen Code one: a repository-level settings file did not
+  loosen either. The environment-variable-first rule from #373 was not contradicted.
+- One switch was missing (Claude Code's marketplace autoinstall): fixed in PR #388.
+- Crush's release check cannot be switched off by anything the contract can set (#389).
+- **Not covered:** the agents' own model-callable network tools (Crush's are disabled in
+  `crush.json`; villa's Claude Code launch does not disable Claude Code's), extension and MCP fetches, and traffic that appears only
+  after a long idle session. Sessions were 185 s.
+- **Model compatibility, unrelated to egress:** the Heretic GGUF's chat template raises `System
+  message must be at the beginning` when Claude Code sends a system message mid-conversation, so
+  `villa code --agent claude` returned HTTP 500 on that model until the check was removed from a
+  copy of the template for this run. The first Claude Code capture was discarded for that reason.
+  Not filed as a villa bug here: it depends on the catalog entry's template.
+- Full-session turn completion is shown by the llama-server request counts only for the proxy
+  runs (5 and 4); the earlier contract runs were not counted, and the TUI's diff rendering made
+  a text check unreliable. Their start-up traffic is not in doubt; turn-time traffic in those
+  runs is less certain than in the proxy runs.

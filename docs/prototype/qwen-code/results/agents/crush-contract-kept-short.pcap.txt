@@ -1,0 +1,14 @@
+20:20:10.166590 ?     B   ARP, Request who-has 10.99.8.240 tell 10.99.8.240, length 28
+20:20:10.294768 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:20:10.294777 ?     Out ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:20:10.294780 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:20:10.294817 ?     P   IP 10.99.8.240.40496 > 10.99.8.1.domain: 61459+ [1au] A? api.github.com. (43)
+20:20:10.294860 ?     P   IP 10.99.8.240.52293 > 10.99.8.1.domain: 4174+ [1au] AAAA? api.github.com. (43)
+20:20:10.299001 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [S], seq 2356864483, win 65480, options [mss 65480,sackOK,TS val 1445219417 ecr 0,nop,wscale 10], length 0
+20:20:10.301932 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [.], ack 2812695596, win 64, length 0
+20:20:10.302421 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [P.], seq 0:1536, ack 1, win 64, length 1536
+20:20:10.306871 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [.], ack 3104, win 100, length 0
+20:20:10.309868 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [P.], seq 1536:1566, ack 3104, win 100, length 30
+20:20:10.309939 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [F.], seq 1566, ack 3104, win 100, length 0
+20:20:10.311881 ?     P   IP 10.99.8.240.46172 > 20.26.156.210.https: Flags [.], ack 3105, win 100, length 0
+20:20:15.456939 ?     P   ARP, Reply 10.99.8.240 is-at ea:53:f4:12:bc:3c, length 28

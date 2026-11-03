@@ -1,0 +1,259 @@
+19:43:38.489599 ?     B   ARP, Request who-has 10.99.8.240 tell 10.99.8.240, length 28
+19:43:38.590957 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:43:38.590964 ?     Out ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:43:38.590965 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:43:38.590994 ?     P   IP 10.99.8.240.41768 > 10.99.8.1.domain: 15205+ [1au] AAAA? hyper.charm.land. (45)
+19:43:38.591026 ?     P   IP 10.99.8.240.46343 > 10.99.8.1.domain: 23575+ [1au] A? hyper.charm.land. (45)
+19:43:38.594413 ?     P   IP 10.99.8.240.59322 > 10.99.8.1.domain: 35315+ [1au] AAAA? catwalk.charm.land. (47)
+19:43:38.594428 ?     P   IP 10.99.8.240.36194 > 10.99.8.1.domain: 64225+ [1au] A? catwalk.charm.land. (47)
+19:43:38.691325 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [S], seq 2082702499, win 65480, options [mss 65480,sackOK,TS val 679674649 ecr 0,nop,wscale 10], length 0
+19:43:38.691325 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [S], seq 1117571526, win 65480, options [mss 65480,sackOK,TS val 253768049 ecr 0,nop,wscale 10], length 0
+19:43:38.694372 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [.], ack 1429082843, win 64, length 0
+19:43:38.694653 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [.], ack 388391911, win 64, length 0
+19:43:38.694706 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [P.], seq 0:1538, ack 1, win 64, length 1538
+19:43:38.695029 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [P.], seq 0:1540, ack 1, win 64, length 1540
+19:43:38.709860 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [.], ack 5548, win 79, length 0
+19:43:38.711010 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [P.], seq 1540:1570, ack 5548, win 79, length 30
+19:43:38.711055 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [F.], seq 1570, ack 5548, win 79, length 0
+19:43:38.711188 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [.], ack 5553, win 79, length 0
+19:43:38.711619 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [P.], seq 1538:1568, ack 5553, win 79, length 30
+19:43:38.711633 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [F.], seq 1568, ack 5553, win 79, length 0
+19:43:38.720073 ?     P   IP 10.99.8.240.41714 > 142.250.151.121.https: Flags [.], ack 5549, win 79, length 0
+19:43:38.720102 ?     P   IP 10.99.8.240.41712 > 142.250.151.121.https: Flags [.], ack 5554, win 79, length 0
+19:43:38.723860 ?     P   IP 10.99.8.240.35921 > 10.99.8.1.domain: 10100+ [1au] A? api.github.com. (43)
+19:43:38.723875 ?     P   IP 10.99.8.240.48930 > 10.99.8.1.domain: 15973+ [1au] AAAA? api.github.com. (43)
+19:43:38.725841 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [S], seq 2576574289, win 65480, options [mss 65480,sackOK,TS val 4244716342 ecr 0,nop,wscale 10], length 0
+19:43:38.732739 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [.], ack 67925970, win 64, length 0
+19:43:38.732941 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [P.], seq 0:1536, ack 1, win 64, length 1536
+19:43:38.737725 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [.], ack 3103, win 100, length 0
+19:43:38.739826 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [P.], seq 1536:1566, ack 3103, win 100, length 30
+19:43:38.739848 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [F.], seq 1566, ack 3103, win 100, length 0
+19:43:38.742331 ?     P   IP 10.99.8.240.56638 > 20.26.156.210.https: Flags [.], ack 3104, win 100, length 0
+19:43:43.725162 ?     P   IP 10.99.8.240.35225 > 10.99.8.1.domain: 26745+ [1au] AAAA? data.charm.land. (44)
+19:43:43.725162 ?     P   IP 10.99.8.240.53401 > 10.99.8.1.domain: 65522+ [1au] A? data.charm.land. (44)
+19:43:43.736575 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [S], seq 3851420003, win 65480, options [mss 65480,sackOK,TS val 2647044347 ecr 0,nop,wscale 10], length 0
+19:43:43.744092 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [.], ack 2319513445, win 64, length 0
+19:43:43.744526 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:43:43.756530 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [.], ack 4285, win 61, length 0
+19:43:43.758450 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [.], ack 5425, win 64, length 0
+19:43:43.758933 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:43:43.759011 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:43:43.765751 ?     P   IP 10.99.8.240.53084 > 18.239.18.75.https: Flags [.], ack 5426, win 64, length 0
+19:43:43.860186 ?     P   IP 10.99.8.240.58322 > 10.99.8.1.domain: 42794+ [1au] A? data.charm.land. (44)
+19:43:43.860186 ?     P   IP 10.99.8.240.ssr-servermgr > 10.99.8.1.domain: 18218+ [1au] AAAA? data.charm.land. (44)
+19:43:43.861738 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [S], seq 3558832704, win 65480, options [mss 65480,sackOK,TS val 578982325 ecr 0,nop,wscale 10], length 0
+19:43:43.869126 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [.], ack 2800046209, win 64, length 0
+19:43:43.869516 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:43:43.880983 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [.], ack 2857, win 100, length 0
+19:43:43.881089 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [.], ack 4285, win 99, length 0
+19:43:43.882829 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [.], ack 5425, win 101, length 0
+19:43:43.883069 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 101, length 30
+19:43:43.883102 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 101, length 0
+19:43:43.889719 ?     P   IP 10.99.8.240.50204 > 18.239.18.40.https: Flags [.], ack 5426, win 101, length 0
+19:43:44.083621 ?     P   IP 10.99.8.240.43406 > 10.99.8.1.domain: 46239+ [1au] A? data.charm.land. (44)
+19:43:44.083621 ?     P   IP 10.99.8.240.48891 > 10.99.8.1.domain: 59073+ [1au] AAAA? data.charm.land. (44)
+19:43:44.085475 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [S], seq 3603827317, win 65480, options [mss 65480,sackOK,TS val 4050884490 ecr 0,nop,wscale 10], length 0
+19:43:44.092925 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [.], ack 3194828517, win 64, length 0
+19:43:44.093269 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:43:44.095974 ?     P   ARP, Reply 10.99.8.240 is-at b2:31:0a:6a:c7:ab, length 28
+19:43:44.106007 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [.], ack 4285, win 61, length 0
+19:43:44.107735 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [.], ack 5425, win 64, length 0
+19:43:44.108017 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:43:44.108069 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:43:44.115212 ?     P   IP 10.99.8.240.53088 > 18.239.18.75.https: Flags [.], ack 5426, win 64, length 0
+19:43:44.509266 ?     P   IP 10.99.8.240.33154 > 10.99.8.1.domain: 39997+ [1au] AAAA? data.charm.land. (44)
+19:43:44.509266 ?     P   IP 10.99.8.240.42285 > 10.99.8.1.domain: 20885+ [1au] A? data.charm.land. (44)
+19:43:44.510749 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [S], seq 2684834378, win 65480, options [mss 65480,sackOK,TS val 3947681640 ecr 0,nop,wscale 10], length 0
+19:43:44.518219 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [.], ack 4098905922, win 64, length 0
+19:43:44.518621 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:43:44.532200 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [.], ack 4285, win 61, length 0
+19:43:44.533583 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [.], ack 5425, win 64, length 0
+19:43:44.533780 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:43:44.533833 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:43:44.540843 ?     P   IP 10.99.8.240.50216 > 18.239.18.40.https: Flags [.], ack 5426, win 64, length 0
+19:44:09.398144 ?     P   IP 10.99.8.240.57817 > 10.99.8.1.domain: 37873+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:44:09.398144 ?     P   IP 10.99.8.240.53385 > 10.99.8.1.domain: 40517+ [1au] A? proto-llama.dns.podman. (51)
+19:44:09.399080 ?     P   IP 10.99.8.240.42229 > 10.99.8.1.domain: 34506+ [1au] A? proto-llama.dns.podman. (51)
+19:44:09.399084 ?     P   IP 10.99.8.240.59385 > 10.99.8.1.domain: 55041+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:44:13.724240 ?     P   IP 10.99.8.240.52982 > 10.99.8.1.domain: 58541+ [1au] AAAA? data.charm.land. (44)
+19:44:13.724241 ?     P   IP 10.99.8.240.49870 > 10.99.8.1.domain: 34399+ [1au] A? data.charm.land. (44)
+19:44:13.726489 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [S], seq 3933910747, win 65480, options [mss 65480,sackOK,TS val 1031532263 ecr 0,nop,wscale 10], length 0
+19:44:13.733934 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [.], ack 732334047, win 64, length 0
+19:44:13.734235 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:13.746907 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [.], ack 2857, win 100, length 0
+19:44:13.746996 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [.], ack 4285, win 99, length 0
+19:44:13.749418 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [.], ack 5425, win 101, length 0
+19:44:13.749907 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 101, length 30
+19:44:13.750023 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 101, length 0
+19:44:13.756614 ?     P   IP 10.99.8.240.60794 > 18.239.18.40.https: Flags [.], ack 5426, win 101, length 0
+19:44:13.850947 ?     P   IP 10.99.8.240.45488 > 10.99.8.1.domain: 2404+ [1au] A? data.charm.land. (44)
+19:44:13.850947 ?     P   IP 10.99.8.240.48530 > 10.99.8.1.domain: 43542+ [1au] AAAA? data.charm.land. (44)
+19:44:13.852578 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [S], seq 2953935793, win 65480, options [mss 65480,sackOK,TS val 1255640841 ecr 0,nop,wscale 10], length 0
+19:44:13.860293 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [.], ack 3799191764, win 64, length 0
+19:44:13.860524 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:13.872714 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [.], ack 4285, win 61, length 0
+19:44:13.874565 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [.], ack 5425, win 64, length 0
+19:44:13.874740 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:13.874798 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:13.881439 ?     P   IP 10.99.8.240.37122 > 18.239.18.111.https: Flags [.], ack 5426, win 64, length 0
+19:44:14.075596 ?     P   IP 10.99.8.240.43558 > 10.99.8.1.domain: 45512+ [1au] AAAA? data.charm.land. (44)
+19:44:14.075596 ?     P   IP 10.99.8.240.50449 > 10.99.8.1.domain: 46236+ [1au] A? data.charm.land. (44)
+19:44:14.076703 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [S], seq 3751956129, win 65480, options [mss 65480,sackOK,TS val 1841941151 ecr 0,nop,wscale 10], length 0
+19:44:14.083609 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [.], ack 1091876581, win 64, length 0
+19:44:14.083882 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:14.094755 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [.], ack 4285, win 61, length 0
+19:44:14.096660 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [.], ack 5425, win 64, length 0
+19:44:14.096773 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:14.096808 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:14.104073 ?     P   IP 10.99.8.240.60810 > 18.239.18.40.https: Flags [.], ack 5426, win 64, length 0
+19:44:14.497958 ?     P   IP 10.99.8.240.39564 > 10.99.8.1.domain: 51436+ [1au] AAAA? data.charm.land. (44)
+19:44:14.497958 ?     P   IP 10.99.8.240.47206 > 10.99.8.1.domain: 58554+ [1au] A? data.charm.land. (44)
+19:44:14.498913 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [S], seq 752051883, win 65480, options [mss 65480,sackOK,TS val 768330669 ecr 0,nop,wscale 10], length 0
+19:44:14.506075 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [.], ack 3412861736, win 64, length 0
+19:44:14.506303 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:14.517555 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [.], ack 2857, win 100, length 0
+19:44:14.517677 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [.], ack 4285, win 99, length 0
+19:44:14.521197 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [.], ack 5425, win 101, length 0
+19:44:14.521321 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 101, length 30
+19:44:14.521349 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 101, length 0
+19:44:14.527970 ?     P   IP 10.99.8.240.36272 > 18.239.18.75.https: Flags [.], ack 5426, win 101, length 0
+19:44:24.557854 ?     P   IP 10.99.8.240.49141 > 10.99.8.1.domain: 15482+ [1au] A? proto-llama.dns.podman. (51)
+19:44:24.557864 ?     P   IP 10.99.8.240.40365 > 10.99.8.1.domain: 46279+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:44:28.724947 ?     P   IP 10.99.8.240.49728 > 10.99.8.1.domain: 57873+ [1au] A? data.charm.land. (44)
+19:44:28.724947 ?     P   IP 10.99.8.240.57023 > 10.99.8.1.domain: 23413+ [1au] AAAA? data.charm.land. (44)
+19:44:28.726370 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [S], seq 2725957726, win 65480, options [mss 65480,sackOK,TS val 1660318391 ecr 0,nop,wscale 10], length 0
+19:44:28.733947 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [.], ack 2968618717, win 64, length 0
+19:44:28.734484 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:28.745658 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [.], ack 4285, win 61, length 0
+19:44:28.747833 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [.], ack 5425, win 64, length 0
+19:44:28.748161 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:28.748193 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:28.755196 ?     P   IP 10.99.8.240.54122 > 18.239.18.40.https: Flags [.], ack 5426, win 64, length 0
+19:44:28.849084 ?     P   IP 10.99.8.240.55935 > 10.99.8.1.domain: 3885+ [1au] AAAA? data.charm.land. (44)
+19:44:28.849085 ?     P   IP 10.99.8.240.42137 > 10.99.8.1.domain: 26552+ [1au] A? data.charm.land. (44)
+19:44:28.850693 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [S], seq 1974778463, win 65480, options [mss 65480,sackOK,TS val 3396334 ecr 0,nop,wscale 10], length 0
+19:44:28.857926 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [.], ack 3267384384, win 64, length 0
+19:44:28.858240 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:28.869859 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [.], ack 4285, win 61, length 0
+19:44:28.871821 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [.], ack 5425, win 64, length 0
+19:44:28.871953 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:28.871988 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:28.878846 ?     P   IP 10.99.8.240.35834 > 18.239.18.75.https: Flags [.], ack 5426, win 64, length 0
+19:44:29.072462 ?     P   IP 10.99.8.240.41271 > 10.99.8.1.domain: 34504+ [1au] AAAA? data.charm.land. (44)
+19:44:29.072462 ?     P   IP 10.99.8.240.53405 > 10.99.8.1.domain: 10171+ [1au] A? data.charm.land. (44)
+19:44:29.073708 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [S], seq 2543492060, win 65480, options [mss 65480,sackOK,TS val 711871710 ecr 0,nop,wscale 10], length 0
+19:44:29.081648 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [.], ack 90124842, win 64, length 0
+19:44:29.082191 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:29.095127 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [.], ack 4285, win 61, length 0
+19:44:29.098680 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [.], ack 5425, win 64, length 0
+19:44:29.098919 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:29.099065 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:29.105616 ?     P   IP 10.99.8.240.35844 > 18.239.18.75.https: Flags [.], ack 5426, win 64, length 0
+19:44:29.499598 ?     P   IP 10.99.8.240.51051 > 10.99.8.1.domain: 15051+ [1au] AAAA? data.charm.land. (44)
+19:44:29.499823 ?     P   IP 10.99.8.240.49350 > 10.99.8.1.domain: 6666+ [1au] A? data.charm.land. (44)
+19:44:29.501376 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [S], seq 1260628991, win 65480, options [mss 65480,sackOK,TS val 4030894296 ecr 0,nop,wscale 10], length 0
+19:44:29.508544 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [.], ack 441994713, win 64, length 0
+19:44:29.509120 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:44:29.522886 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [.], ack 4285, win 61, length 0
+19:44:29.525630 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [.], ack 5425, win 64, length 0
+19:44:29.525760 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:44:29.525794 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:44:29.532648 ?     P   IP 10.99.8.240.51396 > 18.239.18.111.https: Flags [.], ack 5426, win 64, length 0
+19:44:29.663967 ?     P   ARP, Reply 10.99.8.240 is-at b2:31:0a:6a:c7:ab, length 28
+19:45:25.379463 ?     P   IP 10.99.8.240.54002 > 10.99.8.1.domain: 39921+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:45:25.379463 ?     P   IP 10.99.8.240.55093 > 10.99.8.1.domain: 58146+ [1au] A? proto-llama.dns.podman. (51)
+19:45:26.837106 ?     P   IP 10.99.8.240.57646 > 10.99.8.1.domain: 53444+ [1au] A? proto-llama.dns.podman. (51)
+19:45:26.837120 ?     P   IP 10.99.8.240.58247 > 10.99.8.1.domain: 15214+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:45:28.724676 ?     P   IP 10.99.8.240.51623 > 10.99.8.1.domain: 6992+ [1au] AAAA? data.charm.land. (44)
+19:45:28.724854 ?     P   IP 10.99.8.240.50265 > 10.99.8.1.domain: 25932+ [1au] A? data.charm.land. (44)
+19:45:28.728131 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [S], seq 4067340146, win 65480, options [mss 65480,sackOK,TS val 1221467353 ecr 0,nop,wscale 10], length 0
+19:45:28.735338 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [.], ack 3608574986, win 64, length 0
+19:45:28.735629 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:28.746880 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [.], ack 2857, win 100, length 0
+19:45:28.746965 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [.], ack 4285, win 99, length 0
+19:45:28.749010 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [.], ack 5425, win 101, length 0
+19:45:28.749260 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [P.], seq 1537:1567, ack 5425, win 101, length 30
+19:45:28.749295 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [F.], seq 1567, ack 5425, win 101, length 0
+19:45:28.756305 ?     P   IP 10.99.8.240.44942 > 18.239.18.75.https: Flags [.], ack 5426, win 101, length 0
+19:45:28.850107 ?     P   IP 10.99.8.240.55564 > 10.99.8.1.domain: 11218+ [1au] AAAA? data.charm.land. (44)
+19:45:28.850107 ?     P   IP 10.99.8.240.49500 > 10.99.8.1.domain: 30892+ [1au] A? data.charm.land. (44)
+19:45:28.853499 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [S], seq 1617473544, win 65480, options [mss 65480,sackOK,TS val 2598085792 ecr 0,nop,wscale 10], length 0
+19:45:28.860667 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [.], ack 3059797039, win 64, length 0
+19:45:28.861056 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:28.872497 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [.], ack 4285, win 61, length 0
+19:45:28.874691 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [.], ack 5425, win 64, length 0
+19:45:28.874897 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:45:28.874934 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:45:28.882873 ?     P   IP 10.99.8.240.51730 > 18.239.18.96.https: Flags [.], ack 5426, win 64, length 0
+19:45:29.075514 ?     P   IP 10.99.8.240.37029 > 10.99.8.1.domain: 64585+ [1au] AAAA? data.charm.land. (44)
+19:45:29.075514 ?     P   IP 10.99.8.240.51820 > 10.99.8.1.domain: 53436+ [1au] A? data.charm.land. (44)
+19:45:29.077353 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [S], seq 1069487244, win 65480, options [mss 65480,sackOK,TS val 2504171254 ecr 0,nop,wscale 10], length 0
+19:45:29.084284 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [.], ack 3897009317, win 64, length 0
+19:45:29.084716 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:29.094250 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [.], ack 4285, win 61, length 0
+19:45:29.095663 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [.], ack 5904, win 64, length 0
+19:45:29.095937 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5904, win 64, length 30
+19:45:29.095992 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5904, win 64, length 0
+19:45:29.102564 ?     P   IP 10.99.8.240.60714 > 18.239.18.40.https: Flags [.], ack 5905, win 64, length 0
+19:45:29.496535 ?     P   IP 10.99.8.240.38985 > 10.99.8.1.domain: 24337+ [1au] AAAA? data.charm.land. (44)
+19:45:29.496535 ?     P   IP 10.99.8.240.58992 > 10.99.8.1.domain: 8459+ [1au] A? data.charm.land. (44)
+19:45:29.498192 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [S], seq 1443052441, win 65480, options [mss 65480,sackOK,TS val 2592117240 ecr 0,nop,wscale 10], length 0
+19:45:29.505509 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [.], ack 202963518, win 64, length 0
+19:45:29.505820 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:29.517958 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [.], ack 4285, win 61, length 0
+19:45:29.519765 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [.], ack 5425, win 64, length 0
+19:45:29.519964 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:45:29.519996 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:45:29.526871 ?     P   IP 10.99.8.240.58818 > 18.239.18.111.https: Flags [.], ack 5426, win 64, length 0
+19:45:30.591966 ?     P   ARP, Reply 10.99.8.240 is-at b2:31:0a:6a:c7:ab, length 28
+19:45:33.724787 ?     P   IP 10.99.8.240.58067 > 10.99.8.1.domain: 59131+ [1au] AAAA? data.charm.land. (44)
+19:45:33.724811 ?     P   IP 10.99.8.240.53517 > 10.99.8.1.domain: 25563+ [1au] A? data.charm.land. (44)
+19:45:33.726247 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [S], seq 3084062008, win 65480, options [mss 65480,sackOK,TS val 3653467891 ecr 0,nop,wscale 10], length 0
+19:45:33.733349 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [.], ack 2997100174, win 64, length 0
+19:45:33.733769 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:33.744793 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [.], ack 2857, win 100, length 0
+19:45:33.744901 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [.], ack 4285, win 99, length 0
+19:45:33.747203 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [.], ack 5425, win 101, length 0
+19:45:33.747511 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 101, length 30
+19:45:33.747566 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 101, length 0
+19:45:33.754601 ?     P   IP 10.99.8.240.44640 > 18.239.18.40.https: Flags [.], ack 5426, win 101, length 0
+19:45:33.848147 ?     P   IP 10.99.8.240.51100 > 10.99.8.1.domain: 25342+ [1au] AAAA? data.charm.land. (44)
+19:45:33.848147 ?     P   IP 10.99.8.240.43450 > 10.99.8.1.domain: 52389+ [1au] A? data.charm.land. (44)
+19:45:33.849204 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [S], seq 4087090690, win 65480, options [mss 65480,sackOK,TS val 2929949556 ecr 0,nop,wscale 10], length 0
+19:45:33.856363 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [.], ack 1951093554, win 64, length 0
+19:45:33.856593 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:33.867477 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [.], ack 4285, win 61, length 0
+19:45:33.869302 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [.], ack 5425, win 64, length 0
+19:45:33.869522 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:45:33.869556 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:45:33.876276 ?     P   IP 10.99.8.240.36444 > 18.239.18.96.https: Flags [.], ack 5426, win 64, length 0
+19:45:34.070015 ?     P   IP 10.99.8.240.46231 > 10.99.8.1.domain: 16588+ [1au] A? data.charm.land. (44)
+19:45:34.070015 ?     P   IP 10.99.8.240.34097 > 10.99.8.1.domain: 63518+ [1au] AAAA? data.charm.land. (44)
+19:45:34.071064 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [S], seq 2588890253, win 65480, options [mss 65480,sackOK,TS val 4235087999 ecr 0,nop,wscale 10], length 0
+19:45:34.078260 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [.], ack 542731728, win 64, length 0
+19:45:34.078486 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:34.090209 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [.], ack 4285, win 61, length 0
+19:45:34.092520 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [.], ack 5425, win 64, length 0
+19:45:34.092644 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:45:34.092674 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:45:34.099315 ?     P   IP 10.99.8.240.58830 > 18.239.18.111.https: Flags [.], ack 5426, win 64, length 0
+19:45:34.493146 ?     P   IP 10.99.8.240.57327 > 10.99.8.1.domain: 32614+ [1au] AAAA? data.charm.land. (44)
+19:45:34.493152 ?     P   IP 10.99.8.240.55303 > 10.99.8.1.domain: 50952+ [1au] A? data.charm.land. (44)
+19:45:34.494170 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [S], seq 1570108414, win 65480, options [mss 65480,sackOK,TS val 3272635784 ecr 0,nop,wscale 10], length 0
+19:45:34.501530 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [.], ack 1342540336, win 64, length 0
+19:45:34.501966 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:45:34.513049 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [.], ack 4285, win 61, length 0
+19:45:34.516182 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [.], ack 5425, win 64, length 0
+19:45:34.516401 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:45:34.516448 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:45:34.523180 ?     P   IP 10.99.8.240.36446 > 18.239.18.96.https: Flags [.], ack 5426, win 64, length 0
+19:46:41.287813 ?     P   IP 10.99.8.240.50697 > 10.99.8.1.domain: 56625+ [1au] A? data.charm.land. (44)
+19:46:41.287812 ?     P   IP 10.99.8.240.33058 > 10.99.8.1.domain: 60765+ [1au] AAAA? data.charm.land. (44)
+19:46:41.291553 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [S], seq 239966326, win 65480, options [mss 65480,sackOK,TS val 1912829312 ecr 0,nop,wscale 10], length 0
+19:46:41.298537 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [.], ack 3156320210, win 64, length 0
+19:46:41.298826 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [P.], seq 0:1537, ack 1, win 64, length 1537
+19:46:41.310030 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [.], ack 4285, win 61, length 0
+19:46:41.313092 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [.], ack 5425, win 64, length 0
+19:46:41.313411 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [P.], seq 1537:1567, ack 5425, win 64, length 30
+19:46:41.313482 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [F.], seq 1567, ack 5425, win 64, length 0
+19:46:41.320621 ?     P   IP 10.99.8.240.41338 > 18.239.18.40.https: Flags [.], ack 5426, win 64, length 0

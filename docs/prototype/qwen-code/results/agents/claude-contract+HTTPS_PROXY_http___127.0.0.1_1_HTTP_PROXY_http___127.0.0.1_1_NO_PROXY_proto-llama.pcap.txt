@@ -1,0 +1,11 @@
+20:24:53.503105 ?     B   ARP, Request who-has 10.99.8.240 tell 10.99.8.240, length 28
+20:25:24.522492 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:25:24.522503 ?     Out ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:25:24.522506 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:25:24.522546 ?     P   IP 10.99.8.240.34882 > 10.99.8.1.domain: 37908+ A? proto-llama.dns.podman. (40)
+20:25:24.522586 ?     P   IP 10.99.8.240.34882 > 10.99.8.1.domain: 34664+ AAAA? proto-llama.dns.podman. (40)
+20:25:29.824961 ?     P   ARP, Reply 10.99.8.240 is-at 06:c2:24:93:f6:e4, length 28
+20:26:40.412292 ?     P   IP 10.99.8.240.50180 > 10.99.8.1.domain: 3201+ A? proto-llama.dns.podman. (40)
+20:26:40.412352 ?     P   IP 10.99.8.240.50180 > 10.99.8.1.domain: 25594+ AAAA? proto-llama.dns.podman. (40)
+20:26:45.599917 ?     P   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+20:26:45.599928 ?     P   ARP, Reply 10.99.8.240 is-at 06:c2:24:93:f6:e4, length 28

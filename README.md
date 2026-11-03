@@ -4,7 +4,7 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
-VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only**: the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
+VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only**: the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary. Telemetry is off in everything villa launches: first-party components emit none, and the coding agents (Crush, Claude Code) start with their telemetry and update switches set, checked by a network capture of each (ADR-0039). The one disclosed exception is Crush's release check against `api.github.com`, which has no switch (#389).
 
 > Status: **v1.18.2 shipped** (tag `v1.18.2`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0**: Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
