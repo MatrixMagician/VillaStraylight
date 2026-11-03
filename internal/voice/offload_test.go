@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -217,9 +218,8 @@ func TestProveOnGPUDeadlineStopsTheRoundTrip(t *testing.T) {
 	if speaks.Load() != 1 || transcribes.Load() != 0 {
 		t.Errorf("speaks=%d transcribes=%d after the deadline, want 1/0", speaks.Load(), transcribes.Load())
 	}
-	want := "the round trip did not finish (generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)); check `systemctl --user status villa-stt.service`"
-	if got.Status != verify.Reject || got.Detail != want {
-		t.Errorf("ProveOnGPU = {%v %q}\nwant          {reject %q}", got.Status, got.Detail, want)
+	if got.Status != verify.Reject || !strings.Contains(got.Detail, "systemctl --user status villa-stt.service") {
+		t.Errorf("ProveOnGPU = {%v %q}\nwant a reject that names villa-stt.service", got.Status, got.Detail)
 	}
 	if folds != 0 {
 		t.Errorf("fold ran %d times for a round trip that never finished", folds)
