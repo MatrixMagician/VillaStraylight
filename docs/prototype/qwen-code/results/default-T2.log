@@ -1,0 +1,14 @@
+== qwen[default] T2 2026-11-03T12:48:13+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Done. The reconciliation report is at `reports/reconciliation.md`.
+
+**Summary:**
+- **4 invoices** paid in full (£5,720.50)
+- **1 invoice** (INV-1045, Maas Biolabs) paid **£50 short** — likely an error, worth chasing
+- **2 invoices** unpaid: INV-1046 (£860.50, overdue for Sense/Net) and INV-1047 (£975.00, still a draft and was never sent)
+- **Total outstanding: £1,885.50** (including the £50 shortfall)
+
+The three flagged items at the bottom are the ones that need action: chase the Maas shortfall, send a reminder to Sense/Net, and decide what to do with the unsent INV-1047.
+-- exit=0 wall=89s prompt_tokens=7440 generated=3697
+14a15
+> ./reports/reconciliation.md

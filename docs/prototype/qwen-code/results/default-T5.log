@@ -1,0 +1,10 @@
+== qwen[default] T5 2026-11-03T12:52:00+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Report written to `reports/duplicates.md`. Summary:
+
+- **`notes/research_notes_local_ai (1).md`** — identical to the base file. Delete the "(1)" copy.
+- **`finance/invoices_q2 - Copy.csv`** — identical to the base file. Delete the "- Copy" variant.
+- **`photos/IMG_20260601_101512.jpg` vs `IMG_20260601_101530.jpg`** — differ by a single byte (likely a timestamp marker), so they are *not* duplicates despite being from the same session. Both should be kept unless visual inspection reveals one is a bad capture.
+-- exit=0 wall=64s prompt_tokens=8133 generated=2960
+15a16
+> ./reports/duplicates.md

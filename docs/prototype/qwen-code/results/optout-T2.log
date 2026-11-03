@@ -1,0 +1,25 @@
+== qwen[optout] T2 2026-11-03T12:41:43+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Reconciliation complete. Report written to `reports/reconciliation.md`.
+
+**Key findings:**
+
+| Invoice | Client | Status |
+|---|---|---|
+| INV-1041 | Tessier-Ashpool | Paid in full (£1,200.00) |
+| INV-1042 | Sense/Net | Paid in full (£860.50) |
+| INV-1043 | Ono-Sendai | Paid in full (£2,400.00) |
+| INV-1044 | Tessier-Ashpool | Paid in full (£1,200.00) |
+| INV-1045 | Maas Biolabs | **Paid short — £50.00 under** |
+| INV-1046 | Sense/Net | **Unpaid** (£860.50) |
+| INV-1047 | Ono-Sendai | **Unpaid + still draft** (£975.00) |
+
+**Total outstanding: £985.00**
+
+**Flags:**
+1. **Maas Biolabs underpaid £50.00** — needs investigation (deduction? typo? discount?).
+2. **Sense/Net (INV-1046) still unpaid** — due soon if standard 30-day terms, but monitor.
+3. **INV-1047 is still a draft** — not yet sent to the client, so no payment expected until it is.
+-- exit=0 wall=69s prompt_tokens=8863 generated=2905
+14a15
+> ./reports/reconciliation.md

@@ -1,0 +1,17 @@
+# Workspace Index
+
+| Category | File | Description |
+|---|---|---|
+| **finance** | `finance/bank_export_may_jun.csv` | Bank export of outgoing payments in GBP for May–June 2026 |
+| **finance** | `finance/invoices_q2.csv` | Q2 2026 invoice register (7 invoices across 4 clients) |
+| **finance** | `finance/invoices_q2 - Copy.csv` | Duplicate copy of the Q2 invoice register |
+| **meetings** | `meetings/meeting-2026-05-04.md` | Weekly sync notes — drive migration blocker, Chiba trip, Sense/Net retainer |
+| **meetings** | `meetings/meeting-2026-05-18.md` | Sync notes — Ono-Sendai quote accepted, short payment from Maas Biolabs |
+| **meetings** | `meetings/meeting-2026-06-01.md` | Sync notes — naming scheme approved, Sense/Net retainer renewed, Chiba trip confirmed |
+| **misc** | `misc/CLAUDE.md` | Local workspace rules and conventions |
+| **notes** | `notes/letter-draft.md` | Draft letter to Maas Biolabs re short payment (TODO) |
+| **notes** | `notes/research_notes_local_ai.md` | Notes on running AI models locally (Strix Halo, ROCm, Open WebUI) |
+| **notes** | `notes/research_notes_local_ai (1).md` | Duplicate copy of local AI research notes |
+| **notes** | `notes/todo.md` | To-do list — domain renewal, Chiba hotel, client memo |
+| **photos** | `photos/IMG_20260601_101512.jpg` | Photo taken 2026-06-01 10:15:12 |
+| **photos** | `photos/IMG_20260601_101530.jpg` | Photo taken 2026-06-01 10:15:30 |

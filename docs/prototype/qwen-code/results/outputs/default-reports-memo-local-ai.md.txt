@@ -1,0 +1,38 @@
+# Memo: Running AI Locally — Should We?
+
+**To:** Engineering Manager
+**From:** Research
+**Date:** 2026-11-03
+**Subject:** Recommendation on deploying local AI inference
+
+---
+
+## Recommendation
+
+**Proceed with a small pilot.** The hardware and software stack has reached a point where a capable model (35B parameters) runs fully on a single workstation with 128 GB of unified memory. The main barrier is operational complexity, not capability.
+
+---
+
+## Three Benefits
+
+1. **Complete data privacy.** No telemetry or outbound data transmission — model weights and prompts never leave the machine. The only network access is for pulling model updates and images.
+
+2. **Full context window.** The target hardware supports up to 128k tokens of context, enabling the model to ingest large documents, codebases, or conversation histories in a single pass — something that is expensive or restricted with most cloud APIs.
+
+3. **Cost predictability.** Once the workstation is purchased, inference is free. Speculative decoding can roughly double throughput on repetitive tasks, improving developer experience without additional recurring costs.
+
+---
+
+## Three Risks
+
+1. **Setup complexity.** The current software stack (ROCm backend, llama.cpp serving, Open WebUI front-end) requires manual configuration and tuning. Vulkan is available as a fallback but may indicate instability in the primary driver stack.
+
+2. **Model quality lags the frontier.** A locally run 35B model at 4-bit quantisation will underperform the latest cloud-hosted models in reasoning, coding, and creative tasks. It is suitable for routine assistance but not for high-stakes output.
+
+3. **No mobile access.** The recommended front-end (Open WebUI) is web-based and desktop-oriented. There is no native mobile application, so on-the-go access is not supported out of the box.
+
+---
+
+## Suggested Next Step
+
+Procure one Strix Halo workstation (128 GB unified memory) and run a two-week pilot. Measure inference speed, model quality against a cloud baseline on a standard task set, and the time spent on setup and maintenance. If results are satisfactory, scale to additional machines; if not, the hardware retains resale value and the investment is limited.

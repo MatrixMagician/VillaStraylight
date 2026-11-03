@@ -1,0 +1,42 @@
+# Duplicate / Near-Duplicate File Report
+
+**Generated:** 2026-06-02
+
+---
+
+## Pair 1: Identical — research notes
+
+| | File A | File B |
+|---|---|---|
+| **Path** | `notes/research_notes_local_ai.md` | `notes/research_notes_local_ai (1).md` |
+| **Size** | 540 bytes | 540 bytes |
+| **Match** | **Identical** (byte-for-byte) | |
+
+**Keep:** `notes/research_notes_local_ai.md`
+**Why:** Clean filename without parentheses/number suffix. The "(1)" variant is clearly a copy created by a file-system auto-duplicate (e.g. download or export).
+
+---
+
+## Pair 2: Identical — invoice CSV
+
+| | File A | File B |
+|---|---|---|
+| **Path** | `finance/invoices_q2.csv` | `finance/invoices_q2 - Copy.csv` |
+| **Size** | 354 bytes | 354 bytes |
+| **Match** | **Identical** (byte-for-byte) | |
+
+**Keep:** `finance/invoices_q2.csv`
+**Why:** Standard naming convention per project conventions (see `finance_data_locations.md`). The "- Copy" variant is an explicit copy, likely from a download or manual duplication.
+
+---
+
+## Pair 3: Near-duplicate — photos (different content)
+
+| | File A | File B |
+|---|---|---|
+| **Path** | `photos/IMG_20260601_101512.jpg` | `photos/IMG_20260601_101530.jpg` |
+| **Size** | 36 bytes | 36 bytes |
+| **Match** | **Near-duplicate** — differ only at byte 18 (likely a timestamp/EXIF byte) | |
+
+**Keep:** Both
+**Why:** Despite the same tiny size (36 bytes — possibly low-res thumbnails or placeholders), the files differ. The timestamps in the filenames are 18 seconds apart (`101512` vs `101530`), suggesting they are two distinct captures from the same session. No action needed unless one is clearly a bad/blurry shot — visual inspection would be required to confirm.
