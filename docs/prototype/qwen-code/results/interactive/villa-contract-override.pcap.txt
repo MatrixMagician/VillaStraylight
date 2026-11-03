@@ -1,0 +1,20 @@
+20:50:58.146504 ?     B   ARP, Request who-has 10.99.7.240 tell 10.99.7.240, length 28
+20:51:29.059058 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:51:29.059065 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:51:29.059068 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:51:29.059071 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:51:29.059099 ?     P   IP 10.99.7.240.52763 > 10.99.7.1.domain: 9497+ A? proto-llama.dns.podman. (40)
+20:51:29.059129 ?     P   IP 10.99.7.240.52763 > 10.99.7.1.domain: 49429+ AAAA? proto-llama.dns.podman. (40)
+20:51:33.586801 ?     P   IP 10.99.7.240.40069 > 10.99.7.1.domain: 60376+ A? proto-llama.dns.podman. (40)
+20:51:33.586846 ?     P   IP 10.99.7.240.40069 > 10.99.7.1.domain: 35293+ AAAA? proto-llama.dns.podman. (40)
+20:51:34.495989 ?     P   ARP, Reply 10.99.7.240 is-at 7e:13:cf:1f:7c:96, length 28
+20:52:44.770997 ?     P   IP 10.99.7.240.41483 > 10.99.7.1.domain: 15015+ A? proto-llama.dns.podman. (40)
+20:52:44.771039 ?     P   IP 10.99.7.240.41483 > 10.99.7.1.domain: 61860+ AAAA? proto-llama.dns.podman. (40)
+20:52:46.602335 ?     P   IP 10.99.7.240.39855 > 10.99.7.1.domain: 39915+ A? proto-llama.dns.podman. (40)
+20:52:46.602376 ?     P   IP 10.99.7.240.39855 > 10.99.7.1.domain: 36630+ AAAA? proto-llama.dns.podman. (40)
+20:52:47.924392 ?     P   IP 10.99.7.240.51608 > 10.99.7.1.domain: 56092+ A? proto-llama.dns.podman. (40)
+20:52:47.924435 ?     P   IP 10.99.7.240.51608 > 10.99.7.1.domain: 35600+ AAAA? proto-llama.dns.podman. (40)
+20:52:47.960886 ?     P   IP 10.99.7.240.37585 > 10.99.7.1.domain: 39443+ A? proto-llama.dns.podman. (40)
+20:52:47.960927 ?     P   IP 10.99.7.240.37585 > 10.99.7.1.domain: 34844+ AAAA? proto-llama.dns.podman. (40)
+20:52:50.271927 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:52:50.271931 ?     P   ARP, Reply 10.99.7.240 is-at 7e:13:cf:1f:7c:96, length 28

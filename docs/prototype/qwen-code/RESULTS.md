@@ -205,3 +205,29 @@ TLS and was not decoded. It does not repeat on a settled home, which is the home
   runs (5 and 4); the earlier contract runs were not counted, and the TUI's diff rendering made
   a text check unreliable. Their start-up traffic is not in doubt; turn-time traffic in those
   runs is less certain than in the proxy runs.
+
+## Acceptance capture for `villa code --agent qwen` (#375)
+
+Run 2026-11-03 on the build from PR #391. Two parts, so that neither relies on a hand-assembled contract.
+
+**What villa emits.** The real static `villa` binary, a temporary `XDG_CONFIG_HOME` with coding mode on, and a
+fake `qwen` on `PATH` that dumps what it was given (`results/interactive/accept/`). `villa code --agent qwen
+-- --resume x` exited 0 and the fake saw: `QWEN_HOME=<config>/villa/qwen`, `QWEN_USAGE_STATISTICS_ENABLED=false`,
+`QWEN_CODE_MODELS_DEV_REFRESH=off`, `DO_NOT_TRACK=1` and `OPENAI_API_KEY` set; the directory mode 700 and
+`settings.json` mode 600; the secret absent from the file; the extra arguments forwarded verbatim; the user's own
+`~/.qwen` untouched.
+
+**What real Qwen Code does with it.** The emitted `settings.json` and environment fed to the #373 harness
+(`interactive.py villa-contract`, `run-accept.sh`), real Qwen Code 0.26.6, the container's `~/.qwen` empty, so
+the provider config can only have come from `QWEN_HOME`. Model requests per session counted from the server log.
+
+| Mode | Hosts contacted off the model server | Model requests |
+|---|---|--:|
+| default (positive control, same harness) | `registry.npmjs.org`, `models.dev`, the usage-statistics host (160 packets to the local sink) | 6 |
+| villa contract | **none** (DNS for the model server only) | 6 |
+| villa contract + a workspace `.qwen/settings.json` re-enabling usage statistics | **none** | 6 |
+
+`QWEN_HOME` relocates the global config as documented: the sessions reached the model with the provider entry
+read from the villa-owned directory. Not covered, as for the other agents: extension and MCP fetches, the
+model's own web tools, and a session longer than 185 s. Settled-versus-fresh home was not varied here; the
+#373 results show the start-up fetches happen on a fresh home and the contract removes all three.
