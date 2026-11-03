@@ -39,6 +39,14 @@ type codeRecorder struct {
 	launchCalls [][]string
 
 	launchClaudeCalls []claudeLaunchCall
+
+	qwenWrites []qwenWrite
+}
+
+// qwenWrite records one WriteQwenSettings invocation.
+type qwenWrite struct {
+	home string
+	b    []byte
 }
 
 // claudeLaunchCall records one LaunchClaude invocation.
@@ -64,6 +72,11 @@ func (r *codeRecorder) deps() *agent.Deps {
 		Launch:      func(env []string) error { r.launchCalls = append(r.launchCalls, env); return nil },
 		LaunchClaude: func(bin string, args, env []string) error {
 			r.launchClaudeCalls = append(r.launchClaudeCalls, claudeLaunchCall{bin, args, env})
+			return nil
+		},
+		QwenHome: func() (string, error) { return "/cfg/villa/qwen", nil },
+		WriteQwenSettings: func(home string, b []byte) error {
+			r.qwenWrites = append(r.qwenWrites, qwenWrite{home, b})
 			return nil
 		},
 	}

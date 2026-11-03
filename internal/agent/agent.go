@@ -358,9 +358,15 @@ type Deps struct {
 	// reached ONLY on a clean presence+drift check.
 	Launch func(env []string) error
 	// LaunchClaude execs a PATH-resolved binary (bin, from LookPath) with args and
-	// env — fixed-arg, no shell. Populated and used only by RunClaude; Run (Crush)
-	// never calls it.
+	// env — fixed-arg, no shell. It is the generic PATH-agent exec seam: the
+	// caller launches claude and qwen through it; Run (Crush) never calls it.
 	LaunchClaude func(bin string, args, env []string) error
+	// QwenHome resolves the villa-owned directory QWEN_HOME points Qwen Code at
+	// (<user config dir>/villa/qwen in the live wiring). Used only by RunQwen.
+	QwenHome func() (string, error)
+	// WriteQwenSettings writes b as settings.json inside home (dir 0700, file
+	// 0600, atomic in the live wiring). RunQwen calls it on every launch.
+	WriteQwenSettings func(home string, b []byte) error
 }
 
 // Result is the typed outcome of the `villa code` flow (NOT an exit code) so the
@@ -404,14 +410,14 @@ type Result struct {
 	Err error
 	// CodingModeOff is true when RunClaude refused because coding mode is off
 	// (Claude Code's tool calls need the --jinja template villa renders only in
-	// coding mode). Populated only by RunClaude — Run (Crush) only warns on this
+	// coding mode). Populated only by RunClaude / RunQwen — Run (Crush) only warns on this
 	// case, it never refuses.
 	CodingModeOff bool
-	// LaunchBin is the PATH-resolved claude binary RunClaude found. Populated only
-	// by RunClaude; Run (Crush) leaves it empty (it launches the explicit
+	// LaunchBin is the PATH-resolved claude or qwen binary RunClaude / RunQwen found. Populated only
+	// by those two; Run (Crush) leaves it empty (it launches the explicit
 	// villa-owned binary via Launch, not LaunchBin/LaunchClaude).
 	LaunchBin string
-	// LaunchArgs are the extra args RunClaude forwards verbatim to LaunchClaude.
-	// Populated only by RunClaude; Run (Crush) ignores it.
+	// LaunchArgs are the extra args RunClaude / RunQwen forward verbatim to LaunchClaude.
+	// Populated only by those two; Run (Crush) ignores it.
 	LaunchArgs []string
 }
