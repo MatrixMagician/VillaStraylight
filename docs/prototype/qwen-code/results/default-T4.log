@@ -1,0 +1,19 @@
+== qwen[default] T4 2026-11-03T12:51:12+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Done. I've created `/workspace/reports/memo-local-ai.md`.
+
+The memo is based entirely on the two research-note files (which are identical content), with no invented facts. Here's what maps from notes to memo:
+
+| Note point | Appears in memo? |
+|---|---|
+| Strix Halo, 128 GB unified memory, 35B MoE at Q4, 128k context | Benefits #2, Next Step |
+| ROCm 7.2.4 / Vulkan fallback | Risks #1 |
+| Nothing leaves the box, no telemetry | Benefits #1 |
+| Open WebUI + llama.cpp OpenAI-compatible API | Risks #1, Risks #3 |
+| Speculative decoding (ngram) doubles tokens/s | Benefits #3 |
+| Setup is fiddly | Risks #1 |
+| Model quality lags frontier | Risks #2 |
+| No mobile app | Risks #3 |
+-- exit=0 wall=48s prompt_tokens=7367 generated=2357
+15a16
+> ./reports/memo-local-ai.md

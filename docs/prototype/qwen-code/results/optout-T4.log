@@ -1,0 +1,11 @@
+== qwen[optout] T4 2026-11-03T12:43:57+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+The memo has been written to `reports/memo-local-ai.md`. It draws exclusively from the research notes:
+
+- **Recommendation:** Proceed with a pilot, grounded in the Strix Halo / 35B MoE capability noted.
+- **Benefits:** data stays on-premise (no telemetry), cost predictability (open-source stack), performance gains (ngram speculative decoding).
+- **Risks:** setup complexity (ROCm/Vulkan stack), model quality lag, no mobile app.
+- **Next step:** a two-week pilot on a concrete workload, with a reporting gate before wider adoption.
+-- exit=0 wall=71s prompt_tokens=4110 generated=3197
+15a16
+> ./reports/memo-local-ai.md

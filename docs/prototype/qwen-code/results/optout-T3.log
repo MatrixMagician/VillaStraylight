@@ -1,0 +1,12 @@
+== qwen[optout] T3 2026-11-03T12:42:52+00:00
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Configure tools.executionSandbox on Linux or a supported legacy sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Done. The report is at `reports/action-items.md` and covers:
+
+- **8 action items** in a single table with owner, date raised, status, and notes — statuses tracked across all three meetings (open/done).
+- **2 decisions**, including the Sense/Net retainer which was superseded.
+- **2 contradictions / open questions**:
+  1. Invoice number for the Ono-Sendai quote may actually belong to Maas — unresolved.
+  2. The Q2 memo (actioned 18-May) remains undrafted as of 1-Jun with no new deadline.
+-- exit=0 wall=65s prompt_tokens=7545 generated=2721
+14a15
+> ./reports/action-items.md

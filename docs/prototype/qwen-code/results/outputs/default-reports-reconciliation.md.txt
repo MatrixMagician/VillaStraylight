@@ -1,0 +1,47 @@
+# Invoice Reconciliation — Q2 2026
+
+Bank export period: May–June 2026 (file: `bank_export_may_jun.csv`)  
+Invoices: `invoices_q2.csv` (7 invoices)
+
+> Export covers May–June only, so payments received in April (e.g. INV-1041 on 20 Apr) won't appear as credits in the bank file. They are matched by cross-referencing the invoice date and bank description.
+
+## Reconciliation table
+
+| Invoice | Client | Invoice date | Amount (£) | Bank credit (£) | Payment date | Status |
+|---------|--------|--------------|------------|-----------------|--------------|--------|
+| INV-1041 | Tessier-Ashpool | 2026-04-03 | 1,200.00 | 1,200.00 | 2026-04-20 | ✅ Paid in full |
+| INV-1042 | Sense/Net | 2026-04-11 | 860.50 | 860.50 | 2026-05-02 | ✅ Paid in full |
+| INV-1043 | Ono-Sendai | 2026-04-28 | 2,400.00 | 2,400.00 | 2026-05-30 | ✅ Paid in full |
+| INV-1044 | Tessier-Ashpool | 2026-05-06 | 1,200.00 | 1,200.00 | 2026-06-15 | ✅ Paid in full |
+| INV-1045 | Maas Biolabs | 2026-05-19 | 3,150.75 | 3,100.75 | 2026-06-16 | ⚠️ **Paid short £50.00** |
+| INV-1046 | Sense/Net | 2026-06-02 | 860.50 | — | — | ❌ **Unpaid** |
+| INV-1047 | Ono-Sendai | 2026-06-21 | 975.00 | — | — | ❌ **Unpaid** (draft) |
+
+## Totals
+
+| Category | Amount (£) |
+|----------|------------|
+| Total invoiced | 11,446.75 |
+| Paid in full | 5,720.50 |
+| Paid short | 3,100.75 (of £3,150.75) |
+| Unpaid | 1,835.50 |
+| **Total outstanding** | **1,885.50** |
+
+> Outstanding = £860.50 (INV-1046, unpaid) + £975.00 (INV-1047, draft) + £50.00 (INV-1045 shortfall)
+
+## ⚠️ Flags — things that look wrong
+
+1. **INV-1045 (Maas Biolabs) — £50 short**  
+   Paid £3,100.75 instead of £3,150.75. This doesn't look like a standard rounding error (the invoice ends in .75). Could be a manual deduction or a mistake. **Action:** email Maas Biolabs to confirm whether the £50 was intentional.
+
+2. **INV-1046 (Sense/Net) — now overdue**  
+   Sense/Net paid previous invoices within ~2–3 weeks (INV-1042 paid in 21 days). INV-1046 was issued 2 June and is now 32 days outstanding. **Action:** send a payment reminder.
+
+3. **INV-1047 (Ono-Sendai) — still in "draft" status**  
+   This invoice was never sent to the client. If work was delivered, it needs to go out today. If not, consider cancelling or revising.
+
+## Notes
+
+- INV-1047 is marked "draft" in the invoice file, so it was never sent. Non-payment is expected.
+- The bank export only covers May–June. An earlier export (Jan–Apr) would be needed to independently verify INV-1041's payment, but the description "TESSIER ASHPOOL LTD INV1041" on 20 Apr clearly matches the invoice.
+- No evidence of double-payments or misapplied payments across the two data sources.

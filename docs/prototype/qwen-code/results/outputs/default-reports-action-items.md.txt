@@ -1,0 +1,37 @@
+# Action Items & Decisions
+
+**Covers meetings:** 2026-05-04 · 2026-05-18 · 2026-06-01
+**Generated:** 2026-06-03
+
+---
+
+## Action Items
+
+| # | Action | Owner | Raised | Status | Notes |
+|---|--------|-------|--------|--------|-------|
+| 1 | Send revised quote to Ono-Sendai | Molly | 2026-05-04 | ✅ Done | Ono-Sendai accepted the quote; invoice raised (INV-1045 — verify owner; note in 05/18 says "might be Maas") |
+| 2 | Migrate shared drive to new folder structure | Case | 2026-05-04 | 🟡 Open | Blocked until 2026-06-01 (Armitage approved naming scheme `<type>/<yyyy>-<mm>/<name>`). Assigned "this week" as of 06-01; still open. |
+| 3 | Confirm Chiba trip dates | Armitage | 2026-05-04 | ✅ Done | Dates confirmed: 2026-07-08 → 2026-07-12 |
+| 4 | Draft Q2 client update memo | Case | 2026-05-18 | 🔴 Overdue | Still undrafted as of 2026-06-01 |
+| 5 | Chase Maas Biolabs (short payment) | Unassigned | 2026-05-18 | 🟡 Open | No owner assigned; no follow-up as of 2026-06-01 |
+| 6 | Renew Sense/Net retainer (contingent on net-30) | Molly | 2026-05-04 | ✅ Done | Sense/Net agreed to net-30; retainer renewed (confirmed 2026-06-01) |
+
+## Decisions
+
+| # | Decision | Raised | Status | Notes |
+|---|----------|--------|--------|-------|
+| D1 | Drop Sense/Net retainer renewal unless they accept net-30 | 2026-05-04 | Resolved | Sense/Net did accept net-30, so the contingency was met and the retainer was renewed (2026-06-01) |
+
+## Contradictions & Resolutions
+
+1. **Sense/Net retainer (D1 vs. outcome):** The 05-04 meeting decided to *drop* the Sense/Net retainer renewal unless net-30 was accepted. The 06-01 meeting confirms Sense/Net *did* agree to net-30 and the retainer was renewed — not a contradiction but the contingency being met.
+
+2. **Drive migration ownership:** The 05-04 action was on Case but blocked on Armitage approving the naming scheme. By 06-01 Armitage approved it and re-assigned it back to Case for execution "this week." The blocker resolved and the task became active again.
+
+3. **Invoice number uncertainty (item #1):** The 05-18 notes record the Ono-Sendai invoice as "INV-1045?" with a parenthetical doubt ("might be Maas"). This ambiguity was never resolved in the 06-01 meeting. Recommend confirming whether INV-1045 belongs to Ono-Sendai or Maas Biolabs.
+
+## Summary
+
+- **Done:** 3 items (#1, #3, #6) + 1 decision resolved (D1)
+- **Open:** 2 items (#2, #5)
+- **Overdue:** 1 item (#4)
