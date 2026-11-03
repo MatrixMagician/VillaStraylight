@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,11 @@ func offloadDeps(verdict inference.Verdict, folded *inference.RunningOffloadInpu
 			return verdict
 		},
 	}
+}
+
+// fixedDriver is a driver factory that ignores the context it is handed.
+func fixedDriver(d Driver) func(context.Context) Driver {
+	return func(context.Context) Driver { return d }
 }
 
 func sttTarget() residency.Target {
@@ -89,7 +95,7 @@ func TestProveOnGPUFoldsWhereWhisperRan(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var folded inference.RunningOffloadInput
 			folds := 0
-			got := ProveOnGPU(context.Background(), tc.d, offloadDeps(tc.verdict, &folded, &folds), sttTarget())
+			got := ProveOnGPU(context.Background(), fixedDriver(tc.d), offloadDeps(tc.verdict, &folded, &folds), sttTarget())
 			if got.Status != tc.status || got.Detail != tc.detail {
 				t.Errorf("ProveOnGPU = {%v %q}\nwant          {%v %q}", got.Status, got.Detail, tc.status, tc.detail)
 			}
@@ -136,7 +142,7 @@ func TestProveOnGPUSamplesBusyWhileWhisperTranscribes(t *testing.T) {
 	}
 	deps.Journal = func(service string) (string, bool) { journaled = service; return "journal", true }
 
-	if got := ProveOnGPU(context.Background(), d, deps, sttTarget()); got.Status != verify.Pass {
+	if got := ProveOnGPU(context.Background(), fixedDriver(d), deps, sttTarget()); got.Status != verify.Pass {
 		t.Fatalf("ProveOnGPU = %v %q, want pass", got.Status, got.Detail)
 	}
 	if !folded.GPUBusyPercent.Known || folded.GPUBusyPercent.Value != 63 {
@@ -166,9 +172,56 @@ func TestProveOnGPUDeadlineIsAReject(t *testing.T) {
 	folds := 0
 	tgt := sttTarget()
 	tgt.ReadyTimeout = 20 * time.Millisecond
-	got := ProveOnGPU(context.Background(), d, offloadDeps(inference.Verdict{Status: inference.StatusPass}, &folded, &folds), tgt)
+	got := ProveOnGPU(context.Background(), fixedDriver(d), offloadDeps(inference.Verdict{Status: inference.StatusPass}, &folded, &folds), tgt)
 	want := "the round trip did not finish (generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)); check `systemctl --user status villa-stt.service`"
 	if got.Status != verify.Reject || got.Detail != want {
 		t.Errorf("ProveOnGPU = {%v %q}\nwant          {reject %q}", got.Status, got.Detail, want)
+	}
+}
+
+// TestProveOnGPUDeadlineStopsTheRoundTrip: the driver is built on the context the
+// protocol hands Generate, so the deadline ends the round trip instead of leaving it
+// to launch the rest of its attempts after ProveOnGPU has returned (#350). The verdict
+// is still the Reject of an unfinished round trip.
+func TestProveOnGPUDeadlineStopsTheRoundTrip(t *testing.T) {
+	var speaks, transcribes atomic.Int32
+	driverCtx := make(chan context.Context, 1)
+	newDriver := func(ctx context.Context) Driver {
+		driverCtx <- ctx
+		return Driver{
+			Speak: func() ([]byte, error) {
+				speaks.Add(1)
+				<-ctx.Done()
+				return nil, unreachable("villa-tts")
+			},
+			Transcribe: func([]byte) (string, error) { transcribes.Add(1); return ProofSentence, nil },
+		}
+	}
+	var folded inference.RunningOffloadInput
+	folds := 0
+	tgt := sttTarget()
+	tgt.ReadyTimeout = 20 * time.Millisecond
+	got := ProveOnGPU(context.Background(), newDriver, offloadDeps(inference.Verdict{Status: inference.StatusPass}, &folded, &folds), tgt)
+
+	select {
+	case ctx := <-driverCtx:
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("the driver's context was not ended by the deadline")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Generate never built a driver")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if speaks.Load() != 1 || transcribes.Load() != 0 {
+		t.Errorf("speaks=%d transcribes=%d after the deadline, want 1/0", speaks.Load(), transcribes.Load())
+	}
+	want := "the round trip did not finish (generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)); check `systemctl --user status villa-stt.service`"
+	if got.Status != verify.Reject || got.Detail != want {
+		t.Errorf("ProveOnGPU = {%v %q}\nwant          {reject %q}", got.Status, got.Detail, want)
+	}
+	if folds != 0 {
+		t.Errorf("fold ran %d times for a round trip that never finished", folds)
 	}
 }

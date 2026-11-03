@@ -28,13 +28,13 @@ import (
 //     Reject;
 //   - placement PASS is a Pass, FAIL (a CPU fallback) is a Fail with the
 //     remediation, and WARN is a Reject: an unreadable placement proves nothing.
-func ProveOnGPU(ctx context.Context, d Driver, r residency.Deps, t residency.Target) verify.Proof {
+func ProveOnGPU(ctx context.Context, newDriver func(context.Context) Driver, r residency.Deps, t residency.Target) verify.Proof {
 	trips := make(chan verify.Proof, 1)
 	r.PollHealth = func(context.Context, time.Duration) detect.Bool {
 		return detect.KnownBool(true, "the round trip retries a unit that is still starting")
 	}
-	r.Generate = func(context.Context, string) inference.ChatResult {
-		trip := Prove(d)
+	r.Generate = func(gctx context.Context, _ string) inference.ChatResult {
+		trip := Prove(gctx, newDriver(gctx))
 		trips <- trip
 		return inference.ChatResult{OK: trip.Status == verify.Pass, Tokens: 1, Detail: trip.Detail}
 	}

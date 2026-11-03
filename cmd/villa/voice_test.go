@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -94,7 +95,7 @@ func TestVoiceDriverRoundTrip(t *testing.T) {
 
 	t.Run("a faithful transcript passes", func(t *testing.T) {
 		curl := &fakeVoiceCurl{ttsOut: wav, sttOut: []byte(`{"text":" The quick brown fox jumps over the lazy dog, and the small cat sleeps in the warm sun."}`)}
-		p := voice.Prove(voiceDriver(curl.run, nil))
+		p := voice.Prove(context.Background(), voiceDriver(curl.run, nil))
 		if p.Status != verify.Pass {
 			t.Fatalf("status = %v, want pass (detail %q)", p.Status, p.Detail)
 		}
@@ -136,7 +137,7 @@ func TestVoiceDriverRoundTrip(t *testing.T) {
 
 	t.Run("an unreachable villa-stt is a reject naming it", func(t *testing.T) {
 		curl := &fakeVoiceCurl{ttsOut: wav, sttCode: 7}
-		p := voice.Prove(voiceDriver(curl.run, nil))
+		p := voice.Prove(context.Background(), voiceDriver(curl.run, nil))
 		if p.Status != verify.Reject {
 			t.Fatalf("status = %v, want reject (detail %q)", p.Status, p.Detail)
 		}
@@ -147,7 +148,7 @@ func TestVoiceDriverRoundTrip(t *testing.T) {
 
 	t.Run("an error status from villa-tts is a fail", func(t *testing.T) {
 		curl := &fakeVoiceCurl{ttsCode: 22}
-		p := voice.Prove(voiceDriver(curl.run, nil))
+		p := voice.Prove(context.Background(), voiceDriver(curl.run, nil))
 		if p.Status != verify.Fail {
 			t.Fatalf("status = %v, want fail (detail %q)", p.Status, p.Detail)
 		}
@@ -158,7 +159,7 @@ func TestVoiceDriverRoundTrip(t *testing.T) {
 
 	t.Run("an unreadable transcription reply is a fail, not a reject", func(t *testing.T) {
 		curl := &fakeVoiceCurl{ttsOut: wav, sttOut: []byte("<html>bad gateway</html>")}
-		p := voice.Prove(voiceDriver(curl.run, nil))
+		p := voice.Prove(context.Background(), voiceDriver(curl.run, nil))
 		if p.Status != verify.Fail {
 			t.Fatalf("status = %v, want fail (detail %q)", p.Status, p.Detail)
 		}
@@ -201,5 +202,44 @@ func TestVoiceProofTargetIsWhisperOnVulkan(t *testing.T) {
 	}
 	if tgt.ReadyTimeout < 1830*time.Second {
 		t.Errorf("ReadyTimeout = %v, want at least the round trip's 30m30s", tgt.ReadyTimeout)
+	}
+}
+
+// TestVoiceProofTimeoutCoversTheWorstCase: the deadline must outlast the round trip's
+// own worst case (every attempt's speak succeeds and its transcribe runs to its limit,
+// with the waits between attempts) plus the helper startup each leg pays, or a slow
+// proof that would still finish is cut off as a Reject (#350). The leg limits are the
+// curl arguments' own, not a second copy.
+func TestVoiceProofTimeoutCoversTheWorstCase(t *testing.T) {
+	const worstCase = 10*(180*time.Second) + 9*3*time.Second
+	if worstCase != 1827*time.Second {
+		t.Fatalf("worst case = %v, the arithmetic in the comment is 1827s", worstCase)
+	}
+	if voice.Attempts != 10 || voiceRetryDelay != 3*time.Second {
+		t.Fatalf("Attempts=%d retry=%v, the worst case above assumes 10 and 3s", voice.Attempts, voiceRetryDelay)
+	}
+	if voiceLegStartup <= 0 {
+		t.Errorf("voiceLegStartup = %v, want a positive per-leg allowance", voiceLegStartup)
+	}
+	if want := worstCase + 2*voice.Attempts*voiceLegStartup; voiceProofTimeout != want {
+		t.Errorf("voiceProofTimeout = %v, want worst case + 20 legs of startup = %v", voiceProofTimeout, want)
+	}
+	if voiceProofTimeout <= worstCase {
+		t.Errorf("voiceProofTimeout = %v leaves no margin over the worst case %v", voiceProofTimeout, worstCase)
+	}
+	if voiceProofTarget().ReadyTimeout != voiceProofTimeout {
+		t.Errorf("the residency target's ReadyTimeout = %v, want voiceProofTimeout", voiceProofTarget().ReadyTimeout)
+	}
+
+	curl := &fakeVoiceCurl{ttsOut: []byte("RIFF....WAVEfmt "), sttOut: []byte(`{"text":"x"}`)}
+	voice.Prove(context.Background(), voiceDriver(curl.run, nil))
+	if len(curl.calls) != 2 {
+		t.Fatalf("want one speak and one transcribe, got %d calls", len(curl.calls))
+	}
+	if got := argAfter(curl.calls[0].args, "--max-time"); got != "60" {
+		t.Errorf("speak --max-time = %q, want 60", got)
+	}
+	if got := argAfter(curl.calls[1].args, "--max-time"); got != "120" {
+		t.Errorf("transcribe --max-time = %q, want 120", got)
 	}
 }

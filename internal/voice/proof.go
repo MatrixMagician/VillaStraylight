@@ -10,6 +10,7 @@ package voice
 // the pair was measured. A leg that was reached and answered wrongly is a Fail.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,13 +55,23 @@ const (
 // pair (a pass, a mismatched transcript, empty audio) and retries a refusal or an
 // error reply, which a unit still loading its model gives. After the last attempt it
 // returns that attempt's verdict.
-func Prove(d Driver) verify.Proof {
+//
+// Once ctx ends no further leg is launched and the verdict is a Reject: a leg cut off
+// by the deadline wraps ErrUnreachable, which alone would retry, so Prove checks ctx
+// itself. An answer reached before the deadline is kept.
+func Prove(ctx context.Context, d Driver) verify.Proof {
 	var p verify.Proof
 	for i := range Attempts {
+		if ctx.Err() != nil {
+			return deadlinePassed()
+		}
 		var retry bool
-		p, retry = attempt(d)
+		p, retry = attempt(ctx, d)
 		if !retry {
 			return p
+		}
+		if ctx.Err() != nil {
+			return deadlinePassed()
 		}
 		if i < Attempts-1 && d.Wait != nil {
 			d.Wait()
@@ -69,14 +80,21 @@ func Prove(d Driver) verify.Proof {
 	return p
 }
 
+func deadlinePassed() verify.Proof {
+	return verify.Proof{Status: verify.Reject, Detail: "the proof deadline passed before the round trip finished" + checkBoth}
+}
+
 // attempt is one round trip and whether its verdict may still change on a retry.
-func attempt(d Driver) (verify.Proof, bool) {
+func attempt(ctx context.Context, d Driver) (verify.Proof, bool) {
 	audio, err := d.Speak()
 	if err != nil {
 		return legFailure("villa-tts", err, checkTTS), true
 	}
 	if len(audio) == 0 {
 		return verify.Proof{Status: verify.Fail, Detail: "villa-tts returned no audio" + checkTTS}, false
+	}
+	if ctx.Err() != nil {
+		return deadlinePassed(), false
 	}
 	heard, err := d.Transcribe(audio)
 	if err != nil {
