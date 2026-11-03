@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -65,7 +66,7 @@ func voiceDriver(curl voiceCurl, wait func()) voice.Driver {
 				return nil, err
 			}
 			out, code, err := curl(nil, []string{
-				"-sf", "--max-time", "60", "-X", "POST", voice.TTS.RouteURL(),
+				"-sf", "--max-time", strconv.Itoa(int(voiceSpeakMaxTime.Seconds())), "-X", "POST", voice.TTS.RouteURL(),
 				"-H", "Content-Type: application/json", "-d", string(body),
 			})
 			if cerr := classifyVoiceCurl(code, err); cerr != nil {
@@ -75,7 +76,7 @@ func voiceDriver(curl voiceCurl, wait func()) voice.Driver {
 		},
 		Transcribe: func(wav []byte) (string, error) {
 			out, code, err := curl(wav, []string{
-				"-sf", "--max-time", "120", voice.STT.RouteURL(),
+				"-sf", "--max-time", strconv.Itoa(int(voiceTranscribeMaxTime.Seconds())), voice.STT.RouteURL(),
 				"-F", "file=@-;filename=probe.wav;type=audio/wav",
 				"-F", "response_format=json",
 			})
@@ -111,15 +112,34 @@ func liveVoiceDriver(ctx context.Context) voice.Driver {
 	)
 }
 
-// voiceProofTimeout bounds the whole proof. It outlasts the round trip's own worst
-// case (ten attempts of a 60 s speak and a 120 s transcribe, with the waits), so the
-// deadline never cuts short a verdict the round trip would reach.
-const voiceProofTimeout = 31 * time.Minute
+// The curl limits of the two legs, and the allowance each leg gets for starting its
+// podman helper.
+//
+// voiceLegStartup is an ESTIMATE, not a measurement (#350). The repo and its run logs
+// hold no figure for `podman run --rm` startup of the helper image, and none was
+// measured off-hardware. 10 s is a conservative allowance for a rootless container
+// create, network attach and curl exec on a loaded host. Measure it on the dev host
+// before tightening it.
+const (
+	voiceSpeakMaxTime      = 60 * time.Second
+	voiceTranscribeMaxTime = 120 * time.Second
+	voiceLegStartup        = 10 * time.Second
+)
+
+// voiceProofTimeout bounds the whole proof. It is the round trip's worst case, every
+// attempt's speak succeeding and its transcribe running to its limit with a wait
+// between attempts (10*(60 s + 120 s) + 9*3 s = 1827 s), plus voiceLegStartup for each
+// of the 2*Attempts legs (200 s): 2027 s, 33 min 47 s. The deadline therefore never
+// cuts short a verdict the round trip would reach, and the round trip stops launching
+// legs when it fires.
+const voiceProofTimeout = voice.Attempts*(voiceSpeakMaxTime+voiceTranscribeMaxTime) +
+	(voice.Attempts-1)*voiceRetryDelay +
+	2*voice.Attempts*voiceLegStartup
 
 // liveVoiceProof is the spoken round trip against the running units, run as the
 // drive of the residency protocol so it also proves whisper ran on the GPU (#332).
 func liveVoiceProof(ctx context.Context) verify.Proof {
-	return voice.ProveOnGPU(ctx, liveVoiceDriver(ctx), residency.Deps{
+	return voice.ProveOnGPU(ctx, liveVoiceDriver, residency.Deps{
 		GPUBusy: detect.GPUBusyPercent,
 		GTTUsed: detect.GTTUsedBytes,
 		Journal: orchestrate.NewSystemd().ResidencyJournal,

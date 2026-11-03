@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -80,7 +81,7 @@ func TestProveTruthTable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Prove(tc.d)
+			got := Prove(context.Background(), tc.d)
 			if got.Status != tc.status || got.Detail != tc.detail {
 				t.Errorf("Prove = {%v %q}\nwant    {%v %q}", got.Status, got.Detail, tc.status, tc.detail)
 			}
@@ -115,7 +116,7 @@ func TestProveRetriesOnlyWhatIsNotYetAnAnswer(t *testing.T) {
 				Transcribe: tc.transcribe,
 				Wait:       func() { waits++ },
 			}
-			got := Prove(d)
+			got := Prove(context.Background(), d)
 			if calls != tc.wantCalls || waits != tc.wantWaits || got.Status != tc.wantLastState {
 				t.Errorf("attempts=%d waits=%d status=%v, want %d/%d/%v", calls, waits, got.Status, tc.wantCalls, tc.wantWaits, tc.wantLastState)
 			}
@@ -137,7 +138,7 @@ func TestProveRecoversFromAColdStart(t *testing.T) {
 			return ProofSentence, nil
 		},
 	}
-	if got := Prove(d); got.Status != verify.Pass || n != 3 {
+	if got := Prove(context.Background(), d); got.Status != verify.Pass || n != 3 {
 		t.Errorf("Prove = %v after %d attempts, want pass after 3", got.Status, n)
 	}
 }
@@ -167,11 +168,11 @@ func TestMinAgreementIsTheBoundary(t *testing.T) {
 	twelve := strings.Join(words[:12], " ")
 	eleven := strings.Join(words[:11], " ")
 
-	p := Prove(Driver{Speak: speaks(wav, nil), Transcribe: hears(twelve, nil)})
+	p := Prove(context.Background(), Driver{Speak: speaks(wav, nil), Transcribe: hears(twelve, nil)})
 	if p.Status != verify.Pass || !strings.HasSuffix(p.Detail, "(agreement 0.80)") {
 		t.Errorf("twelve words: status %v detail %q, want Pass at agreement 0.80", p.Status, p.Detail)
 	}
-	p = Prove(Driver{Speak: speaks(wav, nil), Transcribe: hears(eleven, nil)})
+	p = Prove(context.Background(), Driver{Speak: speaks(wav, nil), Transcribe: hears(eleven, nil)})
 	if p.Status != verify.Fail || !strings.Contains(p.Detail, "(agreement 0.76)") {
 		t.Errorf("eleven words: status %v detail %q, want Fail at agreement 0.76", p.Status, p.Detail)
 	}
@@ -209,4 +210,55 @@ func TestAgreementIsTwiceTheCommonSubsequenceOverBothLengths(t *testing.T) {
 			t.Errorf("Agreement(%q, %q) = %v, want %v", tc.spoken, tc.heard, got, tc.want)
 		}
 	}
+}
+
+// TestProveStopsLaunchingLegsAfterTheContextEnds: a leg that failed must not lead to
+// another leg once the proof's deadline has fired (#350). The cancelled leg wraps
+// ErrUnreachable, which alone would retry, so Prove itself checks the context.
+func TestProveStopsLaunchingLegsAfterTheContextEnds(t *testing.T) {
+	deadline := verify.Proof{
+		Status: verify.Reject,
+		Detail: "the proof deadline passed before the round trip finished" + checkBoth,
+	}
+
+	t.Run("the deadline fires while waiting between attempts", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		speaks, transcribes := 0, 0
+		d := Driver{
+			Speak:      func() ([]byte, error) { speaks++; return nil, unreachable("villa-tts") },
+			Transcribe: func([]byte) (string, error) { transcribes++; return "", nil },
+			Wait:       cancel,
+		}
+		got := Prove(ctx, d)
+		if speaks != 1 || transcribes != 0 || got != deadline {
+			t.Errorf("speaks=%d transcribes=%d got={%v %q}, want 1/0/{reject %q}", speaks, transcribes, got.Status, got.Detail, deadline.Detail)
+		}
+	})
+
+	t.Run("the deadline fires before the first attempt", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		calls := 0
+		d := Driver{
+			Speak:      func() ([]byte, error) { calls++; return wav, nil },
+			Transcribe: func([]byte) (string, error) { calls++; return ProofSentence, nil },
+		}
+		if got := Prove(ctx, d); calls != 0 || got != deadline {
+			t.Errorf("calls=%d got={%v %q}, want 0/{reject %q}", calls, got.Status, got.Detail, deadline.Detail)
+		}
+	})
+
+	t.Run("the deadline fires while speaking, so no transcribe leg starts", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		transcribes := 0
+		d := Driver{
+			Speak:      func() ([]byte, error) { cancel(); return wav, nil },
+			Transcribe: func([]byte) (string, error) { transcribes++; return ProofSentence, nil },
+		}
+		if got := Prove(ctx, d); transcribes != 0 || got != deadline {
+			t.Errorf("transcribes=%d got={%v %q}, want 0/{reject %q}", transcribes, got.Status, got.Detail, deadline.Detail)
+		}
+	})
 }
