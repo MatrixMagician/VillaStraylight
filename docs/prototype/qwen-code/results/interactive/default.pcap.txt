@@ -1,213 +1,261 @@
-16:59:46.757121 ?     B   ARP, Request who-has 10.99.7.240 tell 10.99.7.240, length 28
-16:59:47.829296 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-16:59:47.829300 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-16:59:47.829301 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-16:59:47.829302 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-16:59:47.829326 ?     P   IP 10.99.7.240.38613 > 10.99.7.1.domain: 41768+ A? models.dev. (28)
-16:59:47.829358 ?     P   IP 10.99.7.240.38613 > 10.99.7.1.domain: 16852+ AAAA? models.dev. (28)
-16:59:47.841235 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [S], seq 4009282487, win 65480, options [mss 65480,sackOK,TS val 307559249 ecr 0,nop,wscale 10], length 0
-16:59:47.844533 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 2728651911, win 64, length 0
-16:59:47.845771 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [P.], seq 0:1602, ack 1, win 64, length 1602
-16:59:47.857381 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 3871, win 61, length 0
-16:59:47.862858 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [P.], seq 1602:1881, ack 3871, win 61, length 279
-16:59:47.951626 ?     B   ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
-16:59:47.951633 ?     Out ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
-16:59:47.951635 ?     Out ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
-16:59:47.951638 ?     B   ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
-16:59:47.951666 ?     P   IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [S], seq 419700180, win 65480, options [mss 65480,sackOK,TS val 3363616671 ecr 0,nop,wscale 10], length 0
-16:59:47.951666 ?     Out IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [S], seq 419700180, win 65480, options [mss 65480,sackOK,TS val 3363616671 ecr 0,nop,wscale 10], length 0
-16:59:47.951697 ?     P   IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [.], ack 461065022, win 64, options [nop,nop,TS val 3363616671 ecr 3011050122], length 0
-16:59:47.951697 ?     Out IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3363616671 ecr 3011050122], length 0
-16:59:47.964158 ?     P   IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3363616684 ecr 3011050122], length 1616
-16:59:47.964162 ?     Out IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3363616684 ecr 3011050122], length 1616
-16:59:47.965899 ?     P   IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3363616686 ecr 3011050136], length 0
-16:59:47.965901 ?     Out IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3363616686 ecr 3011050136], length 0
-16:59:47.966499 ?     P   IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3363616686 ecr 3011050136], length 0
-16:59:47.966500 ?     Out IP 10.99.7.240.33902 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3363616686 ecr 3011050136], length 0
-16:59:47.974993 ?     P   IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [S], seq 3265032299, win 65480, options [mss 65480,sackOK,TS val 970609683 ecr 0,nop,wscale 10], length 0
-16:59:47.974996 ?     Out IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [S], seq 3265032299, win 65480, options [mss 65480,sackOK,TS val 970609683 ecr 0,nop,wscale 10], length 0
-16:59:47.975023 ?     P   IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [.], ack 1752309502, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 0
-16:59:47.975024 ?     Out IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 0
-16:59:47.975554 ?     P   IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 1616
-16:59:47.975555 ?     Out IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 1616
-16:59:47.975772 ?     P   IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 0
-16:59:47.975773 ?     Out IP 10.99.7.240.33910 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 970609683 ecr 1909259520], length 0
-16:59:48.044250 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 7135, win 59, length 0
-16:59:48.044608 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 12699, win 96, length 0
-16:59:48.048478 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 111003, win 68, length 0
-16:59:48.049662 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 113146, win 113, length 0
-16:59:48.050709 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 146450, win 128, length 0
-16:59:48.050834 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 158034, win 128, length 0
-16:59:48.053370 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 272055, win 60, length 0
-16:59:48.055965 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 284221, win 112, length 0
-16:59:48.056107 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 300627, win 112, length 0
-16:59:48.057682 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 366251, win 106, length 0
-16:59:48.061155 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 430459, win 132, length 0
-16:59:50.997932 ?     P   IP 10.99.7.240.43534 > 10.99.7.1.domain: 22953+ A? registry.npmjs.org. (36)
-16:59:50.997988 ?     P   IP 10.99.7.240.43534 > 10.99.7.1.domain: 15022+ AAAA? registry.npmjs.org. (36)
-16:59:50.999592 ?     P   IP 10.99.7.240.38494 > 10.99.7.1.domain: 29284+ A? registry.npmjs.org. (36)
-16:59:50.999646 ?     P   IP 10.99.7.240.38494 > 10.99.7.1.domain: 8801+ AAAA? registry.npmjs.org. (36)
-16:59:51.002709 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [S], seq 1340052258, win 65480, options [mss 65480,sackOK,TS val 765919269 ecr 0,nop,wscale 10], length 0
-16:59:51.002982 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [S], seq 2725302389, win 65480, options [mss 65480,sackOK,TS val 215191244 ecr 0,nop,wscale 10], length 0
-16:59:51.005447 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 1902585002, win 64, length 0
-16:59:51.005467 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 1910780469, win 64, length 0
-16:59:51.005920 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
-16:59:51.006169 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
-16:59:51.013380 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 2688, win 99, length 0
-16:59:51.013619 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 2687, win 99, length 0
-16:59:51.014587 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [P.], seq 1595:1688, ack 2688, win 99, length 93
-16:59:51.015448 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [P.], seq 1595:1688, ack 2687, win 99, length 93
-16:59:51.018975 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [P.], seq 1688:2066, ack 2946, win 101, length 378
-16:59:51.019928 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [P.], seq 1688:2086, ack 2945, win 101, length 398
-16:59:51.111035 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 98475, win 77, length 0
-16:59:51.113143 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 114601, win 76, length 0
-16:59:51.113324 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 126185, win 101, length 0
-16:59:51.113788 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 165281, win 106, length 0
-16:59:51.114227 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 181209, win 111, length 0
-16:59:51.114745 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 190905, win 111, length 0
-16:59:51.115022 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 206937, win 111, length 0
-16:59:51.115564 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 268489, win 111, length 0
-16:59:51.116345 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 303575, win 111, length 0
-16:59:51.142970 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 18324, win 95, length 0
-16:59:51.146660 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 99176, win 85, length 0
-16:59:51.148717 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 112808, win 101, length 0
-16:59:51.148987 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 147560, win 75, length 0
-16:59:51.149052 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 159144, win 101, length 0
-16:59:51.149273 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 184168, win 103, length 0
-16:59:51.150602 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 196104, win 103, length 0
-16:59:51.150876 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 227351, win 103, length 0
-16:59:51.201509 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [F.], seq 2066, ack 227351, win 103, length 0
-16:59:51.201562 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [F.], seq 2086, ack 303575, win 111, length 0
-16:59:51.204641 ?     P   IP 10.99.7.240.52320 > 104.16.9.34.https: Flags [.], ack 303576, win 111, length 0
-16:59:51.206079 ?     P   IP 10.99.7.240.52336 > 104.16.9.34.https: Flags [.], ack 227352, win 103, length 0
-16:59:52.065518 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [F.], seq 1881, ack 430459, win 132, length 0
-16:59:52.069160 ?     P   IP 10.99.7.240.33050 > 104.26.8.108.https: Flags [.], ack 430460, win 132, length 0
-16:59:53.184055 ?     P   ARP, Reply 10.99.7.240 is-at 72:a4:f0:c1:14:26, length 28
-16:59:53.184060 ?     P   ARP, Reply 10.99.7.240 is-at 72:a4:f0:c1:14:26, length 28
-16:59:53.184061 ?     Out ARP, Reply 10.99.7.240 is-at 72:a4:f0:c1:14:26, length 28
-17:00:17.854994 ?     P   IP 10.99.7.240.43464 > 10.99.7.1.domain: 16095+ A? proto-llama.dns.podman. (40)
-17:00:17.855038 ?     P   IP 10.99.7.240.43464 > 10.99.7.1.domain: 6875+ AAAA? proto-llama.dns.podman. (40)
-17:00:18.548520 ?     P   IP 10.99.7.240.55885 > 10.99.7.1.domain: 6069+ A? proto-llama.dns.podman. (40)
-17:00:18.548580 ?     P   IP 10.99.7.240.55885 > 10.99.7.1.domain: 63880+ AAAA? proto-llama.dns.podman. (40)
-17:00:22.879930 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-17:00:26.377683 ?     P   IP 10.99.7.240.47172 > 10.99.7.1.domain: 42836+ A? proto-llama.dns.podman. (40)
-17:00:26.377730 ?     P   IP 10.99.7.240.47172 > 10.99.7.1.domain: 9035+ AAAA? proto-llama.dns.podman. (40)
-17:00:31.583937 ?     P   ARP, Reply 10.99.7.240 is-at 72:a4:f0:c1:14:26, length 28
-17:01:33.205395 ?     P   IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [S], seq 4100314777, win 65480, options [mss 65480,sackOK,TS val 395454737 ecr 0,nop,wscale 10], length 0
-17:01:33.205401 ?     Out IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [S], seq 4100314777, win 65480, options [mss 65480,sackOK,TS val 395454737 ecr 0,nop,wscale 10], length 0
-17:01:33.205441 ?     P   IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [.], ack 3941309305, win 64, options [nop,nop,TS val 395454737 ecr 3065833482], length 0
-17:01:33.205441 ?     Out IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 395454737 ecr 3065833482], length 0
-17:01:33.209390 ?     P   IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 395454741 ecr 3065833482], length 1616
-17:01:33.209393 ?     Out IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 395454741 ecr 3065833482], length 1616
-17:01:33.209898 ?     P   IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 395454742 ecr 3065833486], length 0
-17:01:33.209899 ?     Out IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 395454742 ecr 3065833486], length 0
-17:01:33.210862 ?     P   IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 395454742 ecr 3065833486], length 0
-17:01:33.210864 ?     Out IP 10.99.7.240.40230 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 395454742 ecr 3065833486], length 0
-17:01:33.218884 ?     P   IP 10.99.7.240.41880 > 10.99.7.1.domain: 53562+ A? proto-llama.dns.podman. (40)
-17:01:33.218934 ?     P   IP 10.99.7.240.41880 > 10.99.7.1.domain: 33341+ AAAA? proto-llama.dns.podman. (40)
-17:01:34.965822 ?     P   IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [S], seq 438111518, win 65480, options [mss 65480,sackOK,TS val 484327339 ecr 0,nop,wscale 10], length 0
-17:01:34.965828 ?     Out IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [S], seq 438111518, win 65480, options [mss 65480,sackOK,TS val 484327339 ecr 0,nop,wscale 10], length 0
-17:01:34.965869 ?     P   IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [.], ack 34209571, win 64, options [nop,nop,TS val 484327339 ecr 2569438508], length 0
-17:01:34.965869 ?     Out IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 484327339 ecr 2569438508], length 0
-17:01:34.983119 ?     P   IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 484327357 ecr 2569438508], length 1616
-17:01:34.983122 ?     Out IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 484327357 ecr 2569438508], length 1616
-17:01:34.983875 ?     P   IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 484327357 ecr 2569438526], length 0
-17:01:34.983876 ?     Out IP 10.99.7.240.40234 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 484327357 ecr 2569438526], length 0
-17:01:35.080843 ?     P   IP 10.99.7.240.58322 > 10.99.7.1.domain: 28912+ A? proto-llama.dns.podman. (40)
-17:01:35.080878 ?     P   IP 10.99.7.240.58322 > 10.99.7.1.domain: 10748+ AAAA? proto-llama.dns.podman. (40)
-17:01:35.081072 ?     P   IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [S], seq 2535488257, win 65480, options [mss 65480,sackOK,TS val 3654774430 ecr 0,nop,wscale 10], length 0
-17:01:35.081080 ?     Out IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [S], seq 2535488257, win 65480, options [mss 65480,sackOK,TS val 3654774430 ecr 0,nop,wscale 10], length 0
-17:01:35.081122 ?     P   IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [.], ack 1747115320, win 64, options [nop,nop,TS val 3654774430 ecr 752148473], length 0
-17:01:35.081122 ?     Out IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3654774430 ecr 752148473], length 0
-17:01:35.093305 ?     P   IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3654774442 ecr 752148473], length 1616
-17:01:35.093306 ?     Out IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3654774442 ecr 752148473], length 1616
-17:01:35.093899 ?     P   IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3654774443 ecr 752148485], length 0
-17:01:35.093900 ?     Out IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3654774443 ecr 752148485], length 0
-17:01:35.097045 ?     P   IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3654774446 ecr 752148485], length 0
-17:01:35.097046 ?     Out IP 10.99.7.240.40238 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3654774446 ecr 752148485], length 0
-17:01:35.098825 ?     P   IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [S], seq 1449001602, win 65480, options [mss 65480,sackOK,TS val 905382356 ecr 0,nop,wscale 10], length 0
-17:01:35.098827 ?     Out IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [S], seq 1449001602, win 65480, options [mss 65480,sackOK,TS val 905382356 ecr 0,nop,wscale 10], length 0
-17:01:35.098842 ?     P   IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [.], ack 3609393763, win 64, options [nop,nop,TS val 905382356 ecr 2867541042], length 0
-17:01:35.098843 ?     Out IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 905382356 ecr 2867541042], length 0
-17:01:35.099620 ?     P   IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 905382357 ecr 2867541042], length 1616
-17:01:35.099621 ?     Out IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 905382357 ecr 2867541042], length 1616
-17:01:35.099894 ?     P   IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 905382358 ecr 2867541043], length 0
-17:01:35.099895 ?     Out IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 905382358 ecr 2867541043], length 0
-17:01:35.099921 ?     P   IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 905382358 ecr 2867541043], length 0
-17:01:35.099922 ?     Out IP 10.99.7.240.40248 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 905382358 ecr 2867541043], length 0
-17:01:38.656909 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
-17:01:38.656931 ?     P   ARP, Reply 10.99.7.240 is-at 72:a4:f0:c1:14:26, length 28
-17:01:39.781087 ?     P   IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [S], seq 3026197584, win 65480, options [mss 65480,sackOK,TS val 436007072 ecr 0,nop,wscale 10], length 0
-17:01:39.781093 ?     Out IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [S], seq 3026197584, win 65480, options [mss 65480,sackOK,TS val 436007072 ecr 0,nop,wscale 10], length 0
-17:01:39.781136 ?     P   IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [.], ack 1012008359, win 64, options [nop,nop,TS val 436007072 ecr 1820796781], length 0
-17:01:39.781137 ?     Out IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 436007072 ecr 1820796781], length 0
-17:01:39.788715 ?     P   IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 436007079 ecr 1820796781], length 1616
-17:01:39.788720 ?     Out IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 436007079 ecr 1820796781], length 1616
-17:01:39.790312 ?     P   IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 436007081 ecr 1820796789], length 0
-17:01:39.790314 ?     Out IP 10.99.7.240.51680 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 436007081 ecr 1820796789], length 0
-17:01:39.792086 ?     P   IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [S], seq 3416291830, win 65480, options [mss 65480,sackOK,TS val 454344489 ecr 0,nop,wscale 10], length 0
-17:01:39.792088 ?     Out IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [S], seq 3416291830, win 65480, options [mss 65480,sackOK,TS val 454344489 ecr 0,nop,wscale 10], length 0
-17:01:39.792112 ?     P   IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [.], ack 179957025, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 0
-17:01:39.792113 ?     Out IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 0
-17:01:39.792350 ?     P   IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 1616
-17:01:39.792351 ?     Out IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 1616
-17:01:39.792650 ?     P   IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 0
-17:01:39.792652 ?     Out IP 10.99.7.240.51690 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 454344489 ecr 852051570], length 0
-17:01:39.830132 ?     P   IP 10.99.7.240.49108 > 10.99.7.1.domain: 9067+ A? proto-llama.dns.podman. (40)
-17:01:39.830173 ?     P   IP 10.99.7.240.49108 > 10.99.7.1.domain: 30575+ AAAA? proto-llama.dns.podman. (40)
-17:01:39.834103 ?     P   IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [S], seq 3588977480, win 65480, options [mss 65480,sackOK,TS val 3024453368 ecr 0,nop,wscale 10], length 0
-17:01:39.834107 ?     Out IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [S], seq 3588977480, win 65480, options [mss 65480,sackOK,TS val 3024453368 ecr 0,nop,wscale 10], length 0
-17:01:39.834148 ?     P   IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [.], ack 379530058, win 64, options [nop,nop,TS val 3024453368 ecr 1654972923], length 0
-17:01:39.834148 ?     Out IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3024453368 ecr 1654972923], length 0
-17:01:39.834839 ?     P   IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3024453368 ecr 1654972923], length 1616
-17:01:39.834841 ?     Out IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3024453368 ecr 1654972923], length 1616
-17:01:39.835654 ?     P   IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3024453369 ecr 1654972924], length 0
-17:01:39.835656 ?     Out IP 10.99.7.240.51702 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3024453369 ecr 1654972924], length 0
-17:01:40.169850 ?     P   IP 10.99.7.240.38489 > 10.99.7.1.domain: 56170+ A? proto-llama.dns.podman. (40)
-17:01:40.169922 ?     P   IP 10.99.7.240.38489 > 10.99.7.1.domain: 45168+ AAAA? proto-llama.dns.podman. (40)
-17:01:44.071202 ?     P   IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [S], seq 1881001252, win 65480, options [mss 65480,sackOK,TS val 3395097553 ecr 0,nop,wscale 10], length 0
-17:01:44.071206 ?     Out IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [S], seq 1881001252, win 65480, options [mss 65480,sackOK,TS val 3395097553 ecr 0,nop,wscale 10], length 0
-17:01:44.071243 ?     P   IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [.], ack 2009089057, win 64, options [nop,nop,TS val 3395097553 ecr 2802605579], length 0
-17:01:44.071243 ?     Out IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3395097553 ecr 2802605579], length 0
-17:01:44.071750 ?     P   IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3395097553 ecr 2802605579], length 1616
-17:01:44.071751 ?     Out IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3395097553 ecr 2802605579], length 1616
-17:01:44.072145 ?     P   IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3395097554 ecr 2802605580], length 0
-17:01:44.072146 ?     Out IP 10.99.7.240.51710 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3395097554 ecr 2802605580], length 0
-17:01:47.685646 ?     P   IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [S], seq 2240975644, win 65480, options [mss 65480,sackOK,TS val 3331367098 ecr 0,nop,wscale 10], length 0
-17:01:47.685649 ?     Out IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [S], seq 2240975644, win 65480, options [mss 65480,sackOK,TS val 3331367098 ecr 0,nop,wscale 10], length 0
-17:01:47.685678 ?     P   IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [.], ack 2266284275, win 64, options [nop,nop,TS val 3331367098 ecr 65451651], length 0
-17:01:47.685679 ?     Out IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3331367098 ecr 65451651], length 0
-17:01:47.686323 ?     P   IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3331367099 ecr 65451651], length 1616
-17:01:47.686324 ?     Out IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3331367099 ecr 65451651], length 1616
-17:01:47.686919 ?     P   IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3331367100 ecr 65451652], length 0
-17:01:47.686922 ?     Out IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 3331367100 ecr 65451652], length 0
-17:01:47.686944 ?     P   IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3331367100 ecr 65451652], length 0
-17:01:47.686945 ?     Out IP 10.99.7.240.51716 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3331367100 ecr 65451652], length 0
-17:01:47.687999 ?     P   IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [S], seq 1545860557, win 65480, options [mss 65480,sackOK,TS val 2164833083 ecr 0,nop,wscale 10], length 0
-17:01:47.688001 ?     Out IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [S], seq 1545860557, win 65480, options [mss 65480,sackOK,TS val 2164833083 ecr 0,nop,wscale 10], length 0
-17:01:47.688025 ?     P   IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [.], ack 999676712, win 64, options [nop,nop,TS val 2164833083 ecr 376199436], length 0
-17:01:47.688026 ?     Out IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 2164833083 ecr 376199436], length 0
-17:01:47.688338 ?     P   IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2164833083 ecr 376199436], length 1616
-17:01:47.688339 ?     Out IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2164833083 ecr 376199436], length 1616
-17:01:47.688923 ?     P   IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2164833084 ecr 376199436], length 0
-17:01:47.688927 ?     Out IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2164833084 ecr 376199436], length 0
-17:01:47.689038 ?     P   IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2164833084 ecr 376199436], length 0
-17:01:47.689040 ?     Out IP 10.99.7.240.51724 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2164833084 ecr 376199436], length 0
-17:02:48.887602 ?     P   IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [S], seq 2193897282, win 65480, options [mss 65480,sackOK,TS val 936050607 ecr 0,nop,wscale 10], length 0
-17:02:48.887609 ?     Out IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [S], seq 2193897282, win 65480, options [mss 65480,sackOK,TS val 936050607 ecr 0,nop,wscale 10], length 0
-17:02:48.887653 ?     P   IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [.], ack 2667031272, win 64, options [nop,nop,TS val 936050607 ecr 651389397], length 0
-17:02:48.887654 ?     Out IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 936050607 ecr 651389397], length 0
-17:02:48.888486 ?     P   IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 936050608 ecr 651389397], length 1616
-17:02:48.888488 ?     Out IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 936050608 ecr 651389397], length 1616
-17:02:48.888907 ?     P   IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 936050609 ecr 651389398], length 0
-17:02:48.888908 ?     Out IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 936050609 ecr 651389398], length 0
-17:02:48.888954 ?     P   IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 936050609 ecr 651389398], length 0
-17:02:48.888955 ?     Out IP 10.99.7.240.32850 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 936050609 ecr 651389398], length 0
-17:02:48.890084 ?     P   IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [S], seq 3977878619, win 65480, options [mss 65480,sackOK,TS val 2407979932 ecr 0,nop,wscale 10], length 0
-17:02:48.890086 ?     Out IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [S], seq 3977878619, win 65480, options [mss 65480,sackOK,TS val 2407979932 ecr 0,nop,wscale 10], length 0
-17:02:48.890101 ?     P   IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [.], ack 3387047793, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 0
-17:02:48.890102 ?     Out IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 0
-17:02:48.890274 ?     P   IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 1616
-17:02:48.890274 ?     Out IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 1616
-17:02:48.890533 ?     P   IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 0
-17:02:48.890533 ?     Out IP 10.99.7.240.32858 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2407979932 ecr 458697660], length 0
+20:44:45.391919 ?     B   ARP, Request who-has 10.99.7.240 tell 10.99.7.240, length 28
+20:44:46.597994 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:44:46.598004 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:44:46.598008 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:44:46.598011 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:44:46.598061 ?     P   IP 10.99.7.240.32975 > 10.99.7.1.domain: 31206+ A? models.dev. (28)
+20:44:46.598117 ?     P   IP 10.99.7.240.32975 > 10.99.7.1.domain: 43490+ AAAA? models.dev. (28)
+20:44:46.630180 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [S], seq 3555484091, win 65480, options [mss 65480,sackOK,TS val 3907227660 ecr 0,nop,wscale 10], length 0
+20:44:46.633084 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 3443857304, win 64, length 0
+20:44:46.637031 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [P.], seq 0:1602, ack 1, win 64, length 1602
+20:44:46.651201 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 3870, win 61, length 0
+20:44:46.659110 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [P.], seq 1602:1881, ack 3870, win 61, length 279
+20:44:46.786043 ?     B   ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:44:46.786057 ?     Out ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:44:46.786062 ?     Out ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:44:46.786069 ?     B   ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:44:46.786122 ?     P   IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [S], seq 342023264, win 65480, options [mss 65480,sackOK,TS val 477206767 ecr 0,nop,wscale 10], length 0
+20:44:46.786123 ?     Out IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [S], seq 342023264, win 65480, options [mss 65480,sackOK,TS val 477206767 ecr 0,nop,wscale 10], length 0
+20:44:46.786166 ?     P   IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [.], ack 347148748, win 64, options [nop,nop,TS val 477206767 ecr 1808795033], length 0
+20:44:46.786166 ?     Out IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 477206767 ecr 1808795033], length 0
+20:44:46.816406 ?     P   IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 477206797 ecr 1808795033], length 1616
+20:44:46.816414 ?     Out IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 477206797 ecr 1808795033], length 1616
+20:44:46.818121 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 26608, win 61, length 0
+20:44:46.818807 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 33563, win 75, length 0
+20:44:46.818902 ?     P   IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 477206800 ecr 1808795065], length 0
+20:44:46.818904 ?     Out IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 477206800 ecr 1808795065], length 0
+20:44:46.818942 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 41909, win 75, length 0
+20:44:46.819000 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 51646, win 84, length 0
+20:44:46.823800 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 137662, win 69, length 0
+20:44:46.824368 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 208318, win 0, length 0
+20:44:46.825105 ?     P   IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 477206806 ecr 1808795065], length 0
+20:44:46.825106 ?     Out IP 10.99.7.240.45460 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 477206806 ecr 1808795065], length 0
+20:44:46.829003 ?     P   IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [S], seq 1304637368, win 65480, options [mss 65480,sackOK,TS val 3247773839 ecr 0,nop,wscale 10], length 0
+20:44:46.829005 ?     Out IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [S], seq 1304637368, win 65480, options [mss 65480,sackOK,TS val 3247773839 ecr 0,nop,wscale 10], length 0
+20:44:46.829029 ?     P   IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [.], ack 1848753534, win 64, options [nop,nop,TS val 3247773839 ecr 1912365880], length 0
+20:44:46.829030 ?     Out IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3247773839 ecr 1912365880], length 0
+20:44:46.840996 ?     P   IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3247773851 ecr 1912365880], length 1616
+20:44:46.841000 ?     Out IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3247773851 ecr 1912365880], length 1616
+20:44:46.841669 ?     P   IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3247773851 ecr 1912365892], length 0
+20:44:46.841671 ?     Out IP 10.99.7.240.45474 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3247773851 ecr 1912365892], length 0
+20:44:46.844373 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 208318, win 86, length 0
+20:44:46.844689 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 273798, win 86, length 0
+20:44:46.844772 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 361862, win 342, length 0
+20:44:46.847862 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 492559, win 598, length 0
+20:44:46.848705 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 531847, win 982, length 0
+20:44:46.849524 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 552119, win 1129, length 0
+20:44:46.849673 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 569495, win 1277, length 0
+20:44:46.850206 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 581079, win 1345, length 0
+20:44:46.850340 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 607143, win 1495, length 0
+20:44:46.850633 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 637551, win 1751, length 0
+20:44:46.850924 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 664422, win 1935, length 0
+20:44:46.851289 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 692412, win 2100, length 0
+20:44:46.892963 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 694053, win 2142, length 0
+20:44:49.756306 ?     P   IP 10.99.7.240.60244 > 10.99.7.1.domain: 8429+ A? registry.npmjs.org. (36)
+20:44:49.756347 ?     P   IP 10.99.7.240.60244 > 10.99.7.1.domain: 45792+ AAAA? registry.npmjs.org. (36)
+20:44:49.758574 ?     P   IP 10.99.7.240.47329 > 10.99.7.1.domain: 17586+ A? registry.npmjs.org. (36)
+20:44:49.758630 ?     P   IP 10.99.7.240.47329 > 10.99.7.1.domain: 20138+ AAAA? registry.npmjs.org. (36)
+20:44:49.761301 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [S], seq 4094561179, win 65480, options [mss 65480,sackOK,TS val 557455252 ecr 0,nop,wscale 10], length 0
+20:44:49.761559 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [S], seq 3482247472, win 65480, options [mss 65480,sackOK,TS val 2630665082 ecr 0,nop,wscale 10], length 0
+20:44:49.763782 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 106792610, win 64, length 0
+20:44:49.763987 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 2860239512, win 64, length 0
+20:44:49.764417 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
+20:44:49.764672 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
+20:44:49.770149 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 2687, win 99, length 0
+20:44:49.770464 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 2687, win 99, length 0
+20:44:49.771556 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [P.], seq 1595:1688, ack 2687, win 99, length 93
+20:44:49.772363 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [P.], seq 1595:1688, ack 2687, win 99, length 93
+20:44:49.776141 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [P.], seq 1688:2066, ack 2945, win 101, length 378
+20:44:49.777038 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [P.], seq 1688:2086, ack 2945, win 101, length 398
+20:44:49.852177 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 102273, win 81, length 0
+20:44:49.854296 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 127489, win 71, length 0
+20:44:49.854499 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 143417, win 101, length 0
+20:44:49.855174 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 192385, win 101, length 0
+20:44:49.856058 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 205769, win 101, length 0
+20:44:49.856218 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 214457, win 101, length 0
+20:44:49.856493 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 230385, win 101, length 0
+20:44:49.856732 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 244577, win 101, length 0
+20:44:49.856932 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 257609, win 126, length 0
+20:44:49.857153 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 272089, win 254, length 0
+20:44:49.857432 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 288017, win 311, length 0
+20:44:49.857754 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 301289, win 396, length 0
+20:44:49.872860 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 100897, win 65, length 0
+20:44:49.876378 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 167457, win 12, length 0
+20:44:49.876450 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 179745, win 60, length 0
+20:44:49.876887 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 188609, win 101, length 0
+20:44:49.876955 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 197297, win 109, length 0
+20:44:49.877323 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 214673, win 260, length 0
+20:44:49.877497 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 227365, win 328, length 0
+20:44:49.898940 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 303448, win 424, length 0
+20:44:49.934213 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [F.], seq 2066, ack 227365, win 328, length 0
+20:44:49.934273 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [F.], seq 2086, ack 303448, win 424, length 0
+20:44:49.937051 ?     P   IP 10.99.7.240.39724 > 104.16.8.34.https: Flags [.], ack 227366, win 328, length 0
+20:44:49.937330 ?     P   IP 10.99.7.240.36204 > 104.16.7.34.https: Flags [.], ack 303449, win 424, length 0
+20:44:50.854613 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [F.], seq 1881, ack 694053, win 2142, length 0
+20:44:50.857825 ?     P   IP 10.99.7.240.47804 > 104.26.9.108.https: Flags [.], ack 694054, win 2142, length 0
+20:44:52.064945 ?     P   ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:44:52.064945 ?     P   ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:44:52.064946 ?     Out ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:45:16.191875 ?     P   IP 10.99.7.240.33481 > 10.99.7.1.domain: 56469+ A? proto-llama.dns.podman. (40)
+20:45:16.191981 ?     P   IP 10.99.7.240.33481 > 10.99.7.1.domain: 6032+ AAAA? proto-llama.dns.podman. (40)
+20:45:21.247968 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:45:47.562555 ?     P   IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [S], seq 1558844598, win 65480, options [mss 65480,sackOK,TS val 2426100481 ecr 0,nop,wscale 10], length 0
+20:45:47.562561 ?     Out IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [S], seq 1558844598, win 65480, options [mss 65480,sackOK,TS val 2426100481 ecr 0,nop,wscale 10], length 0
+20:45:47.562609 ?     P   IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [.], ack 1285969421, win 64, options [nop,nop,TS val 2426100481 ecr 60507871], length 0
+20:45:47.562610 ?     Out IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 2426100481 ecr 60507871], length 0
+20:45:47.577125 ?     P   IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2426100496 ecr 60507871], length 1616
+20:45:47.577132 ?     Out IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2426100496 ecr 60507871], length 1616
+20:45:47.577900 ?     P   IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2426100497 ecr 60507886], length 0
+20:45:47.577901 ?     Out IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2426100497 ecr 60507886], length 0
+20:45:47.578613 ?     P   IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2426100497 ecr 60507886], length 0
+20:45:47.578617 ?     Out IP 10.99.7.240.53498 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2426100497 ecr 60507886], length 0
+20:45:47.581296 ?     P   IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [S], seq 2134479662, win 65480, options [mss 65480,sackOK,TS val 1839768056 ecr 0,nop,wscale 10], length 0
+20:45:47.581299 ?     Out IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [S], seq 2134479662, win 65480, options [mss 65480,sackOK,TS val 1839768056 ecr 0,nop,wscale 10], length 0
+20:45:47.581326 ?     P   IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [.], ack 302497157, win 64, options [nop,nop,TS val 1839768056 ecr 1086124169], length 0
+20:45:47.581327 ?     Out IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 1839768056 ecr 1086124169], length 0
+20:45:47.581930 ?     P   IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1839768057 ecr 1086124169], length 1616
+20:45:47.581933 ?     Out IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1839768057 ecr 1086124169], length 1616
+20:45:47.582710 ?     P   IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1839768057 ecr 1086124170], length 0
+20:45:47.582712 ?     Out IP 10.99.7.240.53506 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1839768057 ecr 1086124170], length 0
+20:45:47.658378 ?     P   IP 10.99.7.240.54019 > 10.99.7.1.domain: 43918+ A? proto-llama.dns.podman. (40)
+20:45:47.658422 ?     P   IP 10.99.7.240.54019 > 10.99.7.1.domain: 10930+ AAAA? proto-llama.dns.podman. (40)
+20:45:47.663760 ?     P   IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [S], seq 2521390262, win 65480, options [mss 65480,sackOK,TS val 669590243 ecr 0,nop,wscale 10], length 0
+20:45:47.663767 ?     Out IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [S], seq 2521390262, win 65480, options [mss 65480,sackOK,TS val 669590243 ecr 0,nop,wscale 10], length 0
+20:45:47.663823 ?     P   IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [.], ack 2511109923, win 64, options [nop,nop,TS val 669590243 ecr 750217143], length 0
+20:45:47.663824 ?     Out IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 669590243 ecr 750217143], length 0
+20:45:47.664733 ?     P   IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 669590244 ecr 750217143], length 1616
+20:45:47.664734 ?     Out IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 669590244 ecr 750217143], length 1616
+20:45:47.666685 ?     P   IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 669590246 ecr 750217145], length 0
+20:45:47.666687 ?     Out IP 10.99.7.240.53508 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 669590246 ecr 750217145], length 0
+20:45:52.992073 ?     P   ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:45:52.992076 ?     Out ARP, Request who-has 10.99.7.50 tell 10.99.7.240, length 28
+20:45:52.992078 ?     P   ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:45:52.992096 ?     P   ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:45:52.992097 ?     Out ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:45:52.992909 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:46:01.948026 ?     P   IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [S], seq 3609158573, win 65480, options [mss 65480,sackOK,TS val 3531346855 ecr 0,nop,wscale 10], length 0
+20:46:01.948028 ?     Out IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [S], seq 3609158573, win 65480, options [mss 65480,sackOK,TS val 3531346855 ecr 0,nop,wscale 10], length 0
+20:46:01.948057 ?     P   IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [.], ack 614621076, win 64, options [nop,nop,TS val 3531346855 ecr 3398620101], length 0
+20:46:01.948057 ?     Out IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3531346855 ecr 3398620101], length 0
+20:46:01.948975 ?     P   IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3531346856 ecr 3398620101], length 1616
+20:46:01.948976 ?     Out IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3531346856 ecr 3398620101], length 1616
+20:46:01.949403 ?     P   IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3531346856 ecr 3398620102], length 0
+20:46:01.949404 ?     Out IP 10.99.7.240.33954 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3531346856 ecr 3398620102], length 0
+20:46:01.950523 ?     P   IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [S], seq 288981290, win 65480, options [mss 65480,sackOK,TS val 802936925 ecr 0,nop,wscale 10], length 0
+20:46:01.950524 ?     Out IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [S], seq 288981290, win 65480, options [mss 65480,sackOK,TS val 802936925 ecr 0,nop,wscale 10], length 0
+20:46:01.950541 ?     P   IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [.], ack 293351989, win 64, options [nop,nop,TS val 802936925 ecr 2631798306], length 0
+20:46:01.950541 ?     Out IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 802936925 ecr 2631798306], length 0
+20:46:01.950816 ?     P   IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 802936925 ecr 2631798306], length 1616
+20:46:01.950817 ?     Out IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 802936925 ecr 2631798306], length 1616
+20:46:01.951568 ?     P   IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 802936926 ecr 2631798307], length 0
+20:46:01.951570 ?     Out IP 10.99.7.240.33970 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 802936926 ecr 2631798307], length 0
+20:46:31.587699 ?     P   IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [S], seq 129730682, win 65480, options [mss 65480,sackOK,TS val 232522900 ecr 0,nop,wscale 10], length 0
+20:46:31.587705 ?     Out IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [S], seq 129730682, win 65480, options [mss 65480,sackOK,TS val 232522900 ecr 0,nop,wscale 10], length 0
+20:46:31.587744 ?     P   IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [.], ack 412860521, win 64, options [nop,nop,TS val 232522900 ecr 1287757150], length 0
+20:46:31.587744 ?     Out IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 232522900 ecr 1287757150], length 0
+20:46:31.590610 ?     P   IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 232522903 ecr 1287757150], length 1616
+20:46:31.590613 ?     Out IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 232522903 ecr 1287757150], length 1616
+20:46:31.591279 ?     P   IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 232522904 ecr 1287757154], length 0
+20:46:31.591280 ?     Out IP 10.99.7.240.60128 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 232522904 ecr 1287757154], length 0
+20:46:31.598474 ?     P   IP 10.99.7.240.34936 > 10.99.7.1.domain: 54161+ A? proto-llama.dns.podman. (40)
+20:46:31.598510 ?     P   IP 10.99.7.240.34936 > 10.99.7.1.domain: 45453+ AAAA? proto-llama.dns.podman. (40)
+20:46:33.539854 ?     P   IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [S], seq 2264837802, win 65480, options [mss 65480,sackOK,TS val 37886791 ecr 0,nop,wscale 10], length 0
+20:46:33.539857 ?     Out IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [S], seq 2264837802, win 65480, options [mss 65480,sackOK,TS val 37886791 ecr 0,nop,wscale 10], length 0
+20:46:33.539885 ?     P   IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [.], ack 951613247, win 64, options [nop,nop,TS val 37886791 ecr 3957513380], length 0
+20:46:33.539885 ?     Out IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 37886791 ecr 3957513380], length 0
+20:46:33.549589 ?     P   IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 37886801 ecr 3957513380], length 1616
+20:46:33.549594 ?     Out IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 37886801 ecr 3957513380], length 1616
+20:46:33.550334 ?     P   IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 37886802 ecr 3957513391], length 0
+20:46:33.550335 ?     Out IP 10.99.7.240.60140 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 37886802 ecr 3957513391], length 0
+20:46:33.631149 ?     P   IP 10.99.7.240.60190 > 10.99.7.1.domain: 17941+ A? proto-llama.dns.podman. (40)
+20:46:33.631189 ?     P   IP 10.99.7.240.60190 > 10.99.7.1.domain: 3344+ AAAA? proto-llama.dns.podman. (40)
+20:46:33.631256 ?     P   IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [S], seq 1285580544, win 65480, options [mss 65480,sackOK,TS val 2791073035 ecr 0,nop,wscale 10], length 0
+20:46:33.631260 ?     Out IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [S], seq 1285580544, win 65480, options [mss 65480,sackOK,TS val 2791073035 ecr 0,nop,wscale 10], length 0
+20:46:33.631302 ?     P   IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [.], ack 53850275, win 64, options [nop,nop,TS val 2791073035 ecr 1659946111], length 0
+20:46:33.631302 ?     Out IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 2791073035 ecr 1659946111], length 0
+20:46:33.645563 ?     P   IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2791073049 ecr 1659946111], length 1616
+20:46:33.645567 ?     Out IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 2791073049 ecr 1659946111], length 1616
+20:46:33.646902 ?     P   IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2791073051 ecr 1659946126], length 0
+20:46:33.646903 ?     Out IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 2791073051 ecr 1659946126], length 0
+20:46:33.647939 ?     P   IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2791073052 ecr 1659946126], length 0
+20:46:33.647941 ?     Out IP 10.99.7.240.60148 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 2791073052 ecr 1659946126], length 0
+20:46:33.649893 ?     P   IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [S], seq 3934022438, win 65480, options [mss 65480,sackOK,TS val 3959211629 ecr 0,nop,wscale 10], length 0
+20:46:33.649895 ?     Out IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [S], seq 3934022438, win 65480, options [mss 65480,sackOK,TS val 3959211629 ecr 0,nop,wscale 10], length 0
+20:46:33.649908 ?     P   IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [.], ack 2103198358, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 0
+20:46:33.649908 ?     Out IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 0
+20:46:33.650399 ?     P   IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 1616
+20:46:33.650401 ?     Out IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 1616
+20:46:33.650644 ?     P   IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 0
+20:46:33.650645 ?     Out IP 10.99.7.240.60160 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3959211630 ecr 581226448], length 0
+20:46:37.024961 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+20:46:38.185493 ?     P   IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [S], seq 588971179, win 65480, options [mss 65480,sackOK,TS val 3301403288 ecr 0,nop,wscale 10], length 0
+20:46:38.185496 ?     Out IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [S], seq 588971179, win 65480, options [mss 65480,sackOK,TS val 3301403288 ecr 0,nop,wscale 10], length 0
+20:46:38.185522 ?     P   IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [.], ack 1665784013, win 64, options [nop,nop,TS val 3301403288 ecr 3009121329], length 0
+20:46:38.185523 ?     Out IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3301403288 ecr 3009121329], length 0
+20:46:38.190256 ?     P   IP 10.99.7.240.42902 > 10.99.7.1.domain: 27254+ A? proto-llama.dns.podman. (40)
+20:46:38.190295 ?     P   IP 10.99.7.240.42902 > 10.99.7.1.domain: 62841+ AAAA? proto-llama.dns.podman. (40)
+20:46:38.190624 ?     P   IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3301403293 ecr 3009121329], length 1616
+20:46:38.190626 ?     Out IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3301403293 ecr 3009121329], length 1616
+20:46:38.191275 ?     P   IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3301403294 ecr 3009121335], length 0
+20:46:38.191276 ?     Out IP 10.99.7.240.60168 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3301403294 ecr 3009121335], length 0
+20:46:38.192611 ?     P   IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [S], seq 1968339144, win 65480, options [mss 65480,sackOK,TS val 523128238 ecr 0,nop,wscale 10], length 0
+20:46:38.192612 ?     Out IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [S], seq 1968339144, win 65480, options [mss 65480,sackOK,TS val 523128238 ecr 0,nop,wscale 10], length 0
+20:46:38.192624 ?     P   IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [.], ack 1940919120, win 64, options [nop,nop,TS val 523128238 ecr 1351443241], length 0
+20:46:38.192624 ?     Out IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 523128238 ecr 1351443241], length 0
+20:46:38.192787 ?     P   IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 523128238 ecr 1351443241], length 1616
+20:46:38.192788 ?     Out IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 523128238 ecr 1351443241], length 1616
+20:46:38.193022 ?     P   IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 523128239 ecr 1351443241], length 0
+20:46:38.193023 ?     Out IP 10.99.7.240.60178 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 523128239 ecr 1351443241], length 0
+20:46:38.219836 ?     P   IP 10.99.7.240.41971 > 10.99.7.1.domain: 6875+ A? proto-llama.dns.podman. (40)
+20:46:38.219880 ?     P   IP 10.99.7.240.41971 > 10.99.7.1.domain: 51152+ AAAA? proto-llama.dns.podman. (40)
+20:46:38.223200 ?     P   IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [S], seq 4123999087, win 65480, options [mss 65480,sackOK,TS val 3729176064 ecr 0,nop,wscale 10], length 0
+20:46:38.223204 ?     Out IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [S], seq 4123999087, win 65480, options [mss 65480,sackOK,TS val 3729176064 ecr 0,nop,wscale 10], length 0
+20:46:38.223239 ?     P   IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [.], ack 2542583997, win 64, options [nop,nop,TS val 3729176064 ecr 2417845365], length 0
+20:46:38.223240 ?     Out IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3729176064 ecr 2417845365], length 0
+20:46:38.223701 ?     P   IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3729176064 ecr 2417845365], length 1616
+20:46:38.223702 ?     Out IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3729176064 ecr 2417845365], length 1616
+20:46:38.224288 ?     P   IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3729176065 ecr 2417845365], length 0
+20:46:38.224289 ?     Out IP 10.99.7.240.60188 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3729176065 ecr 2417845365], length 0
+20:46:43.371677 ?     P   IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [S], seq 177860897, win 65480, options [mss 65480,sackOK,TS val 3555010802 ecr 0,nop,wscale 10], length 0
+20:46:43.371680 ?     Out IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [S], seq 177860897, win 65480, options [mss 65480,sackOK,TS val 3555010802 ecr 0,nop,wscale 10], length 0
+20:46:43.371708 ?     P   IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [.], ack 937413373, win 64, options [nop,nop,TS val 3555010802 ecr 795277414], length 0
+20:46:43.371709 ?     Out IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 3555010802 ecr 795277414], length 0
+20:46:43.373774 ?     P   IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3555010804 ecr 795277414], length 1616
+20:46:43.373775 ?     Out IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 3555010804 ecr 795277414], length 1616
+20:46:43.374134 ?     P   IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3555010805 ecr 795277417], length 0
+20:46:43.374135 ?     Out IP 10.99.7.240.37072 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 3555010805 ecr 795277417], length 0
+20:46:43.680952 ?     P   ARP, Reply 10.99.7.240 is-at 32:df:75:0d:3b:24, length 28
+20:46:49.080028 ?     P   IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [S], seq 2398304665, win 65480, options [mss 65480,sackOK,TS val 1257258527 ecr 0,nop,wscale 10], length 0
+20:46:49.080031 ?     Out IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [S], seq 2398304665, win 65480, options [mss 65480,sackOK,TS val 1257258527 ecr 0,nop,wscale 10], length 0
+20:46:49.080061 ?     P   IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [.], ack 3148968556, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 0
+20:46:49.080061 ?     Out IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 0
+20:46:49.080573 ?     P   IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 1616
+20:46:49.080574 ?     Out IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 1616
+20:46:49.080849 ?     P   IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 0
+20:46:49.080850 ?     Out IP 10.99.7.240.37088 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1257258527 ecr 1427894910], length 0
+20:46:49.081583 ?     P   IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [S], seq 3819550321, win 65480, options [mss 65480,sackOK,TS val 1012831750 ecr 0,nop,wscale 10], length 0
+20:46:49.081584 ?     Out IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [S], seq 3819550321, win 65480, options [mss 65480,sackOK,TS val 1012831750 ecr 0,nop,wscale 10], length 0
+20:46:49.081595 ?     P   IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [.], ack 108897825, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 0
+20:46:49.081595 ?     Out IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 0
+20:46:49.081742 ?     P   IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 1616
+20:46:49.081743 ?     Out IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 1616
+20:46:49.081841 ?     P   IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 0
+20:46:49.081842 ?     Out IP 10.99.7.240.37096 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1012831750 ecr 2235055044], length 0
+20:47:47.205983 ?     P   IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [S], seq 700671094, win 65480, options [mss 65480,sackOK,TS val 1148649467 ecr 0,nop,wscale 10], length 0
+20:47:47.205989 ?     Out IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [S], seq 700671094, win 65480, options [mss 65480,sackOK,TS val 1148649467 ecr 0,nop,wscale 10], length 0
+20:47:47.206030 ?     P   IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [.], ack 525722965, win 64, options [nop,nop,TS val 1148649467 ecr 1908769342], length 0
+20:47:47.206030 ?     Out IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 1148649467 ecr 1908769342], length 0
+20:47:47.206655 ?     P   IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1148649467 ecr 1908769342], length 1616
+20:47:47.206656 ?     Out IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 1148649467 ecr 1908769342], length 1616
+20:47:47.206897 ?     P   IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 1148649468 ecr 1908769342], length 0
+20:47:47.206898 ?     Out IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [.], ack 2, win 64, options [nop,nop,TS val 1148649468 ecr 1908769342], length 0
+20:47:47.207020 ?     P   IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1148649468 ecr 1908769342], length 0
+20:47:47.207021 ?     Out IP 10.99.7.240.47478 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 1148649468 ecr 1908769342], length 0
+20:47:47.208197 ?     P   IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [S], seq 2903076858, win 65480, options [mss 65480,sackOK,TS val 592083155 ecr 0,nop,wscale 10], length 0
+20:47:47.208198 ?     Out IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [S], seq 2903076858, win 65480, options [mss 65480,sackOK,TS val 592083155 ecr 0,nop,wscale 10], length 0
+20:47:47.208209 ?     P   IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [.], ack 2569810060, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 0
+20:47:47.208209 ?     Out IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [.], ack 1, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 0
+20:47:47.208333 ?     P   IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 1616
+20:47:47.208334 ?     Out IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [P.], seq 0:1616, ack 1, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 1616
+20:47:47.208475 ?     P   IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 0
+20:47:47.208475 ?     Out IP 10.99.7.240.47486 > 10.99.7.50.https: Flags [F.], seq 1616, ack 2, win 64, options [nop,nop,TS val 592083155 ecr 3224445784], length 0

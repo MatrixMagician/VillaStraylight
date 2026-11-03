@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "results", "interactive")
 os.makedirs(RES, exist_ok=True)
 IP, LLAMA = "10.99.7.240", "10.99.7.10"
+KEY = "dummy-proto-key"
 PREFIX, QHOME = os.environ["PREFIX"], os.environ["QHOME"]
 MODEL = "/models/Qwen3.6-35B-A3B-Abliterated-Heretic-Q6_K.gguf"
 RUM = "gb4w8c3ygj-default-sea.rum.aliyuncs.com"
@@ -50,16 +51,31 @@ MODES = {
     "project-reenable+env":   (merge(base, OFF, EXTRA, REFRESH_SET), {**ENVREF, **ENVOFF}),
     "lockdown":               (merge(base, OFF, EXTRA, REFRESH_SET), {**ENVOFF, **ENVREF}),
 }
-settings, env = MODES[MODE]
+CONTRACT = os.environ.get("CONTRACT_DIR")
+if MODE.startswith("villa-contract"):
+    emitted = json.load(open(os.path.join(CONTRACT, "settings.out")))
+    emitted["modelProviders"]["openai"][0]["baseUrl"] = "http://proto-llama:8080/v1"
+    settings = {"__villa_qwen_home__": emitted}
+    env = {}
+    for line in open(os.path.join(CONTRACT, "env.out")):
+        k, v = line.rstrip("\n").split("=", 1)
+        env[k] = {"OPENAI_API_KEY": "dummy-proto-key", "QWEN_HOME": "/home/node/villa-qwen"}.get(k, v) if v != "<present>" else "dummy-proto-key"
+    env["QWEN_HOME"] = "/home/node/villa-qwen"
+else:
+    settings, env = MODES[MODE]
 os.makedirs(os.path.join(QHOME, ".qwen"), exist_ok=True)
 os.makedirs(QHOME, exist_ok=True)
 for name in os.listdir(QHOME):
     subprocess.run(["rm", "-rf", os.path.join(QHOME, name)])
 
 os.makedirs(os.path.join(QHOME, ".qwen"), exist_ok=True)
-json.dump(settings, open(os.path.join(QHOME, ".qwen", "settings.json"), "w"))
+if "__villa_qwen_home__" in settings:
+    os.makedirs(os.path.join(QHOME, "villa-qwen"), exist_ok=True)
+    json.dump(settings["__villa_qwen_home__"], open(os.path.join(QHOME, "villa-qwen", "settings.json"), "w"))
+else:
+    json.dump(settings, open(os.path.join(QHOME, ".qwen", "settings.json"), "w"))
 WS = os.path.join(HERE, "workspace")
-if MODE.startswith("project-reenable"):
+if MODE.startswith("project-reenable") or MODE == "villa-contract-override":
     os.makedirs(os.path.join(WS, ".qwen"), exist_ok=True)
     json.dump({"privacy": {"usageStatisticsEnabled": True}}, open(os.path.join(WS, ".qwen", "settings.json"), "w"))
 pcap = os.path.join(RES, f"{MODE}.pcap")
@@ -70,7 +86,7 @@ time.sleep(2)
 cmd = ["podman", "run", "--rm", "-it", "--name", "proto-qwen-tui", "--network", "proto-qwen", "--ip", IP,
        "-v", f"{PREFIX}:/opt/qwen:ro,z", "-v", f"{QHOME}:/home/node:Z", "-v", f"{WS}:/workspace:Z",
        "-w", "/workspace", "-e", "HOME=/home/node", "-e", "TERM=xterm-256color", "-e", "COLUMNS=140", "-e", "LINES=45",
-       "--add-host", f"{RUM}:10.99.7.50", "-e", f"LLAMA_API_KEY={os.environ['LLAMA_API_KEY']}"]
+       "--add-host", f"{RUM}:10.99.7.50", "-e", f"LLAMA_API_KEY={KEY}"]
 for k, v in env.items():
     cmd += ["-e", f"{k}={v}"]
 cmd += ["docker.io/library/node:22-slim", "/opt/qwen/bin/qwen", "--approval-mode", "yolo"]

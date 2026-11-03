@@ -1,0 +1,33 @@
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3-coder-30b-a3b",
+        "name": "qwen3-coder-30b-a3b (local)",
+        "envKey": "OPENAI_API_KEY",
+        "baseUrl": "http://127.0.0.1:8080/v1"
+      }
+    ]
+  },
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "qwen3-coder-30b-a3b",
+    "catalogRefresh": false
+  },
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
+  "general": {
+    "enableAutoUpdate": false
+  },
+  "ui": {
+    "enableUserFeedback": false
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}
