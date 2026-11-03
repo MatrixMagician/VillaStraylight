@@ -88,3 +88,39 @@ resident unit, and none of them was restarted or captured.
 - `TestAnUpdateRestartsEveryChangedRunningUnit`,
   `TestAFailedUpdateRestoresAndRestartsEveryUnitItChanged` and
   `TestARollbackRestartsWhatTheMutationRestarted` hold the behaviour.
+
+## Amendment (#359): where the update frame differs from `Transact`, and the proof wait
+
+Neither gap below was reproduced on hardware. Both were read from the code.
+
+- **A service the apply stopped for removal is not restarted by an update's
+  rollback.** `Transact` adds `applied.Stopped` to its rollback restart set
+  (`transact.go`), because its capture holds the orphan's unit file and the rollback
+  restores it. The update's `liveMutate` drops `applied.Stopped`, and that is
+  deliberate: the capture leaves out a registry unit the config does not render
+  (third Decision bullet), so after the apply removes the file a rollback has no unit
+  to start, and restarting the service would fail and report the rollback as
+  incomplete. An orphan exists only when the operator turned a subsystem off and has
+  not yet run `villa up`. An update that rolls back leaves it stopped, which is the
+  state the operator asked for and ADR-0035 already accepts ("their rollbacks do not
+  bring it back running"). `villa up` or `villa restart <service>` reaches the same
+  place as `Transact`'s rollback would, and never leaves a unit running outside the
+  fit. No code changed.
+- **The proofs wait for the services they drive.** The apply of one subsystem's
+  update restarts changed running services of the others (this ADR), and the
+  subsystems update in order: inference, chat, memory. The embedder and Open WebUI
+  were therefore often restarted just before the next subsystem's `ProveCurrent`,
+  and a proof fired into a loading `villa-embed` (503) or a booting Open WebUI
+  failed and read as "was not healthy before the update". `awaitReady`
+  (`cmd/villa/update_apply_ready.go`) now polls first, with install's
+  `pollReadiness` (#335) and its in-network `/health` probe: chat waits for Open
+  WebUI, memory for the embedder, the reranker when `subsystem.RerankOn`, and Open
+  WebUI. It wraps `ProveCurrent`, `ProveNew` and `ProveRestored` alike, since all
+  three drive freshly restarted services. A wait that expires is a Reject naming the
+  unit ("villa-embed.service not ready after 1m30s"), never a Fail. The refusal's
+  wording is unchanged: a service that stays down for 90 seconds is not healthy.
+  Inference, search, agent, voice and image keep their own handling.
+- **Considered and rejected: fold `Stopped` into the update's restart set.** It
+  needs the orphan's unit captured, which reverses the decision that an update leaves
+  orphan removal as housekeeping, and a capture that includes units the config does
+  not render brings an orphan back on every rollback.
