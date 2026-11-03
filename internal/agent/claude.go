@@ -105,6 +105,9 @@ func claudeEnv(cfg config.VillaConfig) []string {
 		"DISABLE_TELEMETRY=1",
 		"DISABLE_ERROR_REPORTING=1",
 		"DISABLE_AUTOUPDATER=1",
+		// A first launch on a machine registers the official plugin marketplace from
+		// downloads.claude.ai; DISABLE_AUTOUPDATER does not cover it (#385, ADR-0039).
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
 		envDoNotTrack,
 	)
 }

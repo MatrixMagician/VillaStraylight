@@ -154,6 +154,7 @@ func TestRunClaudeReadyToLaunch(t *testing.T) {
 		"DISABLE_TELEMETRY=1",
 		"DISABLE_ERROR_REPORTING=1",
 		"DISABLE_AUTOUPDATER=1",
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
 		envDoNotTrack,
 	}
 	for _, w := range want {
