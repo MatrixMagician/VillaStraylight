@@ -76,3 +76,76 @@ grounding audit (`internal/grounding`) is the control for it, not the agent choi
 3. If it ships: `TargetQwen` mirroring `internal/agent/claude.go`, villa writing an isolated
    settings file (provider, opt-out keys) under its own config dir and launching with that
    as `HOME`, plus `QWEN_USAGE_STATISTICS_ENABLED=false` appended in the `lockdownEnv` style.
+
+## Interactive mode (#373)
+
+Run 2026-11-03. The headless trial above made no off-box connection with the opt-out set.
+The interactive TUI does, so the headless result does not carry over. Harness:
+`interactive.py` (pty-driven TUI in a throwaway node:22 container, two real turns including
+a shell tool call, `/quit`), `run-interactive.sh`, `run-extra.sh`, `serve.sh`, `sink.js`.
+Model: the Heretic Q6_K on a throwaway llama-server on a private podman network (the live
+stack was stopped and masked at the time). Each mode starts from an empty `HOME`.
+`tcpdump` in the rootless netns records everything except traffic to the model server. A local
+TCP sink stands in for the usage-statistics host so its connection is visible instead of
+sinkholed (the capture sees the connect and a 1616-byte TLS ClientHello with the SNI, not
+the payload: the leg is TLS). The capture's own positive control is the default mode,
+which shows all three paths below. `results/interactive/turns.txt`: all ten sessions
+answered both turns and exited cleanly.
+
+### Three egress paths, three switches
+
+| Path | What it does | Suppressed by |
+|---|---|---|
+| Usage statistics | HTTPS to `gb4w8c3ygj-default-sea.rum.aliyuncs.com`, repeated about once a minute | `QWEN_USAGE_STATISTICS_ENABLED=false` **or** `privacy.usageStatisticsEnabled=false` |
+| Model catalog | HTTPS to `models.dev` (about 110 KB) on start | `QWEN_CODE_MODELS_DEV_REFRESH=off` only |
+| Update check | Lookup and HTTPS to `registry.npmjs.org` | `general.enableAutoUpdate=false` |
+
+| Mode (user settings / env) | RUM | models.dev | npm registry |
+|---|:-:|:-:|:-:|
+| default | **yes** (126 pkts to the sink) | yes | yes |
+| env var only | no | yes | yes |
+| `usageStatisticsEnabled=false` only | no | yes | yes |
+| all four opt-out settings + usage env | no | **yes** | no |
+| user setting `true` + usage env `false` | no | yes | yes |
+| all opt-out + `catalogRefresh=false` setting | no | **yes** | no |
+| all opt-out + `QWEN_CODE_MODELS_DEV_REFRESH=off` | no | no | no |
+| lockdown (all of the above) | no | no | no |
+
+Only the model server's DNS appears in the last two rows (12 packets, all `proto-llama`).
+
+### Findings that change the design
+
+1. **The documented opt-out is not enough.** The docs say disabling usage statistics also
+   stops the models.dev refresh. Measured: it does not (row 4). Neither does the documented
+   `model.catalogRefresh=false` setting in user scope (row 6). Only the env var does.
+2. **A project-level settings file re-enables the telemetry.** With the user-level opt-out
+   in place, a `.qwen/settings.json` inside the workspace containing
+   `privacy.usageStatisticsEnabled: true` brought back the RUM connection (128 packets to the
+   sink). With the usage env var also set, the same session made none. The docs mark
+   `usageStatisticsEnabled` as not workspace-restricted, which is this. A cloned repository
+   can therefore switch the telemetry on, so **the env var is mandatory, not optional**.
+3. **The env var beats a user-level `true`** (row 5), which is the precedence the docs state.
+4. **`qwen serve`** under the lockdown env, 40 s idle: zero packets off the model server. It
+   binds 127.0.0.1:4170 inside the container with no auth, as documented. Nothing in a
+   `villa code` launch starts it.
+
+### Minimal sufficient set
+
+Env: `QWEN_USAGE_STATISTICS_ENABLED=false` and `QWEN_CODE_MODELS_DEV_REFRESH=off`.
+Settings (villa-written, user scope): `general.enableAutoUpdate=false`. Add the other three
+opt-out keys as belt and braces; they changed nothing measurable here.
+
+### Still not covered
+
+Extension and marketplace fetches, MCP servers, web-fetch and web-search tools (the model can
+call them; they are outbound by design), IDE integrations, the feedback dialog (it never
+appeared), and any path a newer release adds. The structural no-route launch (#377) is the
+answer to the last one.
+
+### Verdict update
+
+Conditions (1) and (2) from the verdict hold, and the first is now met: interactive mode has
+two more egress paths than headless, and both are suppressible. The launch contract for #375
+is the env pair above, a villa-written settings file, and an isolated `HOME` (so a user-level
+file cannot loosen it). A repository's own `.qwen/settings.json` is the reason the env vars
+cannot be dropped.

@@ -1,0 +1,84 @@
+17:06:00.017358 ?     B   ARP, Request who-has 10.99.7.240 tell 10.99.7.240, length 28
+17:06:01.184983 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:06:01.184992 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:06:01.184995 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:06:01.184998 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:06:01.185036 ?     P   IP 10.99.7.240.37392 > 10.99.7.1.domain: 23300+ A? models.dev. (28)
+17:06:01.185075 ?     P   IP 10.99.7.240.37392 > 10.99.7.1.domain: 49920+ AAAA? models.dev. (28)
+17:06:01.190908 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [S], seq 2513999947, win 65480, options [mss 65480,sackOK,TS val 1694105591 ecr 0,nop,wscale 10], length 0
+17:06:01.193659 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 1147562370, win 64, length 0
+17:06:01.204486 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [P.], seq 0:1602, ack 1, win 64, length 1602
+17:06:01.214561 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 3870, win 61, length 0
+17:06:01.219121 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [P.], seq 1602:1881, ack 3870, win 61, length 279
+17:06:01.385281 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 21044, win 70, length 0
+17:06:01.394083 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 92724, win 70, length 0
+17:06:01.396260 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 115527, win 103, length 0
+17:06:01.396408 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 132903, win 107, length 0
+17:06:01.396558 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 150279, win 107, length 0
+17:06:01.396778 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 178447, win 89, length 0
+17:06:01.399734 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 269583, win 110, length 0
+17:06:01.399785 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 338328, win 252, length 0
+17:06:01.402748 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 430445, win 163, length 0
+17:06:04.342762 ?     P   IP 10.99.7.240.36587 > 10.99.7.1.domain: 34136+ A? registry.npmjs.org. (36)
+17:06:04.342813 ?     P   IP 10.99.7.240.36587 > 10.99.7.1.domain: 7747+ AAAA? registry.npmjs.org. (36)
+17:06:04.344283 ?     P   IP 10.99.7.240.38783 > 10.99.7.1.domain: 37283+ A? registry.npmjs.org. (36)
+17:06:04.344307 ?     P   IP 10.99.7.240.38783 > 10.99.7.1.domain: 28837+ AAAA? registry.npmjs.org. (36)
+17:06:04.347048 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [S], seq 3364876245, win 65480, options [mss 65480,sackOK,TS val 474869284 ecr 0,nop,wscale 10], length 0
+17:06:04.347303 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [S], seq 2807660984, win 65480, options [mss 65480,sackOK,TS val 1530571586 ecr 0,nop,wscale 10], length 0
+17:06:04.349542 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 2611972374, win 64, length 0
+17:06:04.349633 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 1914880700, win 64, length 0
+17:06:04.349956 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
+17:06:04.350210 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [P.], seq 0:1595, ack 1, win 64, length 1595
+17:06:04.355316 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 2687, win 99, length 0
+17:06:04.356491 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [P.], seq 1595:1688, ack 2687, win 99, length 93
+17:06:04.359777 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 2688, win 99, length 0
+17:06:04.360954 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [P.], seq 1595:1688, ack 2688, win 99, length 93
+17:06:04.363644 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [P.], seq 1688:2066, ack 2945, win 101, length 378
+17:06:04.364932 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [P.], seq 1688:2086, ack 2946, win 101, length 398
+17:06:04.397427 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 18402, win 101, length 0
+17:06:04.407553 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 15305, win 101, length 0
+17:06:04.410435 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 24217, win 93, length 0
+17:06:04.437725 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 90547, win 101, length 0
+17:06:04.438958 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 21198, win 101, length 0
+17:06:04.439028 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 29586, win 93, length 0
+17:06:04.439512 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 32382, win 91, length 0
+17:06:04.439710 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 42168, win 82, length 0
+17:06:04.440045 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 57546, win 67, length 0
+17:06:04.440119 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 67460, win 75, length 0
+17:06:04.440666 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 77510, win 82, length 0
+17:06:04.440766 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 133127, win 113, length 0
+17:06:04.440828 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 93438, win 92, length 0
+17:06:04.441254 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 107810, win 103, length 0
+17:06:04.441353 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 175707, win 113, length 0
+17:06:04.442083 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 117722, win 103, length 0
+17:06:04.442279 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 130596, win 110, length 0
+17:06:04.442509 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 160806, win 111, length 0
+17:06:04.442518 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 184917, win 113, length 0
+17:06:04.443060 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 227460, win 96, length 0
+17:06:04.444087 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 173970, win 111, length 0
+17:06:04.444484 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 223162, win 111, length 0
+17:06:04.445132 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 253143, win 111, length 0
+17:06:04.446260 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 269556, win 95, length 0
+17:06:04.446558 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 299001, win 100, length 0
+17:06:04.486918 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 303436, win 100, length 0
+17:06:04.510267 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [F.], seq 2066, ack 227460, win 96, length 0
+17:06:04.510319 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [F.], seq 2086, ack 303436, win 100, length 0
+17:06:04.514446 ?     P   IP 10.99.7.240.39562 > 104.16.7.34.https: Flags [.], ack 227461, win 96, length 0
+17:06:04.515895 ?     P   IP 10.99.7.240.39552 > 104.16.7.34.https: Flags [.], ack 303437, win 100, length 0
+17:06:05.409290 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [F.], seq 1881, ack 430445, win 252, length 0
+17:06:05.412847 ?     P   IP 10.99.7.240.46808 > 104.26.8.108.https: Flags [.], ack 430446, win 252, length 0
+17:06:06.431970 ?     P   ARP, Reply 10.99.7.240 is-at 26:1c:77:00:5a:52, length 28
+17:06:30.717324 ?     P   IP 10.99.7.240.53351 > 10.99.7.1.domain: 13456+ A? proto-llama.dns.podman. (40)
+17:06:30.717367 ?     P   IP 10.99.7.240.53351 > 10.99.7.1.domain: 47244+ AAAA? proto-llama.dns.podman. (40)
+17:06:31.746341 ?     P   IP 10.99.7.240.39909 > 10.99.7.1.domain: 6920+ A? proto-llama.dns.podman. (40)
+17:06:31.746383 ?     P   IP 10.99.7.240.39909 > 10.99.7.1.domain: 16140+ AAAA? proto-llama.dns.podman. (40)
+17:07:46.393022 ?     P   IP 10.99.7.240.38482 > 10.99.7.1.domain: 34834+ A? proto-llama.dns.podman. (40)
+17:07:46.393057 ?     P   IP 10.99.7.240.38482 > 10.99.7.1.domain: 62486+ AAAA? proto-llama.dns.podman. (40)
+17:07:48.433083 ?     P   IP 10.99.7.240.36539 > 10.99.7.1.domain: 1217+ A? proto-llama.dns.podman. (40)
+17:07:48.433134 ?     P   IP 10.99.7.240.36539 > 10.99.7.1.domain: 51421+ AAAA? proto-llama.dns.podman. (40)
+17:07:51.903952 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:07:51.903962 ?     P   ARP, Reply 10.99.7.240 is-at 26:1c:77:00:5a:52, length 28
+17:07:54.082540 ?     P   IP 10.99.7.240.38335 > 10.99.7.1.domain: 58215+ A? proto-llama.dns.podman. (40)
+17:07:54.082596 ?     P   IP 10.99.7.240.38335 > 10.99.7.1.domain: 29274+ AAAA? proto-llama.dns.podman. (40)
+17:07:54.122339 ?     P   IP 10.99.7.240.59677 > 10.99.7.1.domain: 6825+ A? proto-llama.dns.podman. (40)
+17:07:54.122395 ?     P   IP 10.99.7.240.59677 > 10.99.7.1.domain: 174+ AAAA? proto-llama.dns.podman. (40)

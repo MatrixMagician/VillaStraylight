@@ -25,3 +25,16 @@ PREFIX=… QHOME=… ./run.sh default [T1 …]    # provider config only, nothin
 
 `PREFIX` is an npm prefix with `@qwen-code/qwen-code` installed (`npm i -g --prefix`), `QHOME`
 an empty directory used as `HOME`.
+
+## Interactive mode (#373)
+
+```
+interactive.py <mode>        # pty-driven TUI session + tcpdump; modes in the file
+run-interactive.sh           # the eight user-scope modes
+run-extra.sh                 # project-level settings override, with and without the env var
+serve.sh                     # qwen serve start + idle under the lockdown env
+sink.js                      # local stand-in for the usage-statistics host
+```
+
+Needs `PREFIX`, `QHOME` and `LLAMA_API_KEY`, and a model server named `proto-llama` at
+10.99.7.10 on a podman network `proto-qwen` (10.99.7.0/24). Results: `results/interactive/`.
