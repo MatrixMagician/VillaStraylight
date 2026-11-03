@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A launched coding agent runs with its telemetry off, and a capture shows it
