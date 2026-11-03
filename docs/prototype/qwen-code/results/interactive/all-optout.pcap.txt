@@ -1,0 +1,57 @@
+17:09:06.480823 ?     B   ARP, Request who-has 10.99.7.240 tell 10.99.7.240, length 28
+17:09:07.630226 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:09:07.630233 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:09:07.630236 ?     Out ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:09:07.630238 ?     B   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:09:07.630266 ?     P   IP 10.99.7.240.57712 > 10.99.7.1.domain: 60353+ A? models.dev. (28)
+17:09:07.630295 ?     P   IP 10.99.7.240.57712 > 10.99.7.1.domain: 19909+ AAAA? models.dev. (28)
+17:09:07.635704 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [S], seq 2791383994, win 65480, options [mss 65480,sackOK,TS val 429223452 ecr 0,nop,wscale 10], length 0
+17:09:07.639072 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 4079965464, win 64, length 0
+17:09:07.643921 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [P.], seq 0:1602, ack 1, win 64, length 1602
+17:09:07.655258 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 3870, win 61, length 0
+17:09:07.662333 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [P.], seq 1602:1881, ack 3870, win 61, length 279
+17:09:07.814912 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 22777, win 93, length 0
+17:09:07.817965 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 97512, win 71, length 0
+17:09:07.820781 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 122904, win 83, length 0
+17:09:07.821125 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 141728, win 84, length 0
+17:09:07.821242 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 153312, win 102, length 0
+17:09:07.821349 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 160552, win 102, length 0
+17:09:07.823564 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 198360, win 100, length 0
+17:09:07.823667 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 204152, win 100, length 0
+17:09:07.823737 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 209944, win 95, length 0
+17:09:07.823839 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 218632, win 88, length 0
+17:09:07.823932 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 222976, win 102, length 0
+17:09:07.823991 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 225872, win 230, length 0
+17:09:07.824243 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 250904, win 485, length 0
+17:09:07.824505 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 265384, win 704, length 0
+17:09:07.824589 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 271176, win 960, length 0
+17:09:07.824786 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 282760, win 1216, length 0
+17:09:07.824923 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 291448, win 1472, length 0
+17:09:07.825082 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 307616, win 1619, length 0
+17:09:07.825317 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 323544, win 1679, length 0
+17:09:07.825546 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 336576, win 1738, length 0
+17:09:07.825720 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 345264, win 1761, length 0
+17:09:07.826060 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 365536, win 1894, length 0
+17:09:07.826219 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 382912, win 2150, length 0
+17:09:07.826321 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 394496, win 2181, length 0
+17:09:07.826463 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 411872, win 2332, length 0
+17:09:07.826664 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 424904, win 2377, length 0
+17:09:07.829443 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 430552, win 2422, length 0
+17:09:11.833666 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [F.], seq 1881, ack 430552, win 2422, length 0
+17:09:11.841776 ?     P   IP 10.99.7.240.32906 > 172.67.69.147.https: Flags [.], ack 430553, win 2422, length 0
+17:09:12.799970 ?     P   ARP, Reply 10.99.7.240 is-at 7a:db:31:5e:01:53, length 28
+17:09:37.640201 ?     P   IP 10.99.7.240.40739 > 10.99.7.1.domain: 49632+ A? proto-llama.dns.podman. (40)
+17:09:37.640254 ?     P   IP 10.99.7.240.40739 > 10.99.7.1.domain: 15341+ AAAA? proto-llama.dns.podman. (40)
+17:09:38.535376 ?     P   IP 10.99.7.240.47490 > 10.99.7.1.domain: 30351+ A? proto-llama.dns.podman. (40)
+17:09:38.535420 ?     P   IP 10.99.7.240.47490 > 10.99.7.1.domain: 55732+ AAAA? proto-llama.dns.podman. (40)
+17:09:43.007918 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:10:53.192121 ?     P   IP 10.99.7.240.58541 > 10.99.7.1.domain: 63382+ A? proto-llama.dns.podman. (40)
+17:10:53.192161 ?     P   IP 10.99.7.240.58541 > 10.99.7.1.domain: 1178+ AAAA? proto-llama.dns.podman. (40)
+17:10:55.433623 ?     P   IP 10.99.7.240.54460 > 10.99.7.1.domain: 4358+ A? proto-llama.dns.podman. (40)
+17:10:55.433675 ?     P   IP 10.99.7.240.54460 > 10.99.7.1.domain: 2819+ AAAA? proto-llama.dns.podman. (40)
+17:10:56.584181 ?     P   IP 10.99.7.240.41827 > 10.99.7.1.domain: 3942+ A? proto-llama.dns.podman. (40)
+17:10:56.584236 ?     P   IP 10.99.7.240.41827 > 10.99.7.1.domain: 4732+ AAAA? proto-llama.dns.podman. (40)
+17:10:56.954253 ?     P   IP 10.99.7.240.39420 > 10.99.7.1.domain: 56840+ A? proto-llama.dns.podman. (40)
+17:10:56.954301 ?     P   IP 10.99.7.240.39420 > 10.99.7.1.domain: 58630+ AAAA? proto-llama.dns.podman. (40)
+17:10:58.272918 ?     P   ARP, Request who-has 10.99.7.1 tell 10.99.7.240, length 28
+17:10:58.272951 ?     P   ARP, Reply 10.99.7.240 is-at 7a:db:31:5e:01:53, length 28

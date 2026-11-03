@@ -1,0 +1,10 @@
+default: both turns answered=yes; clean exit=yes
+env-only: both turns answered=yes; clean exit=yes
+setting-only: both turns answered=yes; clean exit=yes
+all-optout: both turns answered=yes; clean exit=yes
+env-beats-settings: both turns answered=yes; clean exit=yes
+optout+refresh-env: both turns answered=yes; clean exit=yes
+optout+refresh-setting: both turns answered=yes; clean exit=yes
+lockdown: both turns answered=yes; clean exit=yes
+project-reenable: both turns answered=yes; clean exit=yes
+project-reenable+env: both turns answered=yes; clean exit=yes
