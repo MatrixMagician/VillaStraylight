@@ -50,7 +50,7 @@ func newCode() *cobra.Command {
 	var agentFlag string
 	cmd := &cobra.Command{
 		Use:   "code [-- args...]",
-		Short: "Launch a strictly-local terminal coding agent (Crush, or Claude Code via --agent claude)",
+		Short: "Launch a strictly-local terminal coding agent (Crush, or Claude Code / Qwen Code via --agent)",
 		Long: "Launch a strictly-local terminal coding agent against the already-served local inference endpoint. " +
 			"By default it launches the villa-owned Crush agent, with a belt-and-braces telemetry/autoupdate " +
 			"lockdown env (CRUSH_DISABLE_METRICS / DO_NOT_TRACK / CRUSH_DISABLE_PROVIDER_AUTO_UPDATE) applied " +
@@ -64,7 +64,14 @@ func newCode() *cobra.Command {
 			"ANTHROPIC_MODEL / ANTHROPIC_AUTH_TOKEN against the same served endpoint. Coding mode is a HARD gate " +
 			"for this target (refuses rather than warns): Claude Code's tool calls need the coder unit's --jinja " +
 			"tool-call template, which villa renders only in coding mode. Any trailing args are forwarded to " +
-			"`claude` verbatim; forwarding args is valid only with `--agent claude`.",
+			"`claude` verbatim.\n\n" +
+			"With `--agent qwen`, it execs a PATH-resolved `qwen` (Qwen Code; villa never installs it) with the " +
+			"same hard coding-mode gate. villa owns Qwen Code's configuration: it rewrites settings.json under " +
+			"<user config dir>/villa/qwen on every launch and points QWEN_HOME there, so your own ~/.qwen is not " +
+			"read, and it sets the telemetry opt-outs (QWEN_USAGE_STATISTICS_ENABLED=false, " +
+			"QWEN_CODE_MODELS_DEV_REFRESH=off) in the environment. Approval mode stays at Qwen Code's default; " +
+			"villa never passes --approval-mode yolo. Trailing args are forwarded verbatim; forwarding args is " +
+			"valid only with `--agent claude` or `--agent qwen`.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			code := runCodeDispatch(cmd, args, agentFlag, liveAgentDeps())
@@ -72,13 +79,13 @@ func newCode() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&agentFlag, "agent", "crush", "coding agent to launch (crush|claude)")
+	cmd.Flags().StringVar(&agentFlag, "agent", "crush", "coding agent to launch (crush|claude|qwen)")
 	return cmd
 }
 
-// runCodeDispatch parses --agent and routes to the Crush or Claude launch path. An
-// unrecognized --agent value refuses without touching any Deps seam. Extra args are
-// valid only for the Claude target (forwarded to `claude` verbatim); the Crush target
+// runCodeDispatch parses --agent and routes to the Crush, Claude or Qwen launch path.
+// An unrecognized --agent value refuses without touching any Deps seam. Extra args are
+// valid only for the Claude and Qwen targets (forwarded verbatim); the Crush target
 // refuses rather than silently discarding them.
 func runCodeDispatch(cmd *cobra.Command, args []string, agentFlag string, d *agent.Deps) int {
 	target, err := agent.ParseTarget(agentFlag)
@@ -86,11 +93,14 @@ func runCodeDispatch(cmd *cobra.Command, args []string, agentFlag string, d *age
 		fmt.Fprintf(cmd.ErrOrStderr(), "villa code: %v\n", err)
 		return exitBlocked
 	}
-	if target == agent.TargetClaude {
+	switch target {
+	case agent.TargetClaude:
 		return runCodeClaude(cmd, d, args)
+	case agent.TargetQwen:
+		return runCodeQwen(cmd, d, args)
 	}
 	if len(args) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "villa code: extra args are forwarded only with --agent claude")
+		fmt.Fprintln(cmd.ErrOrStderr(), "villa code: extra args are forwarded only with --agent claude or --agent qwen")
 		return exitBlocked
 	}
 	return runCode(cmd, d)
@@ -101,10 +111,21 @@ func runCodeDispatch(cmd *cobra.Command, args []string, agentFlag string, d *age
 // both refusals here (unlike Crush's coding-mode-off WARN), because Claude Code's tool
 // calls need the --jinja template coding mode renders.
 func runCodeClaude(cmd *cobra.Command, d *agent.Deps, args []string) int {
+	return launchPathAgent(cmd, d, agent.RunClaude(*d, args), "claude", "Claude Code")
+}
+
+// runCodeQwen is the Qwen Code twin of runCodeClaude: the same refusals and the same
+// exec seam, behind agent.RunQwen (which has already written villa's settings.json).
+func runCodeQwen(cmd *cobra.Command, d *agent.Deps, args []string) int {
+	return launchPathAgent(cmd, d, agent.RunQwen(*d, args), "qwen", "Qwen Code")
+}
+
+// launchPathAgent maps a PATH-agent Result (Claude Code or Qwen Code) to exit codes +
+// messages and performs the single exec through d.LaunchClaude, the generic PATH-agent
+// exec seam.
+func launchPathAgent(cmd *cobra.Command, d *agent.Deps, res agent.Result, bin, label string) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
-
-	res := agent.RunClaude(*d, args)
 
 	switch {
 	case res.CodingModeOff:
@@ -118,10 +139,10 @@ func runCodeClaude(cmd *cobra.Command, d *agent.Deps, args []string) int {
 		return exitBlocked
 	case res.ReadyToLaunch:
 		if err := d.LaunchClaude(res.LaunchBin, res.LaunchArgs, res.LaunchEnv); err != nil {
-			fmt.Fprintf(errOut, "villa code: failed — could not exec claude: %v\n", err)
+			fmt.Fprintf(errOut, "villa code: failed — could not exec %s: %v\n", bin, err)
 			return exitBlocked
 		}
-		fmt.Fprintf(out, "villa code: launched Claude Code against the local endpoint\n")
+		fmt.Fprintf(out, "villa code: launched %s against the local endpoint\n", label)
 		return exitPass
 	default:
 		return exitPass
@@ -243,7 +264,32 @@ func liveAgentDeps() *agent.Deps {
 			}
 			return nil
 		},
+		QwenHome:          qwenHome,
+		WriteQwenSettings: writeQwenSettings,
 	}
+}
+
+// qwenHome resolves villa's own Qwen Code config directory, the QWEN_HOME the agent
+// is launched with: <os.UserConfigDir>/villa/qwen. The user's ~/.qwen is never read.
+func qwenHome() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("villa code: cannot resolve user config dir: %w", err)
+	}
+	return filepath.Join(base, "villa", "qwen"), nil
+}
+
+// writeQwenSettings writes b as settings.json inside home atomically at 0600, creating
+// home at 0700. It runs on every Qwen launch, so a crash leaves the old file or the new
+// one, never a truncated one, and a hand edit does not outlive the next launch.
+func writeQwenSettings(home string, b []byte) error {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return fmt.Errorf("create qwen config dir: %w", err)
+	}
+	if err := pathsafe.WriteFileAtomic(home, filepath.Join(home, "settings.json"), b, 0o600); err != nil {
+		return fmt.Errorf("write qwen settings.json: %w", err)
+	}
+	return nil
 }
 
 // crushConfigPath resolves ~/.config/crush/crush.json (os.UserConfigDir honors XDG

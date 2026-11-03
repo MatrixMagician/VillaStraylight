@@ -28,6 +28,8 @@ const (
 	TargetCrush Target = "crush"
 	// TargetClaude is the Claude Code launch target (RunClaude).
 	TargetClaude Target = "claude"
+	// TargetQwen is the opt-in Qwen Code launch target (RunQwen, qwen.go).
+	TargetQwen Target = "qwen"
 )
 
 // claudeBin is the PATH-resolved binary name RunClaude looks up. villa never
@@ -41,10 +43,10 @@ func ParseTarget(s string) (Target, error) {
 	switch Target(s) {
 	case "":
 		return TargetCrush, nil
-	case TargetCrush, TargetClaude:
+	case TargetCrush, TargetClaude, TargetQwen:
 		return Target(s), nil
 	default:
-		return "", fmt.Errorf("agent: unknown --agent target %q (want %q or %q)", s, TargetCrush, TargetClaude)
+		return "", fmt.Errorf("agent: unknown --agent target %q (want %q, %q or %q)", s, TargetCrush, TargetClaude, TargetQwen)
 	}
 }
 

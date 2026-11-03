@@ -55,6 +55,7 @@ var keyReaders = map[string]string{
 	"internal/orchestrate/render.go":    "renders the key into Open WebUI's environment (ADR-0011)",
 	"internal/agent/render.go":          "hands the key to Crush's provider config; Crush calls llama-server itself",
 	"internal/agent/claude.go":          "hands the key to Claude Code's environment; Claude Code calls llama-server itself",
+	"internal/agent/qwen.go":            "hands the key to Qwen Code's environment (never its settings file); Qwen Code calls llama-server itself",
 }
 
 // addressCalls are the package-qualified calls that yield a llama-server address or

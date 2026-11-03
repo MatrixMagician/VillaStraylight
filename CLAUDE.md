@@ -68,7 +68,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
-  code (Crush, or Claude Code via --agent claude), tools-mode, workspace, work, task,
+  code (Crush, or Claude Code / Qwen Code via --agent claude / qwen), tools-mode, workspace, work, task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),

@@ -214,6 +214,8 @@ villa coding-mode exit                # restore the chat model (explicit verb â€
 villa code                            # launch the locked-down Crush agent (telemetry/autoupdate killed) over loopback
 villa code --agent claude             # launch Claude Code against the same loopback endpoint instead (needs coding
                                       # mode on and `claude` already on PATH â€” villa never installs it)
+villa code --agent qwen               # launch Qwen Code the same way (villa-owned settings, telemetry opt-outs in the
+                                      # environment; needs coding mode on and `qwen` already on PATH)
 villa verify agent                    # negative-control-first proof of zero outbound + no silent cloud fallback
 ```
 
