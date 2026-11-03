@@ -196,7 +196,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
-- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls.
+- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389).
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, Qdrant, SearXNG); build only the control plane.
 
@@ -494,7 +494,7 @@ the cumulative-usage write.
 - **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
 - **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
 - **`--json`/dashboard contracts are byte-frozen.** Evolve append-only + bump schema version; golden tests guard them (`cmd/villa/testdata/*.golden*` — most end `.golden`, a couple `.golden.json`; nothing ends `.json.golden`).
-- **No telemetry.** First-party components emit none; outbound limited to image/model pulls (asserted in `status`).
+- **No telemetry.** First-party components emit none; outbound limited to image/model pulls (asserted in `status`). A coding agent villa launches gets a launch contract in code (`internal/agent`): the environment variables are the control that holds, since a project-level settings file can loosen a settings-only opt-out. A change to an agent's pinned version or launch env needs a fresh interactive capture (`docs/prototype/qwen-code/`, `agent_capture.py`).
 - **Single static binary.** No Podman full-bindings dependency; Podman is controlled only through its fixed-arg CLI.
 
 ### Error Handling

@@ -88,3 +88,36 @@ Qdrant reported telemetry on every memory install from v1.3 to v1.17.1 because n
 `docs/prototype/qwen-code/RESULTS.md`, sections "Egress" and "Interactive mode (#373)";
 raw captures in `docs/prototype/qwen-code/results/`. Related: ADR-0036 (closed network),
 ADR-0019 (villa owns the agent configuration), #375, #376, #377.
+
+## Amendment (#385): what the captures of Crush and Claude Code found
+
+The captures ran on 2026-11-03 against villa's real launch contracts (`lockdownEnv` and the
+rendered `crush.json` for Crush, `claudeEnv` for Claude Code) in pty-driven interactive
+sessions with real turns, with a positive control (the same agents without the contract).
+Evidence is in `docs/prototype/qwen-code/RESULTS.md`, section "Crush and Claude Code (#385)".
+
+- **Both contracts do what they name.** Without them Crush contacts `data.charm.land`,
+  `hyper.charm.land`, `catwalk.charm.land` and CDN hosts, and Claude Code contacts
+  `api.anthropic.com`, `raw.githubusercontent.com` and downloads its binary from
+  `downloads.claude.ai`. With them the first set is gone for Crush and the first two for
+  Claude Code. A project-level `crush.json` or `.claude/settings.json` that re-enables the
+  options did not loosen either contract, so the environment variables hold here as they
+  did not for Qwen Code's settings.
+- **Claude Code's contract was missing one switch.** A first launch on a machine registers
+  the official plugin marketplace from `downloads.claude.ai` (about 0.6 MB), which
+  `DISABLE_AUTOUPDATER` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` do not cover. With
+  `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` the capture is empty. A second
+  launch on a settled home was already empty. Fixed in `claudeEnv` (PR #388).
+- **Crush has one request the contract cannot remove.** An `api.github.com` release check
+  at every start, on a fresh and a settled home, with no environment variable or option in
+  the pinned v0.93.1 binary or the current schema. It carries the client IP and Crush
+  version. This is inferred from the symbol and traffic shape; the leg is TLS and was not
+  decoded. Decision filed as #389; until it is made, the privacy wording names the exception.
+- **A fail-closed proxy environment closes both**, and was measured: `HTTPS_PROXY` at a
+  dead local port with `NO_PROXY` naming the model server left only the model server's DNS in
+  full sessions of both agents, on a fresh Claude home. It is not in the contract because
+  the agent's own shell tool inherits it, which breaks a user's `go mod download` or
+  `git clone`. It stays an option for #389 and for a possible `villa code --offline`.
+
+The decision above stands, with its wording qualified by the disclosed Crush exception.
+Wording in `README.md` and `CLAUDE.md` is updated with this amendment.

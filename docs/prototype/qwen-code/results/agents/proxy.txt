@@ -1,0 +1,5 @@
+crush-contract+HTTPS_PROXY_http___127.0.0.1_1_HTTP_PROXY_http___127.0.0.1_1_NO_PROXY_proto-llama: session 185s, pcap 2760 bytes
+   model requests: 5
+claude-contract+HTTPS_PROXY_http___127.0.0.1_1_HTTP_PROXY_http___127.0.0.1_1_NO_PROXY_proto-llama: session 185s, pcap 1496 bytes
+   model requests: 4
+PROXY-DONE

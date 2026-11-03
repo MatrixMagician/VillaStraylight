@@ -1,0 +1,13 @@
+claude-contract-short: session 48s, pcap 92436 bytes
+   model requests: 0
+FileExistsError: [Errno 17] File exists: '/tmp/claude-1000/agentroot/home-claude-contract/.claude'
+   model requests: 0
+claude-contract+DISABLE_UPDATES-1-short: session 48s, pcap 70852 bytes
+   model requests: 0
+claude-contract+CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL-1-short: session 48s, pcap 88 bytes
+   model requests: 0
+claude-contract+DISABLE_UPDATES-1_CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL-1_DISABLE_GROWTHBOOK-1-short: session 48s, pcap 88 bytes
+   model requests: 0
+FileExistsError: [Errno 17] File exists: '/tmp/claude-1000/agentroot/home-claude-contract+DISABLE_UPDATES=1,CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1,DISABLE_GROWTHBOOK=1/.claude'
+   model requests: 0
+BISECT-DONE
