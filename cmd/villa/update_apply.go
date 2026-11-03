@@ -56,10 +56,13 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 // updateFlowDeps binds the state machine to one systemd and one stack-apply host,
 // which a test replaces to drive a whole update off-hardware.
 func updateFlowDeps(sys orchestrate.Systemd, stack stackapply.Deps, cfg config.VillaConfig, cfgErr error) updateflow.Deps {
+	// Every proof waits for the services it drives first (#359): an earlier
+	// subsystem's apply may have restarted them just before.
+	prove := awaitReady(liveUpdateReady(cfg), cfg, liveSubsystemProof)
 	return updateflow.Deps{
-		ProveCurrent:  func(c context.Context, k subsystem.Kind) updateflow.Proof { return liveSubsystemProof(c, k) },
-		ProveNew:      func(c context.Context, k subsystem.Kind) updateflow.Proof { return liveSubsystemProof(c, k) },
-		ProveRestored: func(c context.Context, k subsystem.Kind) updateflow.Proof { return liveSubsystemProof(c, k) },
+		ProveCurrent:  prove,
+		ProveNew:      prove,
+		ProveRestored: prove,
 
 		CaptureState: func(k subsystem.Kind) (updateflow.Capture, error) {
 			if cfgErr != nil {
