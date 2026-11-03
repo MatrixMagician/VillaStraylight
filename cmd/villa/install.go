@@ -274,6 +274,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		WriteUnits:         orchestrate.WriteUnits,
 		DaemonReload:       sys.DaemonReload,
 		Enable:             sys.Enable,
+		Disable:            sys.Disable,
 		Start:              sys.Start,
 		Stop:               sys.Stop,
 		Restart:            sys.Restart,
