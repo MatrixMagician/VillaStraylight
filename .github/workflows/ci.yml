@@ -6,6 +6,8 @@
 #     bind-mounts that binary into a distroless container with no libc, so a
 #     dynamically-linked build fails to exec there.
 #   - go vet + go test mirror `make check` (the pre-commit gate).
+#   - gofmt asserts the tree is formatted. gofmt exits 0 whether or not it names
+#     a file, so the gate reads the FILE LIST rather than the exit code.
 #   - go mod verify is the Go-ecosystem supply-chain integrity gate (go.sum hashes
 #     match the checksum DB) — stronger than registry-existence checking.
 #   - govulncheck (pinned in .govulncheck-version, the same way golangci-lint is
@@ -29,12 +31,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # go-version-file reads go.mod's `go` directive, which is the SINGLE place
+      # the toolchain pin lives — the same discipline .golangci-version and
+      # .govulncheck-version use for their tools. Hardcoding a version here was
+      # a second copy that could silently disagree with the module, and a CI
+      # toolchain older than the directive fails the build for a reason that has
+      # nothing to do with the change under test.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.10"
+          go-version-file: go.mod
 
       - name: CGO-free static build (SC#4 gate)
         run: CGO_ENABLED=0 go build ./...
+
+      # gofmt was the one tool in DEVELOPMENT.md's Code style table with no gate
+      # behind it: `make check` said so about itself, so an unformatted file
+      # reached main unless a reviewer noticed by eye. gofmt exits 0 whether or
+      # not it printed names, so the FILE LIST is what decides here, not the
+      # exit code. `make fmt-check` is the same check, so local and CI agree.
+      - name: gofmt (formatting gate)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean. Run \`make fmt\`:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: vet + test (mirrors `make check`)
         run: go vet ./... && go test ./...

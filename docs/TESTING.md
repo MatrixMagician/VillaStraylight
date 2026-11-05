@@ -21,7 +21,7 @@ That is host-conditional for a small number of tests:
 
 ## Test framework and setup
 
-- **Framework:** Go stdlib `testing` (`go1.26.2`, per `go.mod`). No Jest/Vitest/
+- **Framework:** Go stdlib `testing` (`go1.26.10`, per `go.mod`). No Jest/Vitest/
   pytest equivalent; assertions are hand-written `t.Errorf` / `t.Fatalf`.
 - **Helpers:** the only external testing import is `github.com/spf13/cobra`,
   used to construct in-memory command objects (`cmd.SetOut`/`cmd.SetErr` into a
@@ -233,6 +233,14 @@ stopped supporting:
   not restated here. It was seeded from the claims a full audit of this repo
   found still asserted, one of which had survived in **four** files long after
   the behaviour it described was deleted.
+- **`TestDocsGoVersionMatchesGoMod`**: a doc line that restates `go.mod`'s `go`
+  directive must agree with it. Seeded by a real drift: three docs said the
+  module declared `go 1.26.2` long after it moved to `1.26.10` for GO-2026-6809.
+  The gate is scoped to lines that also mention `go.mod`, so it judges only
+  sentences claiming to report the directive, and only the three-component form
+  (`Go 1.26+` is a floor, and a floor does not rot when the patch moves). Any
+  other Go version in prose, such as the toolchain that fixed a given CVE, is
+  out of scope. `TestGoVersionPatternScoping` is the proof the pattern can fail.
 
 Each claim requires several tokens to co-occur **on one line** and carries an
 `unless` list, so a doc can still discuss a retired behaviour historically

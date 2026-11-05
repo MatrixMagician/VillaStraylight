@@ -24,7 +24,7 @@ tells you exactly what is missing, so you do not have to verify them all by hand
 
 **To build the binary:**
 
-- **Go 1.26+** to compile `villa` from source (`go.mod` pins `go 1.26.2`).
+- **Go 1.26+** to compile `villa` from source (`go.mod` pins `go 1.26.10`).
 - **`make`**, which drives the build through the `Makefile`. You can also invoke
   `go` directly (see [Build without make](#build-without-make)).
 

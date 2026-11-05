@@ -40,9 +40,12 @@ jobs:
           # it, and a shallow clone would stamp the binary "dev" on a real release.
           fetch-depth: 0
 
+      # go-version-file reads go.mod's `go` directive, so the release build uses
+      # the toolchain the module declares rather than a second copy of the pin
+      # that can drift from it. See the same note in ci.yml.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.10"
+          go-version-file: go.mod
 
       # The same CGO-free build the CI gate enforces. It is load-bearing beyond
       # tidiness: villa-websafe bind-mounts this binary into a distroless container

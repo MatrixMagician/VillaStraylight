@@ -72,6 +72,21 @@ vet: ## Run go vet
 fmt: ## Format Go code
 	$(GOFMT) -w .
 
+# fmt-check is `fmt`'s gate half: it REPORTS unformatted files and fails, rather
+# than rewriting them, so it is safe in CI and in a pre-commit run. `make check`
+# documented itself for months as not covering formatting, which made gofmt the
+# one tool in the Code style table with no gate behind it — a reviewer had to
+# notice by eye. gofmt exits 0 whether or not it printed names, so the file list
+# is what decides, not the exit code.
+.PHONY: fmt-check
+fmt-check: ## Fail if any Go file is not gofmt-clean (does not rewrite)
+	@unformatted=$$($(GOFMT) -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "These files are not gofmt-clean. Run \`make fmt\`:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+
 .PHONY: lint
 lint: ## Lint this branch's NEW issues at the pinned version; LINT_ALL=1 lints the whole tree
 	@if [ -n "$(LINT_ALL)" ]; then \
@@ -81,7 +96,7 @@ lint: ## Lint this branch's NEW issues at the pinned version; LINT_ALL=1 lints t
 	fi
 
 .PHONY: check
-check: vet test test-race ## Run vet + tests (incl. the -race gate, CR-01/WR-04)
+check: fmt-check vet test test-race ## Run gofmt-check + vet + tests (incl. the -race gate, CR-01/WR-04)
 
 .PHONY: govulncheck
 govulncheck: ## Scan for reachable known vulnerabilities at the pinned version (.govulncheck-version)
@@ -92,7 +107,7 @@ govulncheck: ## Scan for reachable known vulnerabilities at the pinned version (
 # lint is a no-op, so the "mirrors CI" claim below holds on a feature branch,
 # not on main.
 .PHONY: ci
-ci: build-static check lint govulncheck ## Run what CI runs: static build, vet+test+race, new-issue lint, vuln scan, mod verify, TUI guard
+ci: build-static check lint govulncheck ## Run what CI runs: static build, fmt+vet+test+race, new-issue lint, vuln scan, mod verify, TUI guard
 	go mod verify
 	@if grep -qE 'charmbracelet|muesli/termenv' go.mod; then echo "A TUI dependency reappeared in go.mod"; exit 1; fi
 
