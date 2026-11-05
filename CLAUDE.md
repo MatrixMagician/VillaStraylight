@@ -47,7 +47,7 @@ make build-static  # CGO-free static build — the SC#4 gate CI enforces
 make run           # go run ./cmd/villa
 make test          # go test ./...
 make test-race     # go test -race ./... (cgo test-only; the binary stays CGO-free)
-make check         # vet + test + test-race (pre-commit gate)
+make check         # fmt-check + vet + test + test-race (pre-commit gate)
 make dev-deploy    # dev host only: build-static, restart villa-dashboard.service, villa doctor
 make lint          # pinned golangci-lint on THIS branch's new issues (LINT_ALL=1 for the whole tree)
 ```
@@ -251,7 +251,7 @@ convenience.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
 - `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): one per service — `ls internal/orchestrate/quadlet/` is the list, not this line.
 - `internal/dashboard/assets/` - embedded dashboard UI (`//go:embed all:assets` in `internal/dashboard/embed.go`); `dashboard.html` is parsed as an `html/template` shell (chat-link port injected), css/js served verbatim.
-- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `lint`, `check` (vet+test+test-race), `dev-deploy` (dev host only: build-static, dashboard restart, doctor), `govulncheck`, `ci`, `tidy`, `clean`.
+- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `fmt-check` (the gofmt gate), `lint`, `check` (fmt-check+vet+test+test-race), `dev-deploy` (dev host only: build-static, dashboard restart, doctor), `govulncheck`, `ci`, `tidy`, `clean`.
 - `.golangci.yml` - linter config (used by `make lint`).
 
 ### Platform Requirements

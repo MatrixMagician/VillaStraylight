@@ -15,7 +15,7 @@ toolchain.
 ```bash
 git clone https://github.com/MatrixMagician/VillaStraylight.git
 cd VillaStraylight
-go version          # need Go 1.26+ (the module declares go 1.26.2 in go.mod)
+go version          # need Go 1.26+ (the module declares go 1.26.10 in go.mod)
 make build          # builds ./villa
 ```
 
@@ -49,8 +49,9 @@ self-documented target list.
 | `make build-static` | `CGO_ENABLED=0 go build …` | The SC#4 CGO-free gate CI enforces. `make check` does NOT cover it; run this before pushing if you touched imports. |
 | `make vet` | `go vet ./...` | Static checks; the first half of `make check`. |
 | `make fmt` | `gofmt -w .` | Formats the tree in place. |
+| `make fmt-check` | `gofmt -l .`, failing on any output | The gate half of `fmt`: reports unformatted files and fails instead of rewriting them. Part of `make check`, and CI runs the same check. |
 | `make lint` | pinned `golangci-lint run --new-from-merge-base=$(LINT_BASE)` | Runs the version in `.golangci-version` via `go run`; nothing needs to be on `PATH`. Diffs against `origin/main` to mirror CI's new-issues gate; `make LINT_ALL=1 lint` lints the whole tree. |
-| `make check` | `make vet` + `make test` + `make test-race` | The pre-commit gate; run this before pushing. Note it does NOT check formatting or the static build. |
+| `make check` | `make fmt-check` + `make vet` + `make test` + `make test-race` | The pre-commit gate; run this before pushing. Note it does NOT cover the static build. |
 | `make ci` | `make build-static` + `make check` + `make lint` + `go mod verify` + the TUI-dependency grep | Mirrors what CI runs, with the same caveat `make lint` has: it diffs new lint issues against `LINT_BASE` (`origin/main` by default), so run on `main` itself that diff is empty and the lint step is a no-op. The claim holds on a feature branch, where there is a base to diff against. |
 | `make tidy` | `go mod tidy` | Run after adding/removing imports. |
 | `make clean` | `rm -rf bin villa` | Removes build artifacts. |
@@ -107,7 +108,7 @@ under-active-development code is:
 
 | Tool | Config | How to run |
 |------|--------|-----------|
-| gofmt | (none) | `make fmt` |
+| gofmt | (none) | `make fmt` to format, `make fmt-check` to gate |
 | go vet | (none) | `make vet` |
 | golangci-lint | `.golangci.yml` + the pin in `.golangci-version` | `make lint` (fetched via `go run`; no local install needed) |
 | govulncheck | the pin in `.govulncheck-version` | `make govulncheck` (fetched via `go run`; no local install needed) |
@@ -154,19 +155,20 @@ static and bind-mounted into `villa-websafe` and every task VM (see the
 "Dynamic binary trap" note above), so a vulnerable stdlib or dependency symbol
 in it ships everywhere that mount reaches.
 
-A real run at `v1.8.0` against this tree currently reports 15 reachable
-vulnerabilities from 2 modules and the Go standard library: 12 are fixed by
-the Go 1.26.6 toolchain (`net/url`, `html/template`, `crypto/tls`, `net/http`,
-`encoding/asn1`, `net/textproto`, `crypto/x509`), and the remaining 3 by
-bumping `golang.org/x/net` to `>= v0.55.0` and `golang.org/x/text` to
-`>= v0.39.0`. Applying exactly that bump (`go.mod`'s `go` directive to
-`1.26.6`, then `go get golang.org/x/net@v0.55.0 golang.org/x/text@v0.39.0 &&
-go mod tidy`) was verified in isolation to bring the scan to 0 reachable
-vulnerabilities; `go.mod`/`go.sum` are outside this doc's ownership, so that
-bump is a separate, tracked follow-up rather than something this change makes
-itself. Until it lands, `make ci` and the CI workflow's govulncheck step fail
-on the pre-existing findings named above, not on anything this gate's wiring
-introduced.
+A real run at the pinned version against this tree reports **0 reachable
+vulnerabilities**, so the gate is green and a failure is a regression rather
+than a known backlog. The bump that got it there has landed: `go.mod`'s `go`
+directive is `1.26.10` (which carries the `net/url`, `html/template`,
+`crypto/tls`, `net/http`, `encoding/asn1`, `net/textproto` and `crypto/x509`
+fixes, the last of these reachable through the dashboard server, #370), with
+`golang.org/x/net` at `v0.55.0` and `golang.org/x/text` at `v0.39.0`.
+
+The scan still reports findings in packages this module imports and in modules
+it requires, and that is expected rather than a backlog: govulncheck's default
+fails only on a vulnerable symbol this code actually **calls**, so an imported
+but uncalled one is reported and does not gate. Run `make govulncheck` to see
+the current split; the numbers are deliberately not restated here, for the
+reason `docs/TESTING.md` gives about enumerations in prose.
 
 ## Testing conventions
 

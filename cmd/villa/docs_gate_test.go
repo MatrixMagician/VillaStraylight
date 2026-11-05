@@ -254,6 +254,93 @@ func TestDocsNoRetiredClaims(t *testing.T) {
 	}
 }
 
+// goModVersion matches a Go toolchain version restated in prose: `go 1.26.10`,
+// `go1.26.10`, `Go 1.26.10`, with or without backticks. The three-component form
+// is the only one gated: `Go 1.26+` is a floor rather than a restatement of the
+// directive, and a floor does not rot when the patch moves.
+var goModVersion = regexp.MustCompile(`(?i)\bgo\s?([0-9]+\.[0-9]+\.[0-9]+)\b`)
+
+// goDirective reads the `go` directive out of go.mod, which is the single
+// authority for the toolchain version the module targets.
+func goDirective(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "go "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	t.Fatal("go.mod has no `go` directive — the parser is broken, not the docs")
+	return ""
+}
+
+// TestDocsGoVersionMatchesGoMod guards a doc sentence that restates go.mod's
+// `go` directive against the directive itself. This is the class the rest of
+// this gate could not see and which rotted anyway: three docs said the module
+// declared `go 1.26.2` months after it moved to `1.26.10` for GO-2026-6809,
+// because a version in prose has no compiler and the number is plausible
+// forever.
+//
+// It is decidable from the tree, which is exactly the bar the file header sets
+// for belonging in a test rather than in a reviewer's memory. The gate is
+// LINE-SCOPED to lines that also mention go.mod, so it judges only sentences
+// claiming to report the directive. A doc may still discuss any other Go
+// version freely: the toolchain that fixed a CVE, a historical bump, the
+// version a dependency needs. Those are not claims about this module's
+// directive, and a gate that fired on them would be noise a reviewer learns to
+// ignore.
+func TestDocsGoVersionMatchesGoMod(t *testing.T) {
+	want := goDirective(t)
+	for _, doc := range markdownFiles(t) {
+		data, err := os.ReadFile(filepath.Join(repoRoot, doc))
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		for n, line := range strings.Split(string(data), "\n") {
+			if !strings.Contains(strings.ToLower(line), "go.mod") {
+				continue
+			}
+			for _, m := range goModVersion.FindAllStringSubmatch(line, -1) {
+				if m[1] != want {
+					t.Errorf("%s:%d says Go %s beside a reference to go.mod, but the `go` directive is %s "+
+						"(a version restated in prose rots silently — cite the floor, or point at go.mod)\n    line: %s",
+						doc, n+1, m[1], want, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
+
+// TestGoVersionPatternScoping is the proof the gate can fail, and that it is
+// scoped where its doc comment says. Without this table a rewrite of the regex
+// could pass the tree by matching nothing.
+func TestGoVersionPatternScoping(t *testing.T) {
+	cases := []struct {
+		name  string
+		line  string
+		found []string
+	}{
+		{"backticked directive", "- **Go 1.26+** to compile `villa` from source (`go.mod` pins `go 1.26.10`).", []string{"1.26.10"}},
+		{"bare in a comment", "go version          # need Go 1.26+ (the module declares go 1.26.10 in go.mod)", []string{"1.26.10"}},
+		{"no-space form", "- **Framework:** Go stdlib `testing` (`go1.26.10`, per `go.mod`).", []string{"1.26.10"}},
+		{"a floor is not a restatement", "- **Go 1.26+** to build the `villa` binary (see `go.mod`).", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var got []string
+			for _, m := range goModVersion.FindAllStringSubmatch(c.line, -1) {
+				got = append(got, m[1])
+			}
+			if strings.Join(got, ",") != strings.Join(c.found, ",") {
+				t.Errorf("matches = %v, want %v", got, c.found)
+			}
+		})
+	}
+}
+
 func containsAll(s string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, strings.ToLower(sub)) {
