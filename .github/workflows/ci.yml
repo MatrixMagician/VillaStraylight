@@ -29,7 +29,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # go-version-file reads go.mod's `go` directive, which is the SINGLE place
       # the toolchain pin lives — the same discipline .golangci-version and
@@ -37,7 +37,17 @@ jobs:
       # a second copy that could silently disagree with the module, and a CI
       # toolchain older than the directive fails the build for a reason that has
       # nothing to do with the change under test.
-      - uses: actions/setup-go@v5
+      #
+      # v6 of this action sets GOTOOLCHAIN=local (actions/setup-go#460), which
+      # stops `go` fetching a toolchain to satisfy a directive. That is SAFE
+      # here only because go-version-file installs the directive's own version,
+      # so the installed toolchain already satisfies go.mod. The pairing is
+      # load-bearing: pinning a go-version BELOW the directive, or adding a
+      # `toolchain` directive newer than the installed version, would fail with
+      # "go.mod requires go >= X (running Y; GOTOOLCHAIN=local)" instead of
+      # silently upgrading. That failure was reproduced locally before this
+      # bump landed, against `make lint`, `make govulncheck` and the build.
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -93,12 +103,14 @@ jobs:
       # train contributors to ignore the linter. New code is held to the config;
       # the backlog is a separate, deliberate cleanup.
       #
-      # v8 of the action is the first that defaults to a golangci-lint v2 binary;
-      # v6 pins a v1.6x build compiled with go1.24, which refuses a module
-      # targeting go1.26.10 ("the Go language version used to build golangci-lint
-      # is lower than the targeted Go version"). The version is pinned rather
-      # than floating on `latest` so a future release cannot silently reintroduce
-      # that mismatch.
+      # v8 of the action was the first that defaults to a golangci-lint v2
+      # binary; v6 pinned a v1.6x build compiled with go1.24, which refuses a
+      # module targeting go1.26.10 ("the Go language version used to build
+      # golangci-lint is lower than the targeted Go version"). v9 keeps the v2
+      # default and moves the action's own runtime to Node 24; it still accepts
+      # the `version` and `only-new-issues` inputs this step depends on. The
+      # action is pinned to a major rather than floating on `latest` so a future
+      # release cannot silently reintroduce that mismatch.
       #
       # pull_request only. On a push event there is no base to diff against, so
       # only-new-issues degenerates to "all issues" and the step fails on the
@@ -115,7 +127,7 @@ jobs:
 
       - name: lint (new issues only)
         if: github.event_name == 'pull_request'
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ steps.lintver.outputs.version }}
           only-new-issues: true
@@ -152,7 +164,7 @@ jobs:
   sandbox-image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: build the sandbox image (never pushed)
         run: podman build -t localhost/villa-sandbox:office -f build/sandbox/Containerfile build/sandbox

@@ -34,7 +34,7 @@ jobs:
   build-and-attach:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags are needed for `git describe` — the Makefile derives VERSION from
           # it, and a shallow clone would stamp the binary "dev" on a real release.
@@ -42,8 +42,10 @@ jobs:
 
       # go-version-file reads go.mod's `go` directive, so the release build uses
       # the toolchain the module declares rather than a second copy of the pin
-      # that can drift from it. See the same note in ci.yml.
-      - uses: actions/setup-go@v5
+      # that can drift from it. See the same note in ci.yml, including why v6+
+      # of this action setting GOTOOLCHAIN=local is safe only in combination
+      # with go-version-file.
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
