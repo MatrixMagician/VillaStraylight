@@ -107,7 +107,7 @@ govulncheck: ## Scan for reachable known vulnerabilities at the pinned version (
 # lint is a no-op, so the "mirrors CI" claim below holds on a feature branch,
 # not on main.
 .PHONY: ci
-ci: build-static check lint govulncheck ## Run what CI runs: static build, vet+test+race, new-issue lint, vuln scan, mod verify, TUI guard
+ci: build-static check lint govulncheck ## Run what CI runs: static build, fmt+vet+test+race, new-issue lint, vuln scan, mod verify, TUI guard
 	go mod verify
 	@if grep -qE 'charmbracelet|muesli/termenv' go.mod; then echo "A TUI dependency reappeared in go.mod"; exit 1; fi
 
