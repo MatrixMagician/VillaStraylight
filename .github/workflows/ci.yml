@@ -27,7 +27,30 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    # PINNED rather than `ubuntu-latest`, and pinned to 26.04 specifically
+    # because that is what `ubuntu-latest` ALREADY resolved to here (verified in
+    # the run logs: "Image: ubuntu-26.04"), so this preserves the image CI is
+    # green on instead of changing it. Pinning to 24.04 would have been a
+    # downgrade onto an image this tree has never built on.
+    #
+    # WHY PIN AT ALL. actions/runner-images#14748 migrates `ubuntu-latest` to
+    # Ubuntu 26.04 over several weeks from 2026-10-19, completing 2026-11-19.
+    # Mid-rollout the label is non-deterministic: two runs of the same commit
+    # can land on different images, so a failure caused by the image is hard to
+    # tell from a failure caused by the change under test. A pin makes the OS a
+    # declared input, which matters most for the sandbox-image job below, whose
+    # `podman build` resolves pinned Fedora NEVRs.
+    #
+    # THE COST, stated so it is not a surprise: a pin does not expire, so this
+    # label must be bumped deliberately when 26.04 nears end of support. That is
+    # the trade accepted here — a scheduled bump beats a surprise migration.
+    #
+    # NOTE for anyone running actionlint locally: versions up to at least
+    # v1.7.12 do not know the `ubuntu-26.04` label yet and report it as
+    # unknown. That is a stale tool, not a broken workflow — actions/runner-images
+    # lists `ubuntu-26.04` as a supported x64 label, and CI runs on it here.
+    # Do not "fix" this by reverting to `ubuntu-latest`.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -162,7 +185,11 @@ jobs:
   # The tools are still checked, under the default runtime, because "the packages
   # landed" is answerable without a VM.
   sandbox-image:
-    runs-on: ubuntu-latest
+    # Pinned for the reason given on build-and-test above, and this is the job
+    # that reason is really about: the `podman build` below resolves pinned
+    # Fedora NEVRs and wheel hashes, so the host image is a real input to
+    # whether the layers assemble. 26.04 is where this job is already green.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

@@ -32,7 +32,12 @@ permissions:
 
 jobs:
   build-and-attach:
-    runs-on: ubuntu-latest
+    # Pinned for the reason given in ci.yml's build-and-test, and it matters
+    # most here: this job builds the binary that is ATTACHED TO A RELEASE, so
+    # the OS that produced a shipped artifact should be a declared input rather
+    # than whatever `ubuntu-latest` meant on the day the tag was pushed. 26.04
+    # is what that label already resolved to, so this is not a change of image.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
