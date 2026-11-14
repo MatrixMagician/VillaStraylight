@@ -155,6 +155,9 @@ func (backendVulkan) Name() string { return "vulkan" }
 // Image returns the digest-pinned container image.
 func (backendVulkan) Image() string { return vulkanImage }
 
+// ServesSpeculation is true: the Vulkan image's build carries --spec-type.
+func (backendVulkan) ServesSpeculation() bool { return true }
+
 // ContainerArgs renders the full `podman run` argument slice for one run. It is the
 // single assembly point for every backend literal: the /dev/dri device passthrough,
 // --group-add keep-groups (the load-bearing rootless detail that keeps the host

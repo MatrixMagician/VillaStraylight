@@ -272,3 +272,71 @@ IP-literal `NO_PROXY`.
 - Claude Code at the vetted 2.1.317, and any Claude Code run with a completed turn under the
   offline set.
 - The project-override modes under the offline set.
+
+## Crush v0.101.0 re-vet
+
+Run 2026-11-14 on the dev host (Fedora 45, Podman 6.1.3) with `agent_capture.py`, the
+v0.101.0 release binary (binary sha256 `47339786…42d4`) mounted as
+`~/.local/share/villa/bin/crush`, and villa's rendered `crush.json`. The model server was a
+throwaway llama-server (ROCm 10.0 image, the heretic Q6_K weights, `-c 32768`,
+`--api-key dummy-proto-key`) at 10.99.8.10 on the private network `proto-agent`. villa's real
+inference secret never entered an agent. Files are named with `CAPTURE_TAG=-v0.101.0`.
+
+| Run | Packets off the model server | Model turns |
+|---|---|---|
+| villa contract (`crush-contract-v0.101.0`) | 12 DNS (10 for `proto-llama`, 2 for `api.github.com`), **7 TLS to 20.26.156.210 (`api.github.com`)** | completed (`pong`, the `ls` tool call) |
+| contract + a workspace `crush.json` turning metrics and the provider refresh back on (`crush-project-override-v0.101.0`) | the same: DNS, and `api.github.com` only | completed |
+| contract + the offline set, `NO_PROXY=proto-llama` (`crush-contract+offline-v0.101.0`) | 8 DNS, all for `proto-llama`. **No other host.** | completed (`pong`, the `ls` tool call) |
+
+The result matches the v0.93.1 record: the release check to `api.github.com` is still the one
+host the contract cannot suppress (#389), the project-level file does not loosen the contract,
+and `--offline` removes the release check while the session still works. No Catwalk
+(`catwalk.charm.land`) or metrics (`data.charm.land`) traffic appeared in any run.
+
+One behaviour change surfaced on the live stack, not in the capture: Crush v0.99+ rewrites a
+`crush.json` written in the Catwalk v2 model schema into v3 in place on first load. villa now
+renders v3 and reads a v2 render as unchanged (ADR-0019, update of 2026-11-14).
+
+## `villa code --offline`: Claude Code and Qwen Code with a completed turn (#389)
+
+Run 2026-11-14 on the dev host (Fedora 45, Podman 6.1.3), same harness. The model server was
+a throwaway llama-server (ROCm 10.0 image, the heretic Q6_K weights, `--api-key
+dummy-proto-key`) serving the **Qwen3-Coder-Next chat template** through `--chat-template-file`.
+That template was read from the catalog entry's commit-pinned GGUF header. It is the template
+coding mode serves, and `villa code --agent claude` and `--agent qwen` both require coding
+mode. The earlier Claude Code row could not complete a turn because the heretic template
+refuses a late system message (#431, below).
+
+Each launch used the offline set exactly as `internal/agent/offline.go` emits it. The base
+URL and `NO_PROXY` were the same IP literal, as in the shipped launch, where both are
+`127.0.0.1`. The Qwen Code contract is the one the real v1.20 binary emitted for `villa
+code --agent qwen --offline` against a fake `qwen` on a temporary config. Its base URL was
+rewritten from `127.0.0.1` to the server's address through `CONTRACT_BASE_URL`, with the
+same rewrite applied to `NO_PROXY`.
+
+| Run | Packets off the model server | Model turns |
+|---|---|---|
+| Claude Code 2.1.325, contract + offline set, `ANTHROPIC_BASE_URL=http://10.99.8.10:8080`, `NO_PROXY=10.99.8.10` (`claude-contract-2.1.325-coder-template-offline`) | **0** (one gratuitous ARP for its own address) | completed: `pong`, then the `ls` tool call ("14 files") |
+| Qwen Code 0.26.6, villa's emitted contract + offline set, base URL and `NO_PROXY` `10.99.7.10` (`villa-contract+offline`) | **0** (one gratuitous ARP for its own address) | completed: `pong`, then the shell tool ran `ls` ("12 files"); 11 model requests in the server log |
+
+Both Node and Bun agents honour an IP-literal `NO_PROXY`. Together with the Crush v0.101.0 row
+above, `--offline` is now shown for all three launched agents: the session works and nothing
+leaves the box. Not covered, as before: sessions longer than 185 s, extension and MCP
+fetches, and the project-override modes under the offline set. The Qwen Code transcript
+(1.2 MB of TUI redraws) is not committed.
+
+### #431: Claude Code and a late system message
+
+Claude Code 2.1.325 sends its `# Environment` block as a trailing `messages[]` entry with
+role `system`, after the user turn. A logging proxy in front of the live `villa-llama` showed
+the request, `messages: [user, system]`, and the server's 500: `Jinja Exception: System
+message must be at the beginning.` The Qwen3.6 template, and so the heretic one, raises on
+any system message that is not first. No environment variable moves the block:
+`CLAUDE_CODE_FORCE_MID_CONVERSATION_SYSTEM=0` and `=false` both still send it. The 2026-11-03
+run hit the same error on the vetted 2.1.317, so this is not a 2.1.325 regression.
+
+Every coder entry in the catalog accepts it. Read from each commit-pinned GGUF header: the
+Qwen3-Coder-30B-A3B and Qwen3-Coder-Next templates render a non-leading `system` message like
+a user one, and GLM-4.7-Flash renders it under `<|system|>`. `villa code --agent claude`
+refuses unless coding mode is on, and coding mode serves `coder_model`, so the shipped launch
+never meets the refusing template. The run above completed both turns on the coder template.

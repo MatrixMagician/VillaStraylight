@@ -2,8 +2,9 @@
 
 VillaStraylight is a single Go CLI (`villa`) that auto-detects an AMD Strix Halo
 host, recommends a memory-fitting model/quant/context, generates rootless Podman
-Quadlet units, and orchestrates a strictly-local AI stack. First-party code is
-Go only; AI services are integrated OSS containers, not rebuilt.
+Quadlet units, and orchestrates a strictly-local AI stack. The `villa` binary is
+Go; other first-party code may be any language the binary ships and runs
+(ADR-0046). AI services are integrated OSS containers, not rebuilt.
 
 Contributions are welcome. This guide covers the setup, the gates a pull request
 must pass, and the invariants a contribution must not break.
@@ -28,10 +29,15 @@ Run `make help` to list all available targets.
 
 ## Coding standards
 
-- **Language**: Go only for all first-party code (CLI, detection, orchestration,
-  dashboard backend, gateway). The project ships as a single static binary — do
-  not add dependencies that require build-time system libraries or break that
-  goal (for example, the full `containers/podman/v5` bindings module).
+- **Language**: the `villa` binary (CLI, detection, orchestration, dashboard
+  backend, gateway) is Go and ships as a single static binary. Do not add
+  dependencies that require build-time system libraries or break that goal (for
+  example, the full `containers/podman/v5` bindings module). First-party code in
+  another language is welcome when it integrates through the binary: villa
+  embeds it or pins it by sha256, starts and removes it, renders its config,
+  covers it with `verify` or `doctor`, and runs its tests in `make check`. It
+  runs on a runtime villa pins, never on an interpreter the operator installs.
+  See [ADR-0046](docs/adr/0046-first-party-code-may-be-any-language-the-villa-binary-ships-and-runs.md).
 - **Formatting**: `gofmt` and `goimports`. Run `make fmt` before committing.
   Formatting is enforced by the linter (`gofmt`, `goimports`).
 - **Vetting**: `go vet` must be clean (`make vet`).

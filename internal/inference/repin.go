@@ -78,3 +78,6 @@ func (r repinned) ContainerArgs(spec RunSpec) []string {
 
 // ResidencyProof is the wrapped backend's markers, unchanged — see the type doc.
 func (r repinned) ResidencyProof() ResidencyMarkers { return r.inner.ResidencyProof() }
+
+// ServesSpeculation is the wrapped backend's capability, unchanged.
+func (r repinned) ServesSpeculation() bool { return r.inner.ServesSpeculation() }

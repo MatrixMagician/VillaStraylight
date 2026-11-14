@@ -424,3 +424,27 @@ func TestRunWorkVerboseReplaysLog(t *testing.T) {
 		}
 	}
 }
+
+// TestRunWorkPrintsTheRunnerRefusal guards that an operator who submits a task
+// the runner refuses (a project-skills workspace, a model without tool calls, a
+// sandbox that cannot start) reads why without --verbose. The runner writes the
+// reason to the log at submit, before the event stream attaches, so the stream
+// alone carries only the state.
+func TestRunWorkPrintsTheRunnerRefusal(t *testing.T) {
+	fx := newWorkFixture(t, nil)
+	final := terminalRecord(taskstore.Refused)
+	fx.api.record = final
+	fx.api.frames = []string{stateFrame(final)}
+	reason := "refused: the workspace holds project skills (/home/dev/reports/.claude/skills); move or remove the directory"
+	fx.deps.readLog = func(string) ([]taskstore.LogEvent, error) {
+		return []taskstore.LogEvent{{At: time.Date(2026, 9, 10, 12, 1, 15, 0, time.UTC), Kind: "narration", Text: reason}}, nil
+	}
+
+	cmd, out, errOut := lifecycleTestCmd()
+	if code := runWork(cmd, fx.workspace, "tidy", workOpts{}, fx.deps); code != taskstore.Exit(taskstore.Refused) {
+		t.Fatalf("exit = %d, want %d", code, taskstore.Exit(taskstore.Refused))
+	}
+	if !strings.Contains(errOut.String(), reason) {
+		t.Errorf("stderr = %q, want the runner's refusal %q; stdout=%q", errOut.String(), reason, out.String())
+	}
+}

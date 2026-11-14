@@ -18,27 +18,27 @@ import (
 var update = flag.Bool("update", false, "regenerate golden crush.json fixtures")
 
 // TestPolicyLoad verifies the embedded crush-policy.json decodes to the FROZEN
-// v0.93.1 pin (AGENT-01): the pinned version, the linux/amd64 asset name,
+// v0.101.0 pin (AGENT-01): the pinned version, the linux/amd64 asset name,
 // its tarball SHA-256, and its size. Guards against an accidental edit to the
 // compiled-in policy data drifting the install gate off the verified release.
 func TestPolicyLoad(t *testing.T) {
 	p := loadCrushPolicy()
-	if p.Version != "v0.93.1" {
-		t.Fatalf("policy version = %q, want v0.93.1", p.Version)
+	if p.Version != "v0.101.0" {
+		t.Fatalf("policy version = %q, want v0.101.0", p.Version)
 	}
 	asset, ok := p.Assets["linux/amd64"]
 	if !ok {
 		t.Fatalf("policy has no linux/amd64 asset; assets=%v", p.Assets)
 	}
-	if asset.Name != "crush_0.93.1_Linux_x86_64.tar.gz" {
-		t.Errorf("asset name = %q, want crush_0.93.1_Linux_x86_64.tar.gz", asset.Name)
+	if asset.Name != "crush_0.101.0_Linux_x86_64.tar.gz" {
+		t.Errorf("asset name = %q, want crush_0.101.0_Linux_x86_64.tar.gz", asset.Name)
 	}
-	wantSHA := "3086719c3e4ff592b567c22691157457158b87245469009e530447481c975102"
+	wantSHA := "cf234948e3d7c5236d18a048a38f25a7df9ca24ba0b8fdaa525d45c5f705f99a"
 	if !strings.EqualFold(asset.SHA256, wantSHA) {
 		t.Errorf("asset sha256 = %q, want %q", asset.SHA256, wantSHA)
 	}
-	if asset.Size != 28880496 {
-		t.Errorf("asset size = %d, want 28880496", asset.Size)
+	if asset.Size != 29792998 {
+		t.Errorf("asset size = %d, want 29792998", asset.Size)
 	}
 	if p.URLTmpl == "" || !strings.Contains(p.URLTmpl, "{asset}") {
 		t.Errorf("urlTemplate = %q, want a {asset}-placeholder URL", p.URLTmpl)
@@ -47,7 +47,7 @@ func TestPolicyLoad(t *testing.T) {
 	// `crush` binary SHA-256, derived from the SHA-256-verified tarball on the
 	// gfx1151 box (Q2 / Pitfall 6 — distinct from the tarball SHA above). With a
 	// real value present, binary-drift is now a confident signal, not a WARN.
-	wantBinSHA := "e59e1baecfc810027d424a8ef2a23d6ed091ca93ac36f5f32e95ce6788c5fbf9"
+	wantBinSHA := "47339786383813914a018e83636b6b47682cc7751e54ab44e1dc78e1141e42d4"
 	if !strings.EqualFold(asset.BinarySHA256, wantBinSHA) {
 		t.Errorf("binarySha256 = %q, want the pinned extracted-binary hash %q", asset.BinarySHA256, wantBinSHA)
 	}
