@@ -609,15 +609,20 @@ table bounds.
 
 ## Not established in the tree
 
-- **The identity header at runtime.** The header path was read at the pin and not
-  observed. The first step of #361 is a capture off the live stack: the pinned Open
-  WebUI image, a stub tool server that records headers, a stub model server that
-  returns one tool call, and two accounts. It must show `X-Villa-User-Id` carrying each
-  account's own id. If the header is absent or wrong, #361 stops and reports, and
-  recall is not shipped. The triage rule for that case is web tools only. The unit's
-  default is already fail-closed, a 403.
-- **That a user cannot choose their own id.** `{{USER_ID}}` is `user.id`
-  (`utils/headers.py:137`). How Open WebUI assigns ids was not read.
+- ~~**The identity header at runtime.**~~ Measured on 2026-11-14 against the pinned Open WebUI on a
+  scratch network, with villa's rendered connection bytes, a stub model server, a stub tool server and
+  three accounts (`docs/prototype/recall-identity/`). Every call Open WebUI made carried that account's
+  own `user.id` in `X-Villa-User-Id`. Two admin accounts made two calls each, and no call carried another
+  account's id. The non-admin account was never offered the tool, because the connection carries no
+  access grants and Open WebUI treats that as admin-only (`utils/access_control/__init__.py:166-171`). With
+  a public read grant added, it carried its own id too. With the `headers` template removed, the calls
+  arrived with no header and the unit's 403 applied. Open WebUI runs the tool itself only for a streamed
+  request that names a new chat (`parent_id: null`, a message `id`, a `user_message`). A non-streamed or
+  id-less request hands the tool call back to the caller (`utils/middleware.py:3127`, `:4033`, `:4252`).
+- ~~**That a user cannot choose their own id.**~~ Read at the pin: `Auths.insert_new_auth` generates the
+  id with `uuid.uuid4()` and takes none from the caller (`models/auths.py:104-118`). All five account
+  creation paths go through it, and no update path a user can reach writes `id`. How a session token
+  resolves to a user was not read.
 - ~~**Qdrant's request and response shape.**~~ Measured on the dev host on 2026-11-14
   against villa-qdrant 1.18.2 and pinned by `internal/toolserver/testdata/qdrant-query-response.captured.json`.
   The answer has no top-level `usage` key, `metadata.embedding_config` is an object, and the
