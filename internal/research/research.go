@@ -320,6 +320,9 @@ func (r *session) finish(ctx context.Context) Result {
 	if body == "" {
 		return failed("the model returned an empty report. Try again; if it repeats, check the chat unit with `villa status`.")
 	}
+	// The body is model output over untrusted pages: what is audited and written is
+	// the neutralised text, and what had to be removed is a finding.
+	body, active := neutralize(body, r.sources)
 	report := render(r.req.Question, body, r.sources)
 
 	gsrc := make([]grounding.Source, len(r.sources))
@@ -333,6 +336,7 @@ func (r *session) finish(ctx context.Context) Result {
 	cancel()
 	rep.Path = reportDocPath
 	rep.Unsupported = append(rep.Unsupported, citationFindings(body, len(r.sources))...)
+	rep.Unsupported = append(rep.Unsupported, active...)
 
 	res := Result{Outcome: Done, Report: report, Sources: r.sources, Grounding: rep}
 	var why []string

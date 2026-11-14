@@ -135,6 +135,39 @@ page pushed it, and the operator is shown the source table and the websafe flags
 it. The audit checks the report's claims against the fenced page text, with the
 same blind spot the grounding spec states: the auditor is the model that wrote the report.
 
+**The report body is active-content-neutralised, and a body that needed it is flagged.**
+The report is model output produced after reading untrusted pages, and it is a file the
+operator opens in a Markdown viewer. That makes it a route for the markdown-image
+exfiltration residual of [ADR-0002] (an image whose URL carries data, fetched by the
+operator's viewer outside every container) and for a body that impersonates villa's own
+source list. `research.neutralize`, in the pure core and run before the audit and the
+write, does two things:
+
+- *Active content is made inert, and each kind found is a finding.* Markdown images and
+  inline links, reference-style links and their definitions, autolinks, raw HTML, bare
+  `scheme://` and `www.` URLs and the `javascript:`, `data:`, `vbscript:` and `mailto:`
+  schemes are removed (a URL becomes `(link removed)`, a `<` that opens a tag becomes
+  `&lt;`, every square bracket that is not a citation is backslash-escaped). Each kind is
+  reported through the audit's own shape, so a report that tried to carry any of them ends
+  `flagged` with the finding in the record. A fetched source's own URL is not left live in
+  the body either: it becomes that source's `[n]` marker, and is not a finding, because the
+  model is never shown a URL and a body that names one has only guessed it. The URLs in
+  villa's source table are code spans, never links. Citations `[n]` survive, adjacent ones
+  included, unless one is followed by `(` or `:` (a link destination or a definition), in
+  which case it is escaped too.
+- *The source list is unforgeable.* Control and format characters (zero-width, bidi
+  overrides) are stripped from the body first. A heading in the body that reads as a source
+  list (`source`, `sources`, `reference(s)`, `bibliography`), in ATX or setext style, and
+  any code-fence opener that could swallow the real list, are backslash-escaped. The
+  finished report has exactly one `## Sources` heading, villa's, and it is last.
+
+**Residual.** Neutralising removes what a viewer would act on; it does not make the report
+true. Prose can still mislead in the direction a page pushed it, a model can still
+write a persuasive false claim with a valid `[n]` marker, and a viewer with Markdown
+extensions this list does not know could treat other syntax as active. The report is model
+output over untrusted input. villa neutralises active content and flags what it removed,
+and never claims the report is safe.
+
 **4. Budgets and caps.** Printed at start, from the record.
 
 | Knob | Default | Hard cap | Set by |
@@ -161,7 +194,7 @@ dropped, never sent).
 | Ends | When | Exit |
 |---|---|---|
 | `done` | grounding checked and clean, every citation resolves | 0 |
-| `flagged` | the audit found unsupported claims or could not run; a citation names no source; the report cites nothing; the search returned no results; no page survived the loader; every source was flagged by websafe | 2 |
+| `flagged` | the audit found unsupported claims or could not run; a citation names no source; the report cites nothing; the report carried a link, image, URL or HTML that villa removed; the search returned no results; no page survived the loader; every source was flagged by websafe | 2 |
 | `failed` | no search, loader or model reachable on round 1; a model call returned nothing; the taint could not be written | 1 |
 | `refused` | at submit: web search is off, or the task is malformed | 1 |
 | `cancelled`, `interrupted` | the operator, or the service stopping | 1 |
@@ -211,6 +244,7 @@ probe helper container that outlives its caller is bounded by its own `--max-tim
 - It is a pattern, not a proof, like the deletion rule and the taint: the fence and the
   flags reduce what an injection does, and the report remains text a person has to read.
 
+[ADR-0002]: 0002-the-web-guard-flags-injection-it-never-blocks.md
 [ADR-0011]: 0011-the-sandbox-reaches-inference-through-a-v1-proxy.md
 [ADR-0040]: 0040-web-content-in-a-task-taints-it-per-source.md
 [update spec]: ../spec/v1.8-villa-update.md
