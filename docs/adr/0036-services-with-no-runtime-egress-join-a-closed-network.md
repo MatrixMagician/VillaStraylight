@@ -41,6 +41,11 @@ gating covers the leaks someone thought of.
   them is possible. It is not this change: it moves the inference proof, the inference
   proxy's topology (ADR-0011) and every resident slot, and needs its own on-hardware
   proof. It is filed as a follow-up.
+
+  > **Superseded by [ADR-0043](0043-inference-joins-the-closed-network.md).** The
+  > follow-up moved `villa-llama`, every resident slot and the inference proxy's
+  > routed side onto `villa-closed`, and the probes of `villa-llama` and the proxy
+  > that the next bullet keeps on `villa` move with them.
 - **An in-network probe runs on its target's network.** `probeCurl` takes the network.
   The probes of the seven closed services (memory, reranker, extractor, voice and
   image readiness, the status rows, eval, doctor's embed drive) run on `villa-closed`;

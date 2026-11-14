@@ -41,6 +41,19 @@ type agentBudget struct {
 	Budget time.Duration
 	// Source names the measurement, or why there is none.
 	Source string
+	// measured is true when Source reports a rate the probe read.
+	measured bool
+}
+
+// underSpeculation qualifies a measured rate taken under draft speculation. The
+// probe's flat sampler makes the target reject almost every drafted token, so each
+// token pays for a wasted verification and the read is below the model's own rate
+// (ADR-0031, #353). The budget is left alone: a lower rate only lengthens it.
+func (b agentBudget) underSpeculation(mode string) agentBudget {
+	if b.measured && mode == config.SpeculationDraft {
+		b.Source += " under draft speculation, a lower bound"
+	}
+	return b
 }
 
 func (b agentBudget) String() string {
@@ -69,7 +82,7 @@ func agentBudgetFor(rate float64, err error, busy int) agentBudget {
 	case busy > 1:
 		source += fmt.Sprintf(" while %d other slots were generating", busy)
 	}
-	return agentBudget{Budget: budget, Source: source}
+	return agentBudget{Budget: budget, Source: source, measured: true}
 }
 
 // liveAgentBudget measures the served model's decode rate through the inference
@@ -80,7 +93,7 @@ func liveAgentBudget(ctx context.Context, cfg config.VillaConfig) agentBudget {
 	client := inferenceClient(cfg)
 	busy, _ := processingSlots(client.Perf(ctx))
 	rate, err := client.DecodeRate(ctx, cfg.Model)
-	return agentBudgetFor(rate, err, busy)
+	return agentBudgetFor(rate, err, busy).underSpeculation(cfg.Speculation)
 }
 
 // processingSlots is the number of slots generating, read from the /metrics
@@ -207,13 +220,24 @@ func (w roundWork) String() string {
 type killedRound struct {
 	Drain slotDrain
 	Work  roundWork
+	// RequestTimeout is the seconds villa renders into crush.json's request_timeout
+	// for the agent's window (agent.RequestTimeoutSeconds), the bound a prefill-bound
+	// round overran.
+	RequestTimeout int
 }
 
 const (
-	agentRunRemediation     = "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`"
-	agentBudgetRemediation  = "the served model generated tokens but could not finish a tool call inside a budget sized from its measured decode rate; check `villa verify agent` and `villa logs`, or serve a faster model (`villa model swap`)"
-	agentPrefillRemediation = "the served model is too slow at prefill for the agent: every Crush session opens with its whole system prompt and tool list to prefill, Crush abandons a request that sends nothing for 60 s (its request_timeout), and the server had not finished that prefill in time, so a longer doctor budget cannot help; serve a model that prefills the agent's prompt in under a minute (`villa model swap`) to use the agent"
+	agentRunRemediation    = "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`"
+	agentBudgetRemediation = "the served model generated tokens but could not finish a tool call inside a budget sized from its measured decode rate; check `villa verify agent` and `villa logs`, or serve a faster model (`villa model swap`)"
 )
+
+// agentPrefillRemediation names the prefill cause. villa renders Crush's request_timeout
+// from the agent's window (ADR-0044), so a crush.json that predates it still carries
+// Crush's 60 s default: `villa up` renders the bound, and only a model that still
+// misses it is too slow for the agent.
+func agentPrefillRemediation(timeoutSeconds int) string {
+	return fmt.Sprintf("the served model is too slow at prefill for the agent: every Crush session opens with its whole system prompt and tool list to prefill, and Crush abandons a request that sends nothing for its request_timeout, which villa renders into crush.json as %d s for this window; if crush.json predates that setting (it keeps Crush's 60 s default), run `villa up` or `villa code` to render it and re-run `villa doctor`; otherwise the server had not finished that prefill in %d s, so a longer doctor budget cannot help: serve a model that prefills the agent's prompt in less (`villa model swap`) to use the agent", timeoutSeconds, timeoutSeconds)
+}
 
 // agentToolCallVerdict maps one round trip's outcome to the doctor verdict. Every
 // detail carries the budget and its source; a killed round also carries what the
@@ -228,7 +252,7 @@ func agentToolCallVerdict(completed bool, err error, b agentBudget, kill *killed
 			detail += "; " + kill.Work.String() + "; " + kill.Drain.String()
 			switch {
 			case kill.Work.prefillBound():
-				remediation = agentPrefillRemediation
+				remediation = agentPrefillRemediation(kill.RequestTimeout)
 			case kill.Work.decodeBound():
 				remediation = agentBudgetRemediation
 			}

@@ -237,7 +237,7 @@ func TestTaskRoutesAnswer503WhenNotEnabled(t *testing.T) {
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("code = %d, want 503; body=%s", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), `"error":"workspace agent is not enabled"`) {
+			if !strings.Contains(rec.Body.String(), `"error":"workspace agent is not enabled`) {
 				t.Errorf("body = %s", rec.Body.String())
 			}
 		})
@@ -597,5 +597,77 @@ func TestResearchRouteAnswers503WithoutARunner(t *testing.T) {
 	rec := do(taskServer(t, nil), http.MethodPost, "/api/research", `{"question":"q"}`)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "villa install --web-search") {
 		t.Errorf("code = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestResearchGateIsWebSearchNotTheWorkspaceAgent guards the two per-request gates
+// (#418, ADR-0045): a host with web search on and the workspace agent off accepts a
+// research task and can read its record, and still refuses a workspace task. With
+// web search off the research route refuses and names its own remedy.
+func TestResearchGateIsWebSearchNotTheWorkspaceAgent(t *testing.T) {
+	fx := newTaskFixture(t)
+	var workspaceOn, researchOn atomic.Bool
+	researchOn.Store(true)
+	h := mustNewServer(t, Config{
+		StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888,
+		Tasks: newTestRunner(t, fx), TasksOn: workspaceOn.Load, ResearchOn: researchOn.Load,
+	}).Handler()
+
+	rec := do(h, http.MethodPost, "/api/research", `{"question":"q"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("research with web search on: code = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	id := decodeTask(t, rec).ID
+	if rec := do(h, http.MethodGet, "/api/tasks/"+id, ""); rec.Code != http.StatusOK {
+		t.Errorf("show of a research task with the workspace agent off: code = %d, want 200", rec.Code)
+	}
+	if rec := do(h, http.MethodGet, "/api/tasks", ""); rec.Code != http.StatusOK {
+		t.Errorf("list with only web search on: code = %d, want 200", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws)); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("workspace task with the workspace agent off: code = %d, want 503", rec.Code)
+	}
+
+	researchOn.Store(false)
+	rec = do(h, http.MethodPost, "/api/research", `{"question":"q"}`)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "villa install --web-search") {
+		t.Errorf("research with web search off: code = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(h, http.MethodGet, "/api/tasks", ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("list with both gates off: code = %d, want 503", rec.Code)
+	}
+}
+
+// TestTaskGateFollowsConfigAfterStart guards #418: the dashboard service lives
+// for days, so the workspace-agent gate is answered per request. A gate turned
+// on after the server started accepts a task, and one turned off refuses every
+// task route again, with the remedy in the 503.
+func TestTaskGateFollowsConfigAfterStart(t *testing.T) {
+	fx := newTaskFixture(t)
+	fx.bridges <- newFakeBridge()
+	var on atomic.Bool
+	h := mustNewServer(t, Config{
+		StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888,
+		Tasks: newTestRunner(t, fx), TasksOn: on.Load,
+	}).Handler()
+
+	rec := do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("gate off at start: code = %d, want 503", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "villa up") {
+		t.Errorf("503 does not name the remedy: %s", rec.Body.String())
+	}
+
+	on.Store(true)
+	if rec := do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws)); rec.Code != http.StatusAccepted {
+		t.Fatalf("gate turned on after start: code = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+
+	on.Store(false)
+	for _, rt := range taskRoutes {
+		if rec := do(h, rt.method, rt.path, "{}"); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("gate turned off after start: %s %s = %d, want 503", rt.method, rt.path, rec.Code)
+		}
 	}
 }

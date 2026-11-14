@@ -102,6 +102,9 @@ const (
 	// reaches the UI at 127.0.0.1:3000; the container-internal port is 8080. Nothing
 	// binds 0.0.0.0. TestRenderOpenWebUILoopbackOnly asserts this.
 	openWebUIPublishPort = "127.0.0.1:3000:8080"
+	// openWebUIServerPort is the container-internal half of openWebUIPublishPort,
+	// for the in-network health URL; TestOpenWebUIInNetworkHealthURL keeps them equal.
+	openWebUIServerPort = 8080
 
 	// openWebUIVolumeMount is the durable named-volume mount (CHAT-03): a
 	// dedicated read-write data volume at /app/backend/data with the :Z PRIVATE
@@ -163,8 +166,8 @@ type openWebUIVolumeView struct {
 // containerName constant ("villa-llama") so the chat target can NEVER drift from the
 // inference unit's ContainerName= (Pitfall 3 DNS lockstep, T-4-01) — it is built from
 // the constant, never re-typed as a separate host literal. Open WebUI joins
-// villa.network for inference and the fetchers, and villa-closed for the services
-// with no runtime egress (ADR-0036). WEBUI_AUTH stays True: the first visit creates a local admin
+// villa.network for the fetchers, and villa-closed for inference and the services
+// with no runtime egress (ADR-0036, ADR-0043). WEBUI_AUTH stays True: the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
 //
 // image is the RESOLVED pin — the effective one this host recorded, or the vetted
@@ -190,7 +193,7 @@ type openWebUIVolumeView struct {
 // otherwise (#312). Non-nil appends the image env group after the web-search
 // group; the trailing persistent-config gate covers it like the other groups.
 func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, extractOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string, imageServe *ImageServe) openWebUIView {
-	// Connection: reach inference over villa.network by container DNS (NOT localhost /
+	// Connection: reach inference over villa-closed by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
 	// OPENAI_API_BASE_URLS/OPENAI_API_KEYS. The plural form is emitted ONLY when a

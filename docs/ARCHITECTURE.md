@@ -142,7 +142,7 @@ graph TD
     taskrun --> crushapi["internal/crushapi<br/>Crush server client + bridge stdio protocol"]
     taskrun -.podman run --runtime=krun.-> sandbox["villa-task-&lt;id&gt; microVM<br/>villa sandbox-bridge → crush server"]
     sandbox -.villa-sandbox network.-> inferproxy["villa-inferproxy<br/>forwards 2 routes only, injects the real<br/>LLAMA_API_KEY bearer (GHSA-gvp9, ADR-0011)"]
-    inferproxy -.villa.network.-> llama
+    inferproxy -.villa-closed.network.-> llama
     stackapply["internal/stackapply<br/>the one stack apply (ADR-0013)"] --> catalog
     stackapply -.catalog.Image → ImageServe.-> orchestrate
     orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
@@ -231,7 +231,11 @@ emits through its `Emit` seam.
    the inference `.container`, `villa.network`, `villa-models.volume`, and the Open
    WebUI `.container` + `.volume`. The inference unit's imperative fields are obtained
    **through** `Backend.Image()` and `Backend.ContainerArgs(spec)` and mapped to
-   Quadlet keys, never re-typed.
+   Quadlet keys, never re-typed. The inference unit and every resident slot join
+   `villa-closed.network` (`Internal=true`) only, so inference has no route off-box
+   while its loopback publish still serves the host (ADR-0043); Open WebUI is on
+   both `villa.network` and the closed network, and `villa-inferproxy` bridges the
+   closed and sandbox networks.
 6. **Reconcile**: `orchestrate.Reconcile(units, unitDir)` (pure) does a sha256
    render-vs-disk diff, classifying each unit Changed or Unchanged. An empty Changed
    slice is a true no-op, the idempotency core.
@@ -419,7 +423,7 @@ second kind of job the same runner hosts, with the same record, state machine an
   render.
 - **`inference.Client`** (`internal/inference/client.go`), the one caller of a
   llama-server unit (ADR-0014). Built from a loaded config by `inferenceClient(cfg)`,
-  or `inNetworkInferenceClient(cfg)` for a `villa.network` probe, and rebuilt per
+  or `inNetworkInferenceClient(cfg)` for a `villa-closed` probe, and rebuilt per
   status run and per dashboard scrape so the long-lived dashboard sends the current
   key (ADR-0016), it owns the address, the api key and every route: `/health` and
   `/v1/models`, which llama.cpp serves publicly (the client sends the key on
@@ -607,9 +611,9 @@ internal/
                       ROCm (default) + Vulkan backends, podman runner, offload assert;
                       Client, the one authenticated caller of llama-server (ADR-0014).
   stackapply/         Stack apply: every render input derived from the config, the
-                      inference-secret heal, the crush.json key heal (only a
-                      drift that is villa's inference key, kept as crush.json.bak;
-                      ADR-0019), stop and remove the registry units the config no longer
+                      inference-secret heal, the crush.json heal (only a
+                      drift in villa's own values, the inference key and
+                      request_timeout, kept as crush.json.bak; ADR-0019, ADR-0044), stop and remove the registry units the config no longer
                       renders (refused when a service's state cannot be read, #344),
                       write changed + reload (ADR-0013, ADR-0035).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile (changed and orphaned) + atomic

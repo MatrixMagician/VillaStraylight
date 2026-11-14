@@ -36,8 +36,9 @@ func inferenceClient(cfg config.VillaConfig) inference.Client {
 }
 
 // inNetworkInferenceClient is the same client addressed by container DNS on
-// villa.network, for a probe that runs inside a --network helper container
-// (runProbeCurlIn), where 127.0.0.1 is the helper's own loopback.
+// villa-closed, the only network villa-llama joins (ADR-0043), for a probe that runs
+// inside a --network helper container (runProbeCurlIn), where 127.0.0.1 is the
+// helper's own loopback.
 func inNetworkInferenceClient(cfg config.VillaConfig) inference.Client {
 	return inference.NewClient(orchestrate.LlamaInNetworkRoot(), cfg.InferenceSecret)
 }

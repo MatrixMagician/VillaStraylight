@@ -45,7 +45,7 @@ verifies it.
 | Dashboard API callers | A Host allowlist refuses a DNS-rebinding page. A state-changing request needs a JSON content type and a same-origin signal. Each accepted connection is checked against the owning UID through `/proc/net/tcp`, and a peer that cannot be resolved is refused. | No ADR. GHSA-3r95, GHSA-6mq8. | `internal/dashboard/middleware.go`, `internal/dashboard/peercred.go`; `TestSameOriginGuardRejectsSpoofedHost`, `TestSameOriginGuardRejectsCrossOrigin`, `TestPeerUIDListenerAccept` |
 | Inference key | llama-server is started with an api key. villa generates the key once and hands it to units in a 0600 `EnvironmentFile=`, never on an `Exec=` line or a podman command line. `/health` and `/v1/models` stay public. One exception is listed under known gaps. | [ADR-0011], [ADR-0014] | `TestWriteInferenceSecretEnvRoundTrip`, `TestInferenceSecretEnvFilePathContract`, `TestContainerArgsSecretEnvFile` |
 | Inference client gate | One client owns the unit's address, the key and every route villa calls. A read of `InferenceSecret`, an address accessor or a route literal anywhere else fails the build unless the gate lists the file with a reason. An in-network curl probe receives the key on stdin, not in argv. | [ADR-0014] | `TestInferenceReachedOnlyThroughClient` in `cmd/villa/inference_apikey_gate_test.go` |
-| Networks | `villa.network` routes off-box. `villa-closed.network` and `villa-sandbox.network` are `Internal=true`. The seven services with no runtime egress join the closed network and nothing else. Open WebUI joins `villa.network` and the closed network. | [ADR-0036], [ADR-0011] | `TestClosedServicesJoinOnlyTheClosedNetwork`, `TestRoutedUnitsKeepTheirNetworks`, `TestRenderClosedNetworkGolden` |
+| Networks | `villa.network` routes off-box. `villa-closed.network` and `villa-sandbox.network` are `Internal=true`. The seven services with no runtime egress, `villa-llama` and each resident slot join the closed network and nothing else. `villa-inferproxy` joins the closed and sandbox networks. Open WebUI joins `villa.network` and the closed network. Known gap 4 says what is unproven. | [ADR-0036], [ADR-0043], [ADR-0011] | `TestClosedServicesJoinOnlyTheClosedNetwork`, `TestInferenceUnitsJoinOnlyTheClosedNetwork`, `TestInferproxyBridgesTheClosedAndSandboxNetworks`, `TestInferenceUnitsCarryNoFetchFlag`, `TestRoutedUnitsKeepTheirNetworks`, `TestRenderClosedNetworkGolden` |
 | Doctor's `networks` finding | `villa doctor` compares each running container's networks and each network's `Internal` flag with the rendered units. A mismatch is a BLOCK FAIL, and a read that fails is a WARN. It runs on command, not continuously. | [ADR-0036] | `networks` in `internal/doctor/decide.go`; `internal/doctor/networks_test.go` |
 | `villa-inferproxy` | A sandbox reaches inference only through the proxy. The proxy forwards `POST /v1/chat/completions` and `GET /v1/models`, caps the request body, injects the key, and answers every other route with 403. `villa-llama` does not join the sandbox network. | [ADR-0011] | `TestRunInferproxyRefusesDisallowedRoute`, `TestInferproxyCapsRequestBody`, `TestRenderInferproxyJoinsBothNetworks`; doctor `SBX-02` in `TestSandboxNetworkFindingMatrix` |
 | Sandbox | One libkrun microVM per task: a read-only root, one workspace mounted read-write, the sandbox network only, no GPU device and no models volume. | No ADR. [Workspace-agent spec] §3.4. | `TestRenderSandboxRunArgs`, `TestSandboxRunMountsNoDeviceAndNoModels`; preflight `PRE-09` in `internal/preflight/checks_sandbox.go` |
@@ -79,18 +79,22 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    agent's own web tools are outbound by design. villa disables Crush's in
    `crush.json` (`TestRenderRestrictiveTools`) and not the other two agents'.
    A launch with no route is a design question, not code.
-3. **GPU units run with `seccomp=unconfined`** ([#343]). The flag is in
-   `vulkanGPUAccess` (`internal/inference/backend_vulkan.go`), which the Vulkan
-   chat unit and `villa-image` share, and in `internal/inference/backend_rocm.go`.
-   Measured on the dev host on 2026-11-14: throwaway containers on the pinned
-   Vulkan chat image, with a 2B model, and on the pinned image-server image
-   passed every criterion without the flag, one run each. The code change is
-   pending. ROCm, the default backend, was not measured and keeps the flag.
-4. **`villa-llama` is not on the closed network** ([#349], [#364]). `villa-llama`,
-   each resident slot and `villa-inferproxy` join `villa.network`, which routes
-   off-box. `TestRoutedUnitsKeepTheirNetworks` asserts that state. Their zero
-   runtime egress is not enforced by the network. The move is decided and not
-   built. The code is [#349] and its on-hardware proofs are [#364].
+3. **ROCm units run with `seccomp=unconfined`** ([#343]). ROCm is the default
+   backend and its flag is in `internal/inference/backend_rocm.go`. Nobody has
+   measured whether it can go. The Vulkan chat unit and `villa-image` no longer
+   carry it (`vulkanGPUAccess`, `internal/inference/backend_vulkan.go`).
+   Measured on the dev host on 2026-11-14: the real Vulkan chat unit served the
+   live model with its projector and n-gram speculation without the flag, and a
+   throwaway container on the pinned image-server image generated two images
+   without it. `villa-image` as an installed unit was not run.
+4. **The inference port is published on loopback** ([ADR-0043]). `villa-llama` and
+   each resident slot join `villa-closed.network` only, and `villa-inferproxy` joins
+   it and the sandbox network, so none has a route off-box
+   (`TestInferenceUnitsJoinOnlyTheClosedNetwork`; proven on the live stack on
+   2026-11-14, [#364]). What remains is the publish itself: `127.0.0.1:8080` is
+   reachable by any local process, and the inference key is the control there. The
+   publish working from an internal-only network is measured on podman 5.8.7 and
+   6.1.3, not guaranteed for every rootless network backend.
 5. **Markdown-image exfiltration is not closed** ([ADR-0002]). The model can emit
    a markdown image whose URL carries data, and the operator's browser fetches
    it, outside every container. `TestMarkdownImageResidualDocumented` keeps the
@@ -148,6 +152,7 @@ proof that bounds their outbound. It is a measurement, not a standing control.
 [ADR-0039]: adr/0039-a-launched-coding-agent-runs-with-its-telemetry-off-and-a-capture-to-show-it.md
 [ADR-0040]: adr/0040-web-content-in-a-task-taints-it-per-source.md
 [ADR-0045]: adr/0045-research-is-a-host-side-task-that-reads-the-web-through-websafe.md
+[ADR-0043]: adr/0043-inference-joins-the-closed-network.md
 [Workspace-agent spec]: spec/v1.11-workspace-agent.md
 [Update spec]: spec/v1.8-villa-update.md
 [RELEASING.md]: RELEASING.md

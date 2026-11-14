@@ -163,10 +163,10 @@ func Render(in RenderInput) ([]Unit, error) {
 
 	// GHSA-gvp9 (ADR-0011): villa-llama no longer joins villa-sandbox.network. It
 	// used to (the workspace agent's tasks reaching it there directly), but that
-	// put a privileged unit — seccomp=unconfined, /dev/kfd, /dev/dri — on the SAME
-	// network as the one that egresses. The sandbox's only route to inference is
-	// now the villa-inferproxy unit below, which joins BOTH networks and is the
-	// thing gated on subsystem.SandboxOn instead.
+	// put a privileged unit — seccomp=unconfined, /dev/kfd, /dev/dri — on the same
+	// network as the task VMs. The sandbox's only route to inference is now the
+	// villa-inferproxy unit below, which joins the closed network villa-llama is on
+	// and the sandbox network, and is the thing gated on subsystem.SandboxOn.
 
 	// Resolved up-front because two consumers need it: the resident .container units
 	// below, and Open WebUI's endpoint env, which must list every resident slot.
@@ -481,7 +481,10 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 		UnitFileName:  containerUnitName,
 		ContainerName: containerName,
 		Image:         image,
-		Network:       networkAttach,
+		// Closed, not routed (ADR-0043): inference never fetches at runtime, so the
+		// network enforces that it has no route off-box. The loopback publish below
+		// still reaches the host.
+		Network: closedNetworkAttach,
 		// SecretEnvFile is set HERE, unconditionally, so BOTH the primary unit
 		// and every resident slot (renderResidentUnits shares this construction
 		// point) get the LLAMA_API_KEY EnvironmentFile= without a second call
@@ -565,9 +568,10 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	// Defensive: every imperative field must have been sourced from the seam. Device
 	// and group are slices (≥1 element required); Env is intentionally NOT checked
 	// the Vulkan backend legitimately emits zero env, and requiring it would break the
-	// Vulkan path (RESEARCH Pitfall 1).
+	// Vulkan path (RESEARCH Pitfall 1). PodmanArgs is not checked either: the Vulkan
+	// backend emits no security option since #343, and the template omits the line.
 	if len(cv.AddDevice) == 0 || len(cv.GroupAdd) == 0 || cv.PublishPort == "" ||
-		cv.Volume == "" || cv.PodmanArgs == "" || cv.Exec == "" {
+		cv.Volume == "" || cv.Exec == "" {
 		return containerView{}, fmt.Errorf("orchestrate: ContainerArgs missing a required mapped field: %+v", cv)
 	}
 	return cv, nil

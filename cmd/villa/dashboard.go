@@ -108,25 +108,26 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		return dashboard.Config{}, err
 	}
 
-	// The runner exists only when the workspace agent or web search is on at startup:
-	// a research task (ADR-0045) needs the runner and not the sandbox. Recover
-	// runs HERE, before Serve binds, so a record left running by the previous
-	// service instance is interrupted before any client can read it. A recovery
-	// error is reported and does not stop the dashboard: one corrupt task record
-	// must not take the whole service down. The grounding audit reaches the SAME
-	// server villa status reports on, through the authenticated client (ADR-0014).
-	var tasks *taskrun.Runner
-	if subsystem.SandboxOn(cfg) || subsystem.WebSearchOn(cfg) {
-		tasks = taskrun.New(liveTaskRunDeps(ctx, inferenceClient(cfg)))
-		if err := tasks.Recover(); err != nil {
-			fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)
-		}
+	// The runner always exists; whether it accepts a task is Config.TasksOn,
+	// answered from the config each request loads, so `workspace_agent` turned on
+	// or off after this service started takes effect without a restart (#418).
+	// Recover runs HERE, before Serve binds, so a record left running by the
+	// previous service instance is interrupted before any client can read it. A
+	// recovery error is reported and does not stop the dashboard: one corrupt task
+	// record must not take the whole service down. The grounding audit reaches the
+	// SAME server villa status reports on, through the authenticated client
+	// (ADR-0014).
+	tasks := taskrun.New(liveTaskRunDeps(ctx, inferenceClient(cfg)))
+	if err := tasks.Recover(); err != nil {
+		fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)
 	}
 
 	perfRead, slotsRead, counterRead := newScrapeClient().reads(ctx)
 
 	return dashboard.Config{
 		Tasks:         tasks,
+		TasksOn:       liveTasksOn,
+		ResearchOn:    liveResearchOn,
 		StatusDeps:    *statusDeps,
 		ChatPort:      cfg.ChatPort,
 		DashboardAddr: config.DashboardAddr,
@@ -173,6 +174,21 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		// JournalTail + ParseJournalJSON pair — no hard-coded unit list.
 		Journal: liveJournalView,
 	}, nil
+}
+
+// liveTasksOn is the dashboard's workspace-agent gate, loaded per request. A
+// config that no longer loads reads as off: the task routes refuse rather than
+// run on a gate nobody could read.
+func liveTasksOn() bool {
+	cfg, err := config.LoadVilla()
+	return err == nil && subsystem.SandboxOn(cfg)
+}
+
+// liveResearchOn is the dashboard's research gate, loaded per request like
+// liveTasksOn: research needs web search, not the workspace agent (ADR-0045).
+func liveResearchOn() bool {
+	cfg, err := config.LoadVilla()
+	return err == nil && subsystem.WebSearchOn(cfg)
 }
 
 // scrapeClientTTL is how long one config load serves the dashboard's inference reads.

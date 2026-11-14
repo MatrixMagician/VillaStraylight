@@ -262,10 +262,10 @@ func liveAgentDeps() *agent.Deps {
 			return sum, present, err
 		},
 		// WriteConfig persists the rendered crush.json. agent.Run invokes it on the
-		// config-absent path and over a key-only drift (ADR-0019), never over an
+		// config-absent path and over a villa-owned drift (ADR-0019), never over an
 		// operator's edit.
 		WriteConfig: writeCrushConfig,
-		// BackupConfig keeps the on-disk crush.json before a key-only heal.
+		// BackupConfig keeps the on-disk crush.json before a villa-owned heal.
 		BackupConfig: backupCrushConfig,
 		// Launch execs the EXPLICIT villa-owned binary with the lockdown env:
 		// fixed-arg, no shell, NEVER a PATH lookup — a user-installed crush on PATH cannot
@@ -350,7 +350,7 @@ func crushConfigPath() (string, error) {
 }
 
 // writeCrushConfig writes b over crush.json atomically at 0600, creating its dir at
-// 0700. It is the one writer for the first-run render and both key heals (ADR-0019),
+// 0700. It is the one writer for the first-run render and both heals (ADR-0019),
 // so a crash mid-heal leaves the old file or the new one, never a truncated one.
 func writeCrushConfig(b []byte) error {
 	path, err := crushConfigPath()
@@ -382,8 +382,8 @@ func backupCrushConfig(onDisk []byte) error {
 
 // liveHealAgentConfig is the stack apply's HealAgentConfig seam (ADR-0019): with the
 // coding agent on and a crush.json present, it renders cfg the way `villa code` and
-// doctor do and, when the ONLY drift is the inference key, backs the file up and
-// writes the rendering. Every other state is left alone: the first-run render is
+// doctor do and, when the ONLY drift is villa's own values (the inference key and
+// request_timeout, ADR-0044), backs the file up and writes the rendering. Every other state is left alone: the first-run render is
 // `villa code`'s, and an operator's edit is never overwritten (AGENT-04).
 func liveHealAgentConfig(cfg config.VillaConfig) error {
 	if !subsystem.AgentOn(cfg) {
@@ -394,7 +394,7 @@ func liveHealAgentConfig(cfg config.VillaConfig) error {
 		return err
 	}
 	rendered, _, err := agent.Render(cfg, liveLSPProbes())
-	if err != nil || !agent.KeyOnlyDrift(onDisk, rendered) {
+	if err != nil || !agent.VillaOwnedDrift(onDisk, rendered) {
 		return err
 	}
 	return replaceCrushConfig(onDisk, rendered)
