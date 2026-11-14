@@ -36,7 +36,9 @@
 package updatecheck
 
 import (
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -49,7 +51,10 @@ import (
 
 // SchemaVersion is the --json contract's version. It is byte-frozen by a golden
 // test and evolves append-only, like every other --json surface in this tree.
-const SchemaVersion = 1
+//
+// Version 2 adds the manifest_behind and unorderable change kinds and the
+// component reason field.
+const SchemaVersion = 2
 
 // Result is the top-level outcome of a check.
 type Result string
@@ -73,6 +78,13 @@ const (
 	ChangeRebuilt Change = "rebuilt"
 	// ChangeNewVersion: a genuinely newer release.
 	ChangeNewVersion Change = "new_version"
+	// ChangeManifestBehind: the manifest names a version older than the one this
+	// host runs, typically a release that moved a pin before a new manifest was
+	// signed. It is never an update and is never applied.
+	ChangeManifestBehind Change = "manifest_behind"
+	// ChangeUnorderable: the offer and the effective pin differ but cannot be put
+	// in order, so villa will not call the offer an update. Fails closed.
+	ChangeUnorderable Change = "unorderable"
 )
 
 // SubsystemState is what a whole subsystem's row says.
@@ -101,6 +113,9 @@ type Component struct {
 	Effective string `json:"effective"`
 	Available string `json:"available,omitempty"`
 	Change    Change `json:"change"`
+	// Reason explains a refused offer. Available stays empty for one, so nothing
+	// downstream can read the refused version as somewhere to move.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Subsystem is one subsystem's row, holding its components.
@@ -328,9 +343,16 @@ func subsystemRow(in Input, k subsystem.Kind, available map[string]manifest.Comp
 			Change:    ChangeNone,
 		}
 		if offer, has := available[string(e.Component)]; has && offer.Ref != res.Current.Ref {
-			c.Available = offer.Ref
 			c.Change = classify(e.Shape, res.Current, offer)
-			row.State = StateUpdateAvailable
+			switch c.Change {
+			case ChangeManifestBehind:
+				c.Reason = "manifest offers " + proseOffer(e.Shape, offer.Ref) + ", older than the " + proseOffer(e.Shape, res.Current.Ref) + " this host runs"
+			case ChangeUnorderable:
+				c.Reason = "cannot order the manifest's " + proseOffer(e.Shape, offer.Ref) + " against the " + proseOffer(e.Shape, res.Current.Ref) + " this host runs"
+			default:
+				c.Available = offer.Ref
+				row.State = StateUpdateAvailable
+			}
 		}
 		row.Components = append(row.Components, c)
 	}
@@ -355,17 +377,88 @@ func classify(shape pins.Shape, current pins.Pin, offer manifest.Component) Chan
 	case pins.RollingDigest:
 		return ChangeRebuilt
 	case pins.ChecksummedAsset:
-		if offer.Ref != current.Ref {
-			return ChangeNewVersion
+		if offer.Ref == current.Ref {
+			return ChangeNone
 		}
-		return ChangeNone
+		return newerOrRefused(offer.Ref, current.Ref)
 	case pins.VersionTag:
 		if declaredVersion(offer.Ref) == declaredVersion(current.Ref) {
 			return ChangeRebuilt
 		}
-		return ChangeNewVersion
+		return newerOrRefused(declaredVersion(offer.Ref), declaredVersion(current.Ref))
 	}
 	return ChangeNone
+}
+
+// newerOrRefused is the one order predicate for a moved version. A signed manifest
+// proves authorship, not currency, so an offer is a new version only when it
+// orders strictly after what the host runs.
+func newerOrRefused(offer, current string) Change {
+	cmp, ok := compareVersions(offer, current)
+	switch {
+	case !ok || cmp == 0:
+		return ChangeUnorderable
+	case cmp < 0:
+		return ChangeManifestBehind
+	}
+	return ChangeNewVersion
+}
+
+// versionRun finds the first dotted-numeric run in a tag, so v0.101.0,
+// 3.3.1.0-full and v1.18.2-unprivileged all parse. A run needs a leading v or
+// digit boundary: "nightly" has none.
+var versionRun = regexp.MustCompile(`(?:^|[^0-9A-Za-z])v?(\d+(?:\.\d+)*)`)
+
+// compareVersions orders two version tags numerically, component by component.
+// ok is false when either has no numeric run. Equal numbers with different tags
+// (a suffix change) compare as 0 and the caller treats that as unorderable.
+func compareVersions(a, b string) (int, bool) {
+	pa, oka := parseVersion(a)
+	pb, okb := parseVersion(b)
+	if !oka || !okb {
+		return 0, false
+	}
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			if x < y {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func parseVersion(tag string) ([]int, bool) {
+	m := versionRun.FindStringSubmatch(tag)
+	if m == nil {
+		return nil, false
+	}
+	var out []int
+	for _, part := range strings.Split(m[1], ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
+}
+
+// proseOffer names a ref for a reason string: the declared tag for an image, the
+// ref itself for an asset.
+func proseOffer(shape pins.Shape, ref string) string {
+	if shape == pins.VersionTag {
+		return declaredVersion(ref)
+	}
+	return ref
 }
 
 // declaredVersion extracts the tag from an image reference, which is the version a

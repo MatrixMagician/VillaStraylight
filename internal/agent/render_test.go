@@ -76,6 +76,10 @@ var wantSandboxDisabledTools = []string{
 	"agent_dispatch", "agent_send", "agent_status", "agent_stop",
 }
 
+// wantSandboxDisabledSkills is the three skills Crush v0.101.0 embeds
+// (internal/skills/builtin). A workspace task needs none of them (#438).
+var wantSandboxDisabledSkills = []string{"crush-config", "crush-hooks", "jq"}
+
 // TestRenderSandboxTargetsTheInternalNetworkAndDisablesTheWebTools guards the
 // three things that make a workspace task's crush.json different from the coding
 // agent's: the provider points at the sandbox-network address the caller
@@ -92,8 +96,9 @@ func TestRenderSandboxTargetsTheInternalNetworkAndDisablesTheWebTools(t *testing
 
 	var parsed struct {
 		Options struct {
-			DisabledTools []string `json:"disabled_tools"`
-			AutoLSP       bool     `json:"auto_lsp"`
+			DisabledTools  []string `json:"disabled_tools"`
+			DisabledSkills []string `json:"disabled_skills"`
+			AutoLSP        bool     `json:"auto_lsp"`
 		} `json:"options"`
 		Providers map[string]struct {
 			BaseURL string `json:"base_url"`
@@ -113,6 +118,9 @@ func TestRenderSandboxTargetsTheInternalNetworkAndDisablesTheWebTools(t *testing
 
 	if !equalStrings(parsed.Options.DisabledTools, wantSandboxDisabledTools) {
 		t.Errorf("options.disabled_tools = %v, want %v", parsed.Options.DisabledTools, wantSandboxDisabledTools)
+	}
+	if !equalStrings(parsed.Options.DisabledSkills, wantSandboxDisabledSkills) {
+		t.Errorf("options.disabled_skills = %v, want %v", parsed.Options.DisabledSkills, wantSandboxDisabledSkills)
 	}
 	if parsed.Options.AutoLSP {
 		t.Error("options.auto_lsp = true, want false")

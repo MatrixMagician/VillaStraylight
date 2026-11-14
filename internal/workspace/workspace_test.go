@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -253,5 +254,86 @@ func TestRemove(t *testing.T) {
 
 	if _, err := Remove(cfg, "/home/op/unknown"); err == nil {
 		t.Error("Remove(unknown) = nil error, want a refusal")
+	}
+}
+
+// TestProjectSkillDirsFailsClosedOnAnyEntry guards the host/guest differential
+// (#438): Crush resolves these paths inside the VM, where the workspace is
+// mounted elsewhere, so a symlink that dangles or points outside on the host
+// can still resolve there. Any entry at a skill path, a symlinked parent, or a
+// probe error refuses; only not-exist everywhere starts.
+func TestProjectSkillDirsFailsClosedOnAnyEntry(t *testing.T) {
+	cases := []struct {
+		name    string
+		arrange func(t *testing.T, ws string)
+		want    string
+	}{
+		{"absent everywhere", func(t *testing.T, ws string) {}, ""},
+		{"dangling symlink at skills", func(t *testing.T, ws string) {
+			must(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o700))
+			must(t, os.Symlink("/nonexistent/guest/skills", filepath.Join(ws, ".claude", "skills")))
+		}, ".claude/skills"},
+		{"parent is a symlink", func(t *testing.T, ws string) {
+			must(t, os.Symlink("/nonexistent/guest/claude", filepath.Join(ws, ".claude")))
+		}, ".claude"},
+		{"regular file at skills", func(t *testing.T, ws string) {
+			must(t, os.MkdirAll(filepath.Join(ws, ".agents"), 0o700))
+			must(t, os.WriteFile(filepath.Join(ws, ".agents", "skills"), []byte("x"), 0o600))
+		}, ".agents/skills"},
+		{"probe error", func(t *testing.T, ws string) {
+			if os.Geteuid() == 0 {
+				t.Skip("root ignores directory modes")
+			}
+			dir := filepath.Join(ws, ".cursor")
+			must(t, os.MkdirAll(dir, 0o700))
+			must(t, os.Chmod(dir, 0))
+			t.Cleanup(func() { os.Chmod(dir, 0o700) })
+		}, ".cursor"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			tc.arrange(t, ws)
+			got := ProjectSkillDirs(ws, realDeps(t.TempDir(), "", ""))
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("ProjectSkillDirs = %v, want none", got)
+				}
+				return
+			}
+			if len(got) != 1 || !strings.Contains(got[0], filepath.Join(ws, tc.want)) {
+				t.Errorf("ProjectSkillDirs = %v, want one finding naming %s", got, filepath.Join(ws, tc.want))
+			}
+		})
+	}
+}
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestProjectSkillDirsNamesEveryDirTheWorkspaceHolds guards the #438 refusal's
+// input: a workspace holding any of Crush's four project skill dirs reports
+// each one by absolute path, and a workspace without them reports none.
+func TestProjectSkillDirsNamesEveryDirTheWorkspaceHolds(t *testing.T) {
+	ws := t.TempDir()
+	d := realDeps(t.TempDir(), "", "")
+
+	if got := ProjectSkillDirs(ws, d); len(got) != 0 {
+		t.Fatalf("clean workspace: ProjectSkillDirs = %v, want none", got)
+	}
+
+	for _, sub := range []string{".claude/skills/x", ".cursor/skills"} {
+		if err := os.MkdirAll(filepath.Join(ws, sub), 0o700); err != nil {
+			t.Fatalf("MkdirAll %s: %v", sub, err)
+		}
+	}
+	got := ProjectSkillDirs(ws, d)
+	want := []string{filepath.Join(ws, ".claude/skills"), filepath.Join(ws, ".cursor/skills")}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ProjectSkillDirs = %v, want %v", got, want)
 	}
 }

@@ -199,15 +199,11 @@ func (d Deps) capabilityFindings(cfg config.VillaConfig) []Finding {
 		}, props != nil, got))
 	}
 	if wantTools {
-		var got detect.Bool
-		if props != nil {
-			got = props.ToolsSupported
-		}
 		out = append(out, capabilityFinding(capabilitySpec{
 			id: "CAP-02", name: "Tool-call capability", claim: "tools mode is on",
-			missing: "the served model's chat template does not report tool support",
-			fix:     "run `villa model swap` to a model whose template supports tools, or `villa tools-mode exit`",
-		}, props != nil, got))
+			missing: inference.ToolsMissing,
+			fix:     inference.ToolsFix,
+		}, props != nil, props.ToolCapable()))
 	}
 	return out
 }
