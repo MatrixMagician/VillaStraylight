@@ -19,6 +19,7 @@ func offlineLaunchEnvs(t *testing.T, offline bool) map[string][]string {
 			"PATH=/usr/bin",
 			"HTTPS_PROXY=http://corp:3128", "https_proxy=http://corp:3128",
 			"HTTP_PROXY=http://corp:3128", "http_proxy=http://corp:3128",
+			"ALL_PROXY=http://corp:3128", "all_proxy=http://corp:3128",
 			"NO_PROXY=.corp.example", "no_proxy=.corp.example",
 		}
 	}
