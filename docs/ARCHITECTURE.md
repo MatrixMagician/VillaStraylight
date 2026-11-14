@@ -73,6 +73,8 @@ work` and `villa task` are HTTP clients of that runner over the loopback API and
 never a second copy of it. The task's exit code comes from the record's terminal
 state alone: `done` is `0`, `flagged` is `2`, everything else is `1`.
 
+The trust boundary, each control with the test that holds it, and the known gaps are in [THREAT_MODEL.md](THREAT_MODEL.md). Vulnerability reporting is in [SECURITY.md](../SECURITY.md).
+
 ## Component diagram
 
 ```mermaid
