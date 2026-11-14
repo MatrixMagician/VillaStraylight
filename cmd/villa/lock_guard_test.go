@@ -295,6 +295,9 @@ var lockRules = map[string]lockRule{
 	"liveImageProof": {readOnly: true},
 	// The voice proof reads villa-stt's invocation journal (#332) the same way.
 	"liveVoiceProof": {readOnly: true},
+	// The tool server proof reads the two tool units' journals from an instant
+	// (Systemd.JournalSince) and nothing else of systemd's (#363).
+	"liveToolsProof": {readOnly: true},
 }
 
 // guardFile is one non-test source file the guard reads.
