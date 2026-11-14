@@ -99,8 +99,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
   `codingmode` (the `villa code` delivery spine and the enter/exit swap
   change; crush.json drift is reported and never written over the operator's edits, AGENT-04,
-  except a drift that is only villa's inference key, which `villa code` and every stack apply
-  rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
+  except a drift that is only the values villa alone writes, its inference key and
+  `options.request_timeout` (sized from the served ctx, ADR-0044), which `villa code` and every
+  stack apply rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
   `doctor` (read-only runtime twin of preflight; it decides from the loaded config,
   ADR-0017, and its seams are raw reads), `backup` (the one ordered entry
@@ -118,7 +119,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
   "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
-  `villa work` and `villa task` are its loopback HTTP clients).
+  `villa work` and `villa task` are its loopback HTTP clients; the dashboard answers the
+  workspace-agent gate per request, `Config.TasksOn`, so turning `workspace_agent` on or
+  off needs no dashboard restart).
 
   Image generation (#312, ADR-0032) is `subsystem.Image`: `catalog.Image(id)` over the
   compiled-in image table (`internal/catalog/images.json`, never `catalog_path`),
@@ -456,18 +459,23 @@ rendered after the web-search block and before `villa-inferproxy`. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
 (`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
 `subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,
-ADR-0011): `villa-llama` joins `villa.network` ONLY (never the sandbox network,
-so a compromised task VM has no route through it to the internet), and
-`villa-inferproxy` joins BOTH networks, forwarding ONLY `POST
+ADR-0011): `villa-llama` and every resident slot join `villa-closed.network` ONLY
+(ADR-0043), keeping their loopback publish, so inference has no route off-box and
+never joins the sandbox network; `villa-inferproxy` joins `villa-closed.network` and
+`villa-sandbox.network`, both `Internal=true`, forwarding ONLY `POST
 /v1/chat/completions` and `GET /v1/models` to `villa-llama`'s bare root and
-injecting the real `LLAMA_API_KEY` bearer on that outbound leg — so a task's
+injecting the real `LLAMA_API_KEY` bearer on that leg — so a task's
 own request never needs a valid key of its own. `villa-closed.network`
-(`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-qdrant`,
-`villa-embed`, `villa-rerank`, `villa-extract`, `villa-stt`, `villa-tts` and
-`villa-image` join it and nothing else, so they have no route off-box; Open WebUI
-joins both it and `villa.network`. An in-network probe runs on its target's
-network (`probeCurl` takes it), and doctor's `networks` finding compares the
-running containers and networks with the rendered units. No container unit for the task
+(`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-llama`, the
+resident slots, `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
+`villa-stt`, `villa-tts` and `villa-image` join it and nothing else, so they have no
+route off-box; Open WebUI joins both it and `villa.network`. An in-network probe runs
+on its target's network (`probeCurl` takes it; inference and the proxy are probed on
+`villa-closed`, while `verify agent`'s egress control stays routed and uses Open
+WebUI's `/health` as its sanity target), and doctor's `networks` finding compares the
+running containers and networks with the rendered units. The Vulkan chat unit and
+`villa-image` carry no security option since #343; ROCm units keep
+`seccomp=unconfined`. No container unit for the task
 itself: each task is one `podman run --runtime=krun` named `villa-task-<id>`,
 rendered by `orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary
 the same way (the second reason the CGO-free gate is load-bearing).
