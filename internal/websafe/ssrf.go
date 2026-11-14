@@ -45,6 +45,9 @@ type Bounds struct {
 	MaxConcurrent int
 	// MaxRedirects caps the redirect chain; each hop is SSRF-re-validated.
 	MaxRedirects int
+	// MaxContentRunes cuts each page's text to that many runes before the fence is
+	// applied. Zero means no cut, which is what /load and websafe-serve run with.
+	MaxContentRunes int
 }
 
 // DefaultBounds returns the conservative v1.5 defaults (CONTEXT Area 3): ~2 MiB body
@@ -100,12 +103,12 @@ func ipRejected(ip netip.Addr) bool {
 	return slices.ContainsFunc(rejectPrefixes, func(p netip.Prefix) bool { return p.Contains(ip) })
 }
 
-// hostRejected blocks internal service names regardless of DNS resolution
+// HostRejected blocks internal service names regardless of DNS resolution
 // (defense-in-depth per and CONTEXT Area 3): "localhost", any "villa-" prefix
 // (the managed-service container-DNS names), and any ".network"/".localhost" suffix.
 // This is a name-based backstop; the authoritative check is the connect-time control
 // hook on the resolved IP. The comparison is case-insensitive.
-func hostRejected(host string) bool {
+func HostRejected(host string) bool {
 	h := strings.ToLower(host)
 	return h == "localhost" ||
 		strings.HasPrefix(h, "villa-") ||
@@ -136,7 +139,7 @@ func control(_, address string, _ syscall.RawConn) error {
 // SafeClient builds the SSRF-guarded *http.Client from the given Bounds: a net.Dialer
 // whose Control hook validates the connected IP, an overall request Timeout, and a
 // CheckRedirect that (1) caps the chain at b.MaxRedirects, (2) rejects non-http(s)
-// redirect schemes, and (3) rejects hostRejected redirect targets. The Control hook
+// redirect schemes, and (3) rejects HostRejected redirect targets. The Control hook
 // re-validates the resolved IP on each new dial, so every redirect hop is fully checked.
 //
 // This builds (does not run) a client; it is invoked from the cmd tier (Plan 03) with
@@ -155,7 +158,7 @@ func SafeClient(b Bounds) *http.Client {
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("SSRF: non-http(s) redirect scheme %q", req.URL.Scheme)
 			}
-			if hostRejected(req.URL.Hostname()) {
+			if HostRejected(req.URL.Hostname()) {
 				return fmt.Errorf("SSRF: refusing internal redirect host %q", req.URL.Hostname())
 			}
 			// The Control hook re-validates the resolved IP on the new dial.
