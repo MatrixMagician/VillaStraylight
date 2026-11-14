@@ -52,13 +52,25 @@ var citationRe = regexp.MustCompile(`^\[\d+\]`)
 // inspect normalises the body and reports each kind of active content in it, once
 // each. The normalised text is what is written: it is what the detectors saw.
 func inspect(body string) (normalised string, kinds []string) {
-	normalised = websafe.Normalize(body)
+	normalised = stripControls(websafe.Normalize(body))
 	for _, d := range detectors {
 		if d.re.MatchString(normalised) {
 			kinds = append(kinds, d.kind)
 		}
 	}
 	return normalised, kinds
+}
+
+// stripControls drops the C0 and C1 control characters other than newline and tab.
+// The page guard removes format characters, not these, and the report is printed to
+// a terminal, where an escape sequence is an instruction.
+func stripControls(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // snippet is a short, defanged window of the body around the first match of kind,

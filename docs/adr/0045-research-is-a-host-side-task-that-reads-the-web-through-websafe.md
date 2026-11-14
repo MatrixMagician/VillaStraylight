@@ -174,7 +174,7 @@ grounding finding and flags the task.
 Markdown: removed links and images, escaped brackets, and demoted headings that read as a
 source list. Review found three bypasses of it, all the same fault, a regular expression
 racing a Markdown parser: a model-written backslash cancelled villa's bracket escape
-(`\[x\](//host/x)` stayed a live link, and a protocol-relative destination passed); a
+(an escaped bracket followed by a protocol-relative destination stayed a live link); a
 container marker hid a forged heading (`> ## Sources`, `- ## Sources`); and a `\b`-anchored
 URL pattern missed a scheme glued to emphasis (`_https://host_`) that autolinkers still
 link. Each patch would invite the next, because the set of things a viewer might act on is

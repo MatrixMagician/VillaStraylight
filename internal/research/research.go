@@ -298,7 +298,7 @@ func (r *session) fetch(ctx context.Context, urls []string) ([]Source, *Result) 
 			r.d.Narrate("dropped a page that was not in a websafe fence: " + label(p.URL))
 			continue
 		}
-		s := Source{N: len(r.sources) + 1, URL: p.URL, Title: p.Title, Flagged: p.Flagged, Rules: p.Rules, Content: content}
+		s := Source{N: len(r.sources) + 1, URL: clean(p.URL), Title: label(p.Title), Flagged: p.Flagged, Rules: p.Rules, Content: content}
 		r.sources = append(r.sources, s)
 		fresh = append(fresh, s)
 		line := fmt.Sprintf("source [%d] %s", s.N, label(s.URL))

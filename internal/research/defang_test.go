@@ -1,6 +1,7 @@
 package research
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -191,5 +192,34 @@ func TestRunFailsWhenNoTokenCanBeMade(t *testing.T) {
 	f.tokenErr = fmt.Errorf("no entropy")
 	if res := run(f, Budget{Rounds: 1}); res.Outcome != Failed || res.Report != "" {
 		t.Errorf("outcome = %v report = %q, want failed with no report", res.Outcome, res.Report)
+	}
+}
+
+// TestRunKeepsTerminalControlsOutOfEverythingItPrints guards the terminal: the
+// report and the record are printed by `villa research` and `villa task show`, and
+// an escape sequence in model output or in a page title would be interpreted there.
+// NFKC and the page guard strip format characters, not the C0 and C1 controls.
+func TestRunKeepsTerminalControlsOutOfEverythingItPrints(t *testing.T) {
+	f := newFake(t)
+	f.report = func() (string, error) { return "Fine \x1b[2J\x1b]0;owned\x07 text [1]\u009b31m.", nil }
+	inner := f.fetch
+	f.fetch = func(ctx context.Context, urls []string) ([]Page, error) {
+		pages, _ := inner(ctx, urls)
+		for i := range pages {
+			pages[i].Title = "T\x1b[31mitle"
+			pages[i].URL += "\x1b[1m"
+		}
+		return pages, nil
+	}
+	res := run(f, Budget{Rounds: 1})
+	var all strings.Builder
+	all.WriteString(res.Report + strings.Join(f.narrated, "\n"))
+	for _, s := range res.Sources {
+		all.WriteString(s.Title + s.URL)
+	}
+	for _, r := range all.String() {
+		if r != '\n' && r != '\t' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) {
+			t.Fatalf("control character %U reached something printed:\n%q", r, all.String())
+		}
 	}
 }
