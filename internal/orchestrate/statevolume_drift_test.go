@@ -67,6 +67,7 @@ func statefulFixtureInput() RenderInput {
 	img := imageFixtureInput()
 	in.Cfg.ImageEnabled, in.Cfg.ImageModel, in.Image = true, img.Cfg.ImageModel, img.Image
 	in.Cfg.WorkspaceAgent = true
+	in.Cfg.ToolServer = true
 	return in
 }
 

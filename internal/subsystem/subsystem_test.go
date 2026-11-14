@@ -283,6 +283,7 @@ func TestOwnedStateIsTheWholeMapping(t *testing.T) {
 		Sandbox:    "",
 		Voice:      "",
 		Image:      "",
+		ToolServer: "",
 	}
 	if len(want) != len(Every) {
 		t.Fatalf("the mapping covers %d subsystems but Every names %d — a new subsystem must declare whether it owns state", len(want), len(Every))
@@ -401,8 +402,8 @@ func TestVoiceIsAnOptionalAddonAppendedBeforeImage(t *testing.T) {
 	if Voice.AlwaysOn() {
 		t.Error("Voice.AlwaysOn() = true; it is gated by voice_enabled")
 	}
-	if All[len(All)-2] != Voice || All[len(All)-1] != Image || Every[len(Every)-2] != Voice || Every[len(Every)-1] != Image {
-		t.Errorf("All %v and Every %v must end voice, image generation", All, Every)
+	if All[len(All)-2] != Voice || All[len(All)-1] != Image || Every[len(Every)-3] != Voice || Every[len(Every)-2] != Image || Every[len(Every)-1] != ToolServer {
+		t.Errorf("All %v must end voice, image generation and Every %v voice, image generation, tool server", All, Every)
 	}
 }
 

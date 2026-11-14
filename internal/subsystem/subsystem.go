@@ -245,7 +245,7 @@ var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
 // ask which are enabled — the pin table keys its entries by this vocabulary. The
 // order here is presentation order and is deliberately NOT the iota order, which
 // exists only to keep stored values stable.
-var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
+var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image, ToolServer}
 
 // On reports whether the named subsystem is enabled in this config.
 //

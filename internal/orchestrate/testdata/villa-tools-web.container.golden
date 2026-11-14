@@ -1,0 +1,18 @@
+# ~/.config/containers/systemd/villa-tools-web.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight tool server, web search (OpenAPI, read-only)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-tools-web
+Image=gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+Network=villa.network
+EnvironmentFile=%h/.config/villa/tools/web.env
+Volume=/home/villa/.local/bin/villa:/usr/local/bin/villa:ro,z
+Exec=/usr/local/bin/villa tools-serve --set web --host 0.0.0.0 --port 8092
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
