@@ -142,8 +142,8 @@ func TestReservationsJSONIsAppendOnly(t *testing.T) {
 	if !strings.Contains(string(offJSON), `"reservations":[]`) {
 		t.Errorf("an empty registry must marshal as [], got %s", offJSON)
 	}
-	if off.SchemaVersion != 9 {
-		t.Errorf("SchemaVersion = %d, want 9 (the reservations array bump)", off.SchemaVersion)
+	if off.SchemaVersion != 10 {
+		t.Errorf("SchemaVersion = %d, want 10", off.SchemaVersion)
 	}
 	onJSON, _ := json.Marshal(on.Reservations)
 	want := `[{"name":"web_search","bytes":` + jsonUint(on.WebSearchReservationBytes) + `}]`

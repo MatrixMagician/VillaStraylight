@@ -413,8 +413,8 @@ func TestPickMemoryReservation(t *testing.T) {
 		if rec.MemoryConsidered {
 			t.Errorf("MemoryConsidered = true, want false when memory is off")
 		}
-		if rec.SchemaVersion != 9 {
-			t.Errorf("SchemaVersion = %d, want 9 (the reservations array bump)", rec.SchemaVersion)
+		if rec.SchemaVersion != 10 {
+			t.Errorf("SchemaVersion = %d, want 10", rec.SchemaVersion)
 		}
 		if hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
 			t.Errorf("memory-off pick must carry no D-02 note, got %v", rec.Notes)
@@ -567,8 +567,8 @@ func TestPickWebSearchReservation(t *testing.T) {
 		if rec.WebSearchReservationBytes != 0 {
 			t.Errorf("WebSearchReservationBytes = %d, want 0 when web search is off", rec.WebSearchReservationBytes)
 		}
-		if rec.SchemaVersion != 9 {
-			t.Errorf("SchemaVersion = %d, want 9 (the reservations array bump)", rec.SchemaVersion)
+		if rec.SchemaVersion != 10 {
+			t.Errorf("SchemaVersion = %d, want 10", rec.SchemaVersion)
 		}
 	})
 
@@ -624,8 +624,8 @@ func TestPickWebSearchReservation(t *testing.T) {
 		if rec.WebSearchReservationBytes != webRes {
 			t.Errorf("WebSearchReservationBytes = %d, want %d (honest surface even on refusal)", rec.WebSearchReservationBytes, webRes)
 		}
-		if rec.SchemaVersion != 9 {
-			t.Errorf("refusal SchemaVersion = %d, want 9", rec.SchemaVersion)
+		if rec.SchemaVersion != 10 {
+			t.Errorf("refusal SchemaVersion = %d, want 10", rec.SchemaVersion)
 		}
 	})
 }
@@ -667,8 +667,8 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	if off.EmbeddingReservationBytes != 0 || off.MemoryConsidered {
 		t.Errorf("memory-off refusal must stamp zero/false, got reservation=%d considered=%v", off.EmbeddingReservationBytes, off.MemoryConsidered)
 	}
-	if off.SchemaVersion != 9 {
-		t.Errorf("refusal SchemaVersion = %d, want 9", off.SchemaVersion)
+	if off.SchemaVersion != 10 {
+		t.Errorf("refusal SchemaVersion = %d, want 10", off.SchemaVersion)
 	}
 
 	on := Pick(p, cat, Overrides{}, memOn("mystery-embedder"))
@@ -681,8 +681,8 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	if want := memory.ConservativeFootprintBytes(); on.EmbeddingReservationBytes != want {
 		t.Errorf("memory-on refusal reservation = %d, want as-computed %d (honest surface)", on.EmbeddingReservationBytes, want)
 	}
-	if on.SchemaVersion != 9 {
-		t.Errorf("refusal SchemaVersion = %d, want 9", on.SchemaVersion)
+	if on.SchemaVersion != 10 {
+		t.Errorf("refusal SchemaVersion = %d, want 10", on.SchemaVersion)
 	}
 }
 
