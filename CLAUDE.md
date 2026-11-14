@@ -36,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 through v1.19 (v1.19: doctor `CAP-01`/`CAP-02` against `/props`, `recommend --envelope`, `villa code --offline`, Fedora 45 and Podman 6 tested, Go 1.26.11 for GO-2026-6859), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
+**Shipped:** v1.0 through v1.20 (v1.20: inference on `villa-closed` only (ADR-0043), Crush v0.101.0, task refusals for a model without tool calls and for project skills, the post-run file observation in the task record (ADR-0047), `update --check` refuses an older offer), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
 release notes and `docs/adr/` are the history. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
@@ -64,15 +64,18 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
-  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`),
+  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`,
+  `--tool-server`),
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
-  bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
+  bind-mounted-binary shape — GHSA-gvp9, ADR-0011), tools-serve (hidden, the same shape:
+  the tool-server process, ADR-0042), backend, speculation, coding-mode,
   code (Crush, or Claude Code / Qwen Code via --agent claude / qwen; opt-in --offline), tools-mode, workspace, work, task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),
-  backup, restore, update, uninstall.
+  backup, restore, update, uninstall, catalog add (an entry from a commit-pinned
+  Hugging Face GGUF URL, ADR-0041).
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -94,6 +97,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   and `Compare` onto `verify.Status`; `evalstore` holds the eval baselines in
   `eval-baselines.json` (jsonstore, one per model + quant + suite version); it is a
   backup entry, restored verbatim with a WARN naming the baselines that drops (ADR-0020).
+  `catalogadd` (ADR-0041) is `villa catalog add`'s pure core: it accepts only a
+  `resolve/<40-hex commit>/<file>.gguf` URL, builds the entry from the GGUF header and
+  the pulled file's sha256 (trust on first use at that commit), with
+  `unified_memory_safe: false` so nothing auto-selects it, and extends `catalog_path` or
+  creates the managed `catalog-local.json` (a backup entry). `operator-supplied` /
+  `operator-edited` is derived against the embedded seed, never stored.
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
@@ -115,7 +124,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
   The v1.11 workspace-agent packages: `workspace` (the grant list and its
   refusals), `approval` (the Action × Mode table; deletion asks in every mode, as a
-  pattern, not a proof), `taskstore` (the record, its state machine, the log; never
+  pattern, not a proof; a task tainted by web content, ADR-0040, asks for every write
+  and execute, `--auto` included), `taskstore` (the record, its state machine, the log; never
   deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
   "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
@@ -134,6 +144,20 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   placement-line fold: RAM > 0 is a FAIL). `cmd/villa/install_image.go` holds the
   pre-stage and THE image proof install, doctor (`IMG-DOC-residency`) and
   `update image` share.
+
+  The tool server (#313, ADR-0042) is `toolserver`: one Go tool table yields the
+  routes, the dispatcher and the OpenAPI document, so a tool cannot be served without
+  being documented. One process serves one set (`tools-serve --set web|recall`), every
+  route is a bearer-gated GET, and every returned text goes through `websafe.Guard`.
+  Recall needs the `X-Villa-User-Id` header Open WebUI fills and filters to the
+  caller's files through `recall.ScopeOf`. `subsystem.ToolServer` is the gate
+  (`tool_server`), with derived gates `ToolWebOn` (needs web search) and `ToolRecallOn`
+  (needs memory); the two bearers and the Open WebUI connection reach their containers
+  only through 0600 env files under `~/.config/villa/tools/`.
+  `toolproof` is the pure core of `villa verify tools`: seven named legs (`contract`,
+  `refusals`, `registration`, `web`, `scope`, `closed-network`, `chat`), recorded in
+  `verify-tools-state.json` and read back by doctor's `tool-server-proof` finding; a
+  leg it could not conduct is a REJECT, never a pass.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
@@ -195,11 +219,11 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: the `villa` binary is Go (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers): one static, CGO-free binary, easy self-hosted distribution. Other first-party code may be any language when it integrates through that binary: villa ships it (embedded or sha256-pinned), runs it, renders its config from `config.toml`, proves it, and runs it on a pinned runtime (ADR-0046).
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44 and 45 (the tested set) on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
-- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389).
+- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389), or none with `villa code --offline` (captured for all three agents).
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, Qdrant, SearXNG); build only the control plane.
 
@@ -207,7 +231,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. The binary stays Go and static; first-party code in another language is allowed only on ADR-0046's terms.
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
@@ -412,7 +436,7 @@ images in `internal/orchestrate/{memory,searxng,websafe,extract,image}.go`, and
 | prune | Reference-counted image removal — the only image deletion in this project | `internal/prune/prune.go` |
 | snapshotprune | Data-snapshot retention — the only snapshot deletion in this project | `internal/snapshotprune/snapshotprune.go` |
 | workspace | The registered grant list: `Register`/`Remove`/`Registered`, typed refusals, fail-closed at registration | `internal/workspace/workspace.go` |
-| approval | Pure Action × Mode table for a task's tool call: allow, ask, deny; deletion asks in every mode (a pattern, not a proof) | `internal/approval/approval.go` |
+| approval | Pure Action × Mode × Taint table for a task's tool call: allow, ask, deny; deletion asks in every mode, and a tainted task's write or execute asks (ADR-0040); a pattern, not a proof | `internal/approval/approval.go` |
 | taskstore | The task record, its state machine (`Exit(State)` is the one state → exit-code map), the append-only log; never deletes | `internal/taskstore/*.go` |
 | crushapi | The Crush server client + the bridge's one-object-per-line stdio protocol | `internal/crushapi/*.go` |
 | grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |
@@ -455,7 +479,10 @@ Vulkan with its model pre-staged in the models volume, and Kokoro on the CPU; on
 gate, `voice_enabled`, one round-trip proof) — the web-search pair bind-mounts the `villa` binary into a
 distroless container, which is why the CGO-free build gate is load-bearing — and,
 when `subsystem.ImageOn`, `villa-image` (sd-server on Vulkan RADV, ADR-0032),
-rendered after the web-search block and before `villa-inferproxy`. The
+rendered after the web-search block and before `villa-inferproxy`. The tool server
+(ADR-0042) adds `villa-tools-web` on `villa.network` only and `villa-tools-recall` on
+`villa-closed.network` only, each under its derived gate, after the voice units; both
+bind-mount the `villa` binary on the websafe pin and publish no host port. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
 (`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
 `subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,
@@ -468,7 +495,7 @@ injecting the real `LLAMA_API_KEY` bearer on that leg — so a task's
 own request never needs a valid key of its own. `villa-closed.network`
 (`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-llama`, the
 resident slots, `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
-`villa-stt`, `villa-tts` and `villa-image` join it and nothing else, so they have no
+`villa-stt`, `villa-tts`, `villa-image` and `villa-tools-recall` join it and nothing else, so they have no
 route off-box; Open WebUI joins both it and `villa.network`. An in-network probe runs
 on its target's network (`probeCurl` takes it; inference and the proxy are probed on
 `villa-closed`, while `verify agent`'s egress control stays routed and uses Open

@@ -52,6 +52,10 @@ type Opts struct {
 	// Image opts into local image generation (#312), with the same
 	// persist-and-inherit behaviour as WebSearch.
 	Image bool
+	// ToolServer opts into villa's own tool server (#313, ADR-0042), with the same
+	// persist-and-inherit behaviour as WebSearch. It carries tools mode with it, as the
+	// workspace agent does: a model served without tool calling cannot use a tool.
+	ToolServer bool
 	// DryRun prints the rendered changed units and mutates NOTHING: no write, no
 	// pull, no persist, no privileged host-prep, no wizard.
 	DryRun bool
@@ -84,6 +88,30 @@ type Gates struct {
 	Voice bool
 	// Image is the resolved image-generation gate (#312).
 	Image bool
+	// ToolServer is the resolved tool-server gate. Each of its two units also needs what
+	// it publishes: ToolWeb and ToolRecall are the derived answers.
+	ToolServer bool
+}
+
+// ToolWeb reports whether villa-tools-web renders for this run: the tool server, and web
+// search to search through. It mirrors subsystem.ToolWebOn over the resolved gates.
+func (g Gates) ToolWeb() bool { return g.ToolServer && g.WebSearch }
+
+// ToolRecall reports whether villa-tools-recall renders for this run: the tool server, and
+// the memory stack it queries. It mirrors subsystem.ToolRecallOn over the resolved gates.
+func (g Gates) ToolRecall() bool { return g.ToolServer && g.Memory }
+
+// ToolServerRefusal is the pre-mutation refusal for a tool server with nothing to publish:
+// neither web search nor memory is on, so neither unit would render and the gate would be a
+// config flag with no effect. It returns "" when the run may proceed, and the operator-facing
+// remedy otherwise.
+func ToolServerRefusal(g Gates) string {
+	if !g.ToolServer || g.WebSearch || g.Memory {
+		return ""
+	}
+	return "install: --tool-server publishes web search and recall to chat, and neither is on, so it has " +
+		"nothing to serve. Run `villa install --web-search --tool-server` to publish web search, or set " +
+		"memory_enabled=true in config.toml and re-run `villa install --tool-server` to publish recall.\n"
 }
 
 // On reports the resolved gate for a subsystem, so a caller can ask by kind rather
@@ -104,6 +132,8 @@ func (g Gates) On(k subsystem.Kind) bool {
 		return g.Voice
 	case subsystem.Image:
 		return g.Image
+	case subsystem.ToolServer:
+		return g.ToolServer
 	case subsystem.Inference, subsystem.Chat:
 		// Always on: an install renders both units unconditionally, so there is no
 		// resolved gate to hold and nothing a flag could turn off. Answered here
@@ -132,6 +162,9 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 		Sandbox:   subsystem.SandboxOn(cfg) || opts.WorkspaceAgent,
 		Voice:     subsystem.VoiceOn(cfg) || opts.Voice,
 		Image:     subsystem.ImageOn(cfg) || opts.Image,
+		// The persisted gate is read through the accessor, and the flag raises it for
+		// this run. The units still need web search or memory: ToolServerRefusal.
+		ToolServer: subsystem.ToolServerOn(cfg) || opts.ToolServer,
 	}
 	// Coding mode is entered by the addon opt-in, and only with a coder to serve.
 	if opts.CodingAgent && rec.Coder.Model != "" {
@@ -159,6 +192,10 @@ func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 		cfg.ToolsMode = true
 	}
 	cfg.ImageEnabled = g.Image
+	cfg.ToolServer = g.ToolServer
+	if g.ToolServer {
+		cfg.ToolsMode = true
+	}
 	return cfg
 }
 

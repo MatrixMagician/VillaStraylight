@@ -85,7 +85,10 @@ graph TD
     CLI --> catalog["internal/catalog<br/>embedded model catalog + fit dims"]
     CLI --> recommend["internal/recommend<br/>Pick: memory-fitting model (pure)"]
     CLI --> preflight["internal/preflight<br/>host-readiness checks (pure)<br/>+ ROCm gate (rocm-policy.json)"]
-    CLI --> download["internal/download<br/>verified resumable GGUF pull"]
+    CLI --> download["internal/download<br/>verified resumable GGUF pull<br/>+ Fetch (checksum learned, ADR-0041)"]
+    CLI --> catalogadd["internal/catalogadd<br/>catalog add: pinned URL → entry (pure, ADR-0041)"]
+    catalogadd --> catalog
+    catalogadd --> gguf
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
     CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → stop + remove orphans → write changed → reload (ADR-0013, ADR-0035)<br/>+ swap transaction frame Transact (ADR-0015)"]
@@ -147,6 +150,11 @@ graph TD
     stackapply -.catalog.Image → ImageServe.-> orchestrate
     orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
     owui -.automatic1111 engine, villa-closed.-> image
+    orchestrate -.tools.container.tmpl, the villa-websafe base image, villa binary bind-mounted.-> toolsweb["villa-tools-web<br/>villa tools-serve --set web: GET /web/search<br/>on villa.network only (ADR-0042)"]
+    orchestrate -.tools.container.tmpl.-> toolsrecall["villa-tools-recall<br/>villa tools-serve --set recall: GET /recall/search<br/>on villa-closed.network only, scoped by X-Villa-User-Id (ADR-0042)"]
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsweb
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsrecall
+    stackapply -.heal: bearers, tools/*.env, recall scope.-> toolsrecall
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
@@ -235,7 +243,14 @@ emits through its `Emit` seam.
    `villa-closed.network` (`Internal=true`) only, so inference has no route off-box
    while its loopback publish still serves the host (ADR-0043); Open WebUI is on
    both `villa.network` and the closed network, and `villa-inferproxy` bridges the
-   closed and sandbox networks.
+   closed and sandbox networks. With `tool_server` on, two more units render after the
+   voice units: `villa-tools-web` (needs web search) on `villa.network` only and
+   `villa-tools-recall` (needs memory) on `villa-closed.network` only. Both run the
+   host `villa` binary in the `villa-websafe` base image, publish no port, and read a
+   0600 env file for their bearer; Open WebUI's one extra `EnvironmentFile=` carries
+   both bearers in the `TOOL_SERVER_CONNECTIONS` line it registers them from. The stack
+   apply's heal generates the bearers and writes those files and the recall scope
+   file before it renders (ADR-0042).
 6. **Reconcile**: `orchestrate.Reconcile(units, unitDir)` (pure) does a sha256
    render-vs-disk diff, classifying each unit Changed or Unchanged. An empty Changed
    slice is a true no-op, the idempotency core.
@@ -358,9 +373,12 @@ dashboard service drives rather than reads:
    `bridge_ready` line. The instruction goes in with `grounding.CitationInstruction`
    appended. Every Crush permission request is answered by `approval.Decide` or
    parks the task in `awaiting_approval`; file events append to the record.
-4. **Audit**: after `run_complete`, one `grounding.Audit` call per file the task
-   created or modified, the sources being the files the session read. Any
-   unsupported claim, or an audit that could not run, makes the task `flagged`.
+4. **Observe and audit**: after `run_complete`, the runner reads each distinct
+   reported path once and records an observation (present with size and sha256,
+   absent, or unobserved; ADR-0047). Then one `grounding.Audit` call per present
+   document, over the bytes the observation hashed, the sources being the files
+   the session read. A reported file absent after the run, any unsupported
+   claim, or an audit that could not run makes the task `flagged`.
 5. **Finish**: the terminal state is written under a legal edge of
    `taskstore.CanTransition`, the container exits (`--rm`), and the terminal
    re-reads the record from the API before printing the summary, so a cut stream
@@ -577,7 +595,10 @@ cmd/
 internal/
   detect/             Host probe → typed-Unknown HostProfile; AMD GPU seam in
                       gpu_amd.go; ROCm-viability summary in readiness_rocm.go.
-  catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions.
+  catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions;
+                      Origin (an entry's relation to the seed, derived, ADR-0041).
+  catalogadd/         Pure core of `villa catalog add` (ADR-0041): the pinned-URL
+                      grammar, entry builder, merge and re-add rules, Run over Deps.
   gguf/               GGUF header + KV-section reader (never the tensors): the
                       witness the catalog's fit dimensions are checked against.
   recommend/          Pure memory-fit model selector (Pick) over detect + catalog.

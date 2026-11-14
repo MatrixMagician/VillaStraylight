@@ -16,6 +16,7 @@ var closedServiceUnits = []string{
 	"villa-image.container",
 	"villa-stt.container",
 	"villa-tts.container",
+	"villa-tools-recall.container",
 }
 
 // networkLines returns a unit's Network= values in order.
@@ -72,6 +73,7 @@ func TestRoutedUnitsKeepTheirNetworks(t *testing.T) {
 	want := map[string][]string{
 		"villa-searxng.container":   {"villa.network"},
 		"villa-websafe.container":   {"villa.network"},
+		"villa-tools-web.container": {"villa.network"},
 		"villa-openwebui.container": {"villa.network", "villa-closed.network"},
 	}
 	for name, nets := range want {
@@ -197,17 +199,19 @@ func TestNetworkTopologyReadsTheRenderedUnits(t *testing.T) {
 	joins := map[string][]string{
 		"villa-llama": {"villa-closed"},
 		"villa-llama-" + residentSlug(residentModelID): {"villa-closed"},
-		"villa-openwebui":  {"villa", "villa-closed"},
-		"villa-qdrant":     {"villa-closed"},
-		"villa-embed":      {"villa-closed"},
-		"villa-rerank":     {"villa-closed"},
-		"villa-extract":    {"villa-closed"},
-		"villa-image":      {"villa-closed"},
-		"villa-stt":        {"villa-closed"},
-		"villa-tts":        {"villa-closed"},
-		"villa-searxng":    {"villa"},
-		"villa-websafe":    {"villa"},
-		"villa-inferproxy": {"villa-closed", "villa-sandbox"},
+		"villa-openwebui":    {"villa", "villa-closed"},
+		"villa-qdrant":       {"villa-closed"},
+		"villa-embed":        {"villa-closed"},
+		"villa-rerank":       {"villa-closed"},
+		"villa-extract":      {"villa-closed"},
+		"villa-image":        {"villa-closed"},
+		"villa-stt":          {"villa-closed"},
+		"villa-tts":          {"villa-closed"},
+		"villa-searxng":      {"villa"},
+		"villa-websafe":      {"villa"},
+		"villa-inferproxy":   {"villa-closed", "villa-sandbox"},
+		"villa-tools-web":    {"villa"},
+		"villa-tools-recall": {"villa-closed"},
 	}
 	if !maps.EqualFunc(top.Joins, joins, slices.Equal) {
 		t.Errorf("Joins = %v,\nwant    %v", top.Joins, joins)

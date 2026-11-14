@@ -36,7 +36,7 @@ func BackendFor(name string) (Backend, error) {
 	case "rocm-6.4.4":
 		return backendROCm{name: "rocm-6.4.4", image: rocmImage644, load: loadResident}, nil
 	case "rocm-6.4.4-rocwmma":
-		return backendROCm{name: "rocm-6.4.4-rocwmma", image: rocmImage644wmma, load: loadResidentLegacy}, nil
+		return backendROCm{name: "rocm-6.4.4-rocwmma", image: rocmImage644wmma, load: loadResidentLegacy, noSpeculation: true}, nil
 	default:
 		return nil, fmt.Errorf("unknown inference backend %q: set backend = "+
 			"\"rocm\" (10.0, default), \"rocm-10.0\", \"rocm-7.2.4\", "+

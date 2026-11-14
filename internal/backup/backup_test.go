@@ -586,12 +586,12 @@ func TestBackupSearxngSettings(t *testing.T) {
 		if !csum[EntrySearxngSettings] {
 			t.Fatalf("settings.yml entry has no checksum: %+v", m.Entries)
 		}
-		// The manifest stamps its OWN backupSchemaVersion (5), never a caller value.
+		// The manifest stamps its OWN backupSchemaVersion (6), never a caller value.
 		if m.SchemaVersion != backupSchemaVersion {
 			t.Fatalf("manifest must stamp schema %d, got %d", backupSchemaVersion, m.SchemaVersion)
 		}
-		if backupSchemaVersion != 5 {
-			t.Fatalf("the eval-baselines backup contract (ADR-0020) is schema 5, got %d", backupSchemaVersion)
+		if backupSchemaVersion != 6 {
+			t.Fatalf("the catalog-local.json backup contract (ADR-0020, ADR-0041) is schema 6, got %d", backupSchemaVersion)
 		}
 	})
 

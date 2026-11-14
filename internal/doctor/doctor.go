@@ -37,6 +37,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
@@ -121,7 +122,23 @@ const (
 //     types: the config's vision and tool-support claims against the served model's
 //     /props. Each is emitted only when the config claims its capability, so a
 //     config that claims neither is byte-identical except this bump.
-const reportSchemaVersion = 13
+//   - v14: the tool-server fold (#362, ADR-0042) — the villa-tools-web and
+//     villa-tools-recall health rows fold for free from the status rows like v9/v10,
+//     and `tool-server` is a NEW doctor-owned finding type, emitted only while the gate
+//     is on: neither web search nor memory is on, tools mode is off, or the recall
+//     scope names no collection. A tool-server-off config is byte-identical except
+//     this bump.
+//   - v15: the tool-server-proof finding (#363, ADR-0042) — a NEW doctor-owned finding
+//     type, emitted only while the tool server gate is on: the last recorded `villa verify
+//     tools` result under the freshness rule `search-egress` uses (a fresh FAIL fails, a
+//     fresh REJECT, a stale or absent record warns). A tool-server-off config is
+//     byte-identical except this bump.
+//   - v16: the CAT-02 / CAT-03 catalog-provenance findings (ADR-0041) — folded for free
+//     through the unchanged findingFromCheck path like v4/v5. CAT-02 appears only when
+//     the configured model is operator-supplied or operator-edited, and CAT-03 only when
+//     an external catalog lacks entries the embedded seed ships, so a host on the
+//     embedded seed is byte-identical except this bump.
+const reportSchemaVersion = 16
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -215,6 +232,12 @@ type Deps struct {
 	// (a caller that could not load the catalog) no CAT-01 finding is emitted at all,
 	// never a PASS-by-default.
 	CatalogGeometry func() []preflight.CheckResult
+	// CatalogOrigin is the provenance of an external catalog (preflight.RunCatalogOrigin,
+	// ADR-0041): CAT-02 names the configured model when the operator supplied or edited
+	// it, and CAT-03 warns when the catalog lacks entries the embedded seed ships. Its
+	// CheckResults fold through findingFromCheck. NIL-SAFE, and the cmd tier binds it
+	// only for an external catalog, so a host on the embedded seed emits neither.
+	CatalogOrigin func() []preflight.CheckResult
 	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
 	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
 	// kvm/probe seams — composition over re-implementation). Its CheckResults fold
@@ -292,6 +315,17 @@ type Deps struct {
 	// than PASS. Called at most once per run, and only when the config claims a
 	// capability.
 	Props func() *inference.PropsInfo
+
+	// ReadRecallScope reads the recall scope file the tool server's recall unit mounts
+	// (ADR-0042). It is read only while the recall unit renders. The reader fails closed:
+	// an absent or corrupt file is the zero Scope, which names no collection. nil is the
+	// same answer, so a caller that wires no reader never reads a PASS.
+	ReadRecallScope func() (recall.Scope, error)
+
+	// ReadToolsVerifyState reads the last recorded `villa verify tools` result (#363,
+	// ADR-0042). nil, as a reader or as a result, means the record could not be read; a zero
+	// State means none is recorded.
+	ReadToolsVerifyState func() *verifystate.State
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -459,6 +493,12 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 			findings = append(findings, findingFromCheck(c))
 		}
 	}
+	// 1a'. CATALOG ORIGIN: CAT-02 / CAT-03 (ADR-0041), the same kind of disk fact.
+	if d.CatalogOrigin != nil {
+		for _, c := range d.CatalogOrigin() {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
 
 	// 1b. MEMORY HOST GATE: fold the opt-in vector-disk/headroom checks
 	// (Deps.RunMemoryChecks = preflight.RunMemory) verbatim via findingFromCheck — composition over
@@ -591,6 +631,15 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	// generation can show.
 	if subsystem.ImageOn(cfg) {
 		findings = append(findings, imageResidencyFinding(d.ImageResidency()))
+	}
+
+	// 2f. TOOL SERVER (#362, ADR-0042): the tool units' health rows fold for free through
+	// the healthFinding loop in step 2. What a row cannot say is whether the gate has
+	// anything to publish, whether the model can call a tool, and whether the recall unit
+	// has a collection to search, so that is one finding, emitted only while the gate is on.
+	if subsystem.ToolServerOn(cfg) {
+		findings = append(findings, d.toolServerFinding(cfg))
+		findings = append(findings, d.toolServerProofFinding())
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -729,6 +778,104 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 		Overall:       overall,
 		SchemaVersion: reportSchemaVersion,
 	}
+}
+
+// toolServerFinding builds the `tool-server` finding: a WARN for each condition the ADR
+// lists, or a PASS when none holds. Every WARN names the verb that fixes it.
+func (d Deps) toolServerFinding(cfg config.VillaConfig) Finding {
+	const (
+		id   = "tool-server"
+		name = "Tool server"
+	)
+	var details, remedies []string
+	if !subsystem.WebSearchOn(cfg) && !subsystem.MemoryOn(cfg) {
+		details = append(details, "tool_server is on but neither web search nor the memory stack is, so no tool unit renders")
+		remedies = append(remedies, "run `villa install --web-search --tool-server`, or set memory_enabled=true in config.toml and run `villa install --tool-server`, or set tool_server=false")
+	}
+	if !subsystem.ToolsOn(cfg) {
+		details = append(details, "tools mode is off, so the served model cannot call a tool")
+		remedies = append(remedies, "run `villa tools-mode enter`")
+	}
+	if subsystem.ToolRecallOn(cfg) {
+		var scope recall.Scope
+		var err error
+		if d.ReadRecallScope != nil {
+			scope, err = d.ReadRecallScope()
+		}
+		switch {
+		case err != nil:
+			details = append(details, "the recall scope file could not be read: "+err.Error())
+			remedies = append(remedies, "run `villa up` to rewrite it")
+		case scope.KnowledgeID == "":
+			details = append(details, "the recall scope names no collection, so every recall call is refused with a 503")
+			remedies = append(remedies, "run `villa recall index`")
+		}
+	}
+	if len(details) == 0 {
+		return Finding{
+			ID: id, Name: name, Tier: tierWarn, Status: statusPass,
+			Detail:     "the tool server has something to publish, tools mode is on and the recall scope names a collection or has no recall unit to serve",
+			Provenance: "subsystem.ToolWebOn / ToolRecallOn, subsystem.ToolsOn, recall scope file",
+		}
+	}
+	return Finding{
+		ID: id, Name: name, Tier: tierWarn, Status: statusWarn,
+		Detail:      strings.Join(details, "; "),
+		Remediation: strings.Join(remedies, "; "),
+		Provenance:  "subsystem.ToolWebOn / ToolRecallOn, subsystem.ToolsOn, recall scope file",
+	}
+}
+
+// toolServerProofFinding maps the last recorded `villa verify tools` result into a Finding,
+// under the freshness rule `villa status` applies to `villa verify search` (status.VerifyFresh),
+// and never a config bool:
+//
+//   - a fresh PASS is a PASS;
+//   - a fresh FAIL is a BLOCK-class FAIL, a confident failure that is never swallowed;
+//   - a fresh REJECT is a WARN: the proof could not be conducted, so nothing was disproven
+//     and nothing was shown;
+//   - anything else (unreadable, absent, stale, future-dated, undated, an unknown verdict) is
+//     a WARN that says which, because the property must be re-proven and never trusted from
+//     a stale or missing record.
+//
+// Every non-PASS carries a Remediation naming the verb. Emitted only while the gate is on.
+func (d Deps) toolServerProofFinding() Finding {
+	f := Finding{
+		ID:         "tool-server-proof",
+		Name:       "Tool server proof",
+		Provenance: "cached `villa verify tools` result + freshness gate (status.VerifyFresh)",
+	}
+	const reprove = "run `villa verify tools` to prove the tool server, then re-run `villa doctor`"
+	var st *verifystate.State
+	if d.ReadToolsVerifyState != nil {
+		st = d.ReadToolsVerifyState()
+	}
+	warn := func(detail string) Finding {
+		f.Tier, f.Status, f.Detail, f.Remediation = tierWarn, statusWarn, detail, reprove
+		return f
+	}
+	switch {
+	case st == nil:
+		return warn("the tool server is not proven: the recorded `villa verify tools` result could not be read")
+	case st.CheckedAt == "":
+		return warn("the tool server is not proven: no `villa verify tools` result is recorded")
+	case !status.VerifyFresh(st.CheckedAt):
+		return warn("the tool server is not proven: the last `villa verify tools` (checked " + st.CheckedAt + ") is stale or cannot be dated")
+	}
+	switch st.Verdict {
+	case "PASS":
+		f.Tier, f.Status = tierBlock, statusPass
+		f.Detail = "a recent `villa verify tools` PASS (checked " + st.CheckedAt + ")"
+	case "FAIL":
+		f.Tier, f.Status = tierBlock, statusFail
+		f.Detail = "the last `villa verify tools` did not pass (verdict FAIL, checked " + st.CheckedAt + ")"
+		f.Remediation = "run `villa verify tools` for the failing leg and fix it, then re-run `villa doctor`"
+	case "REJECT":
+		return warn("the last `villa verify tools` (checked " + st.CheckedAt + ") could not be conducted: a unit, the search engines or the model was unavailable, so nothing was proven")
+	default:
+		return warn("the last `villa verify tools` recorded the verdict " + st.Verdict + ", which is not a pass")
+	}
+	return f
 }
 
 // toolsDriftFinding builds TMD-01 from the seam's three-valued answer.

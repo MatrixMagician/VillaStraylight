@@ -1,5 +1,5 @@
 // Package agent is the pure, Deps-injected core for VillaStraylight's strictly-
-// local terminal coding agent (Crush v0.76.0): the agent-delivery spine behind
+// local terminal coding agent (Crush v0.101.0): the agent-delivery spine behind
 // the `villa code` launcher verb. It owns four pure concerns:
 //
 //   - policy.go : the go:embed Crush pin policy (version + per-platform asset +

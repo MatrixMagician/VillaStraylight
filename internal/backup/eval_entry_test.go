@@ -83,8 +83,8 @@ func TestBackupArchivesEvalBaselines(t *testing.T) {
 		t.Fatalf("eval-baselines.json must be the last member (registry order), got %v", names)
 	}
 	m := manifestFromArchive(t, out.Bytes())
-	if m.EvalSchemaVersion != 1 || m.SchemaVersion != 5 {
-		t.Fatalf("manifest must record eval schema 1 under backup schema 5, got eval %d schema %d", m.EvalSchemaVersion, m.SchemaVersion)
+	if m.EvalSchemaVersion != 1 || m.SchemaVersion != backupSchemaVersion {
+		t.Fatalf("manifest must record eval schema 1 under backup schema %d, got eval %d schema %d", backupSchemaVersion, m.EvalSchemaVersion, m.SchemaVersion)
 	}
 	var recorded bool
 	for _, e := range m.Entries {

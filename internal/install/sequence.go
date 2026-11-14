@@ -126,6 +126,9 @@ type Units struct {
 	Stt       string
 	Tts       string
 	Image     string
+	// ToolsWeb and ToolsRecall are the tool server's two units (ADR-0042).
+	ToolsWeb    string
+	ToolsRecall string
 }
 
 // BuildSequence derives the mutate-and-start sequence for a run.
@@ -153,6 +156,12 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 	// missing.
 	if gates.WebSearch {
 		steps = append(steps, Step{Kind: StepWriteSecretFile, Secret: "web-loader-bearer"})
+	}
+
+	// The tool server's 0600 files (each unit's bearer and the chat unit's connection
+	// list) land before the chat UI starts, for the same reason: the chat unit names one.
+	if gates.ToolServer {
+		steps = append(steps, Step{Kind: StepWriteSecretFile, Secret: "tool-bearers"})
 	}
 
 	// Inference before the chat UI, so the UI comes up against a live backend.
@@ -189,6 +198,27 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 			Step{Kind: StepStart, Service: u.Tts, RequiresUnit: u.Tts},
 			Step{Kind: StepProve, Service: u.Stt},
 		)
+	}
+
+	// The tool server (ADR-0042): the units render after voice, so they start after
+	// it, and after the memory and web-search services each one reads. One health wait
+	// follows both starts, because install proves the unit answers, and the contract
+	// proof is `villa verify tools`.
+	if gates.ToolServer {
+		var proved string
+		if gates.ToolWeb() {
+			steps = append(steps, Step{Kind: StepStart, Service: u.ToolsWeb, RequiresUnit: u.ToolsWeb})
+			proved = u.ToolsWeb
+		}
+		if gates.ToolRecall() {
+			steps = append(steps, Step{Kind: StepStart, Service: u.ToolsRecall, RequiresUnit: u.ToolsRecall})
+			if proved == "" {
+				proved = u.ToolsRecall
+			}
+		}
+		if proved != "" {
+			steps = append(steps, Step{Kind: StepProve, Service: proved})
+		}
 	}
 
 	// The image server last, gated on its own unit: its 9 GB eager load starts

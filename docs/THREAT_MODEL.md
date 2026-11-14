@@ -45,25 +45,29 @@ verifies it.
 | Dashboard API callers | A Host allowlist refuses a DNS-rebinding page. A state-changing request needs a JSON content type and a same-origin signal. Each accepted connection is checked against the owning UID through `/proc/net/tcp`, and a peer that cannot be resolved is refused. | No ADR. GHSA-3r95, GHSA-6mq8. | `internal/dashboard/middleware.go`, `internal/dashboard/peercred.go`; `TestSameOriginGuardRejectsSpoofedHost`, `TestSameOriginGuardRejectsCrossOrigin`, `TestPeerUIDListenerAccept` |
 | Inference key | llama-server is started with an api key. villa generates the key once and hands it to units in a 0600 `EnvironmentFile=`, never on an `Exec=` line or a podman command line. `/health` and `/v1/models` stay public. One exception is listed under known gaps. | [ADR-0011], [ADR-0014] | `TestWriteInferenceSecretEnvRoundTrip`, `TestInferenceSecretEnvFilePathContract`, `TestContainerArgsSecretEnvFile` |
 | Inference client gate | One client owns the unit's address, the key and every route villa calls. A read of `InferenceSecret`, an address accessor or a route literal anywhere else fails the build unless the gate lists the file with a reason. An in-network curl probe receives the key on stdin, not in argv. | [ADR-0014] | `TestInferenceReachedOnlyThroughClient` in `cmd/villa/inference_apikey_gate_test.go` |
-| Networks | `villa.network` routes off-box. `villa-closed.network` and `villa-sandbox.network` are `Internal=true`. The seven services with no runtime egress, `villa-llama` and each resident slot join the closed network and nothing else. `villa-inferproxy` joins the closed and sandbox networks. Open WebUI joins `villa.network` and the closed network. Known gap 4 says what is unproven. | [ADR-0036], [ADR-0043], [ADR-0011] | `TestClosedServicesJoinOnlyTheClosedNetwork`, `TestInferenceUnitsJoinOnlyTheClosedNetwork`, `TestInferproxyBridgesTheClosedAndSandboxNetworks`, `TestInferenceUnitsCarryNoFetchFlag`, `TestRoutedUnitsKeepTheirNetworks`, `TestRenderClosedNetworkGolden` |
+| Networks | `villa.network` routes off-box. `villa-closed.network` and `villa-sandbox.network` are `Internal=true`. The eight services with no runtime egress (the seven, and `villa-tools-recall`), `villa-llama` and each resident slot join the closed network and nothing else. `villa-inferproxy` joins the closed and sandbox networks. Open WebUI joins `villa.network` and the closed network. Known gap 4 says what is unproven. | [ADR-0036], [ADR-0043], [ADR-0011] | `TestClosedServicesJoinOnlyTheClosedNetwork`, `TestInferenceUnitsJoinOnlyTheClosedNetwork`, `TestInferproxyBridgesTheClosedAndSandboxNetworks`, `TestInferenceUnitsCarryNoFetchFlag`, `TestRoutedUnitsKeepTheirNetworks`, `TestRenderToolUnitsNetworks`, `TestRenderClosedNetworkGolden` |
 | Doctor's `networks` finding | `villa doctor` compares each running container's networks and each network's `Internal` flag with the rendered units. A mismatch is a BLOCK FAIL, and a read that fails is a WARN. It runs on command, not continuously. | [ADR-0036] | `networks` in `internal/doctor/decide.go`; `internal/doctor/networks_test.go` |
+| Tool server | Two fixed units serve read-only tools to Open WebUI, one per privilege: `villa-tools-web` (routed) searches the web and `villa-tools-recall` (closed) searches the caller's own transcripts. No unit joins both networks, none publishes a port, and each requires its own bearer, compared in constant time, on every route but `/healthz`. No tool takes a URL, every route is a `GET`, and every returned text is guarded, fenced and flagged. Recall is scoped by `X-Villa-User-Id`, which Open WebUI fills from the session through the connection's header template, to the file ids in a scope file villa writes from `recall-state.json`; a call with no identity is a 403 and a missing scope a 503. The bearers sit in 0600 env files, never a 0644 unit, and the registration is the rendered environment, with no admin-API write. | [ADR-0042] | `TestToolBearerRequiredOnEveryRouteButHealthz`, `TestToolServerServesOnlyGET`, `TestWebSearchTakesNoURL`, `TestWebSearchFetchesThroughTheSSRFGuard`, `TestRecallRefusesWithoutIdentity`, `TestRecallQueryIsScopedToTheCallersFiles`, `TestRecallDropsHitsOutsideTheCallersFiles`, `TestEveryResultIsFencedAndFlagged`, `TestRateCap` in `internal/toolserver/`; `TestToolSecretNeverInAUnit`, `TestToolUnitsPublishNoPort`, `TestToolsOpenWebUIEnvIsValidJSON`, `TestToolRecallConnectionCarriesIdentityHeader`, `TestToolWebConnectionCarriesNoIdentityHeader`, `TestToolServerGateOffRemovesUnits` |
 | `villa-inferproxy` | A sandbox reaches inference only through the proxy. The proxy forwards `POST /v1/chat/completions` and `GET /v1/models`, caps the request body, injects the key, and answers every other route with 403. `villa-llama` does not join the sandbox network. | [ADR-0011] | `TestRunInferproxyRefusesDisallowedRoute`, `TestInferproxyCapsRequestBody`, `TestRenderInferproxyJoinsBothNetworks`; doctor `SBX-02` in `TestSandboxNetworkFindingMatrix` |
 | Sandbox | One libkrun microVM per task: a read-only root, one workspace mounted read-write, the sandbox network only, no GPU device and no models volume. | No ADR. [Workspace-agent spec] §3.4. | `TestRenderSandboxRunArgs`, `TestSandboxRunMountsNoDeviceAndNoModels`; preflight `PRE-09` in `internal/preflight/checks_sandbox.go` |
 | Workspace | `villa workspace add` refuses the home directory, a path outside it, villa's config and data roots, a nested workspace, a sensitive directory and a folder that contains the running `villa` binary. | No ADR. [Workspace-agent spec] §3.1. GHSA-3q4q, GHSA-45r5. | `internal/workspace/workspace.go`; `TestRegisterRefusals`, `TestRegisterRefusesSensitiveDirectories`, `TestRegisterRefusesContainingTheRunningExecutable` |
 | Approval | A pure Action × Mode table answers each tool call of a task. An unknown action asks. Deletion asks in every mode. The deletion rule is a command pattern, not a proof. | No ADR. [Workspace-agent spec] §3.3. GHSA-fpjc, GHSA-mmp6. | `internal/approval/approval.go`; `TestDecideTable`, `TestDecideUnknownActionAsks`, `TestDecideAutoModeNeverBypassesDeletion`, `TestDeletionAsksInAutoMode`, `TestSessionAllowNeverAutoGrantsADeletion` |
-| Web guard | `villa-websafe` sanitizes, normalizes, classifies and fences fetched content. Its fetch refuses loopback, private and link-local addresses at connect time and again on each redirect. The guard reduces and flags. It never claims safe: a detection annotates the result, and the content still reaches the model. | [ADR-0002] | `TestGuardSeamOrder`, `TestClassifyFlagNotBlock`, `TestSSRFRejectSet`, `TestRedirectRevalidation`, `TestNoInjectionSafeCopy` in `internal/websafe/` |
+| Web guard | `villa-websafe` sanitizes, normalizes, classifies and fences fetched content. Its fetch refuses loopback, private and link-local addresses at connect time and again on each redirect. The guard reduces and flags. It never claims safe: a detection annotates the result, and the content still reaches the model. The tool server runs it on each search snippet and fetched page (sanitize, normalize, classify, fence) and, without the sanitize step, on each recall passage. | [ADR-0002], [ADR-0042] | `TestGuardSeamOrder`, `TestClassifyFlagNotBlock`, `TestSSRFRejectSet`, `TestRedirectRevalidation`, `TestNoInjectionSafeCopy` in `internal/websafe/` |
 | Pins and the pin manifest | An image pin is a digest and a release-asset pin is a checksum. `pins.Table()` is the allowlist. A pin manifest is ed25519-signed and may change values only. villa refuses a bad signature, an unknown component, a redirected registry and a serial below the floor, and treats an expired manifest as absent. The signing key is kept offline. | No ADR. [Update spec] §4, [RELEASING.md]. | `TestEveryDigestPinnedImageInTheTreeIsInTheTable`, `TestLookupIsTheAllowlist`, `internal/manifestverify/verify_test.go`. The offline key is a procedure in [RELEASING.md]; no enforcing test found. |
 | Launched-agent environment | `villa code` appends a fixed set of telemetry and update switches for each agent. The environment is the control, because a project settings file can loosen a settings-only opt-out. The tests hold the variables. What an agent then sends is measured, by one network capture per vetted version. A different installed version is a WARN and the agent still launches. | [ADR-0039] | `lockdownEnv`, `claudeEnv` and `qwenEnv` in `internal/agent/`; `TestCodeLockdownEnv`, `TestRunClaudeReadyToLaunch`, `TestRunQwenReadyToLaunch`, `TestUnvettedVersionWarnsAndStillLaunches`; captures in `docs/prototype/qwen-code/RESULTS.md` |
 | Seam grep gate | Image literals, device-access flags and backend markers stay in `internal/inference`, `internal/detect/gpu_amd.go` and the `internal/orchestrate` files the gate allowlists. The pin test above scans that file list. | No ADR decides it. | `TestSeamGrepGate` in `internal/inference/seam_test.go` |
 
-Open WebUI, SearXNG and `villa-websafe` stay on the routed network because they
-fetch. `villa verify search` (`cmd/villa/verify_search.go`) is the on-command
+Open WebUI, SearXNG, `villa-websafe` and `villa-tools-web` stay on the routed
+network because they fetch. `villa verify search` (`cmd/villa/verify_search.go`) is the on-command
 proof that bounds their outbound. It is a measurement, not a standing control.
+`villa verify tools` (`cmd/villa/verify_tools.go`) is the same kind of proof for the tool
+server: its contract, its refusals, the placement of each unit on its one network with a
+positive-controlled probe that the recall unit has no route off-box, and one real call.
 
 ## Known gaps and accepted residuals
 
 1. **Crush checks for a release at every start** ([#389]). The pinned Crush
-   contacts `api.github.com` on each launch, and v0.93.1 has no switch for it.
+   contacts `api.github.com` on each launch, and v0.101.0 still has no switch for it.
    The request carries the client IP and the Crush version. That is inferred
    from the binary's symbol and the traffic shape, because the leg is TLS and
    was not decoded. The opt-in `villa code --offline` points the proxy variables
@@ -98,7 +102,8 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    a markdown image whose URL carries data, and the operator's browser fetches
    it, outside every container. `TestMarkdownImageResidualDocumented` keeps the
    note in `internal/websafe/doc.go`. [#360] leaves it out of scope, and no issue
-   tracks closing it.
+   tracks closing it. With the tool server on, the recall tool gives an injected
+   model a new way to read private text before it writes the image.
 6. **Deletion approval is a pattern, not a proof** ([Workspace-agent spec] §3.3,
    §12). The rule matches `rm`, `rmdir`, `unlink`, `shred`, `trash`, `git clean`
    and `find -delete`. Under `--auto` a write is allowed and so is
@@ -120,6 +125,28 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    resident models, the Open WebUI unit carries the key in an `Environment=`
    line (`OPENAI_API_KEYS`, `internal/orchestrate/openwebui.go`), and unit files
    are written at 0644 (`unitFileMode`, `internal/orchestrate/reconcile.go`).
+10. **A tool call has no approval** ([ADR-0042]). Villa cannot make Open WebUI ask
+    before a call. A prompt-injected model can call either tool as often as the caps
+    allow: four at once, a burst of thirty, then one every two seconds. The pinned
+    Open WebUI has a per-call approval mode that a user chooses in a chat, and villa
+    does not render or force it.
+11. **A web search query leaves the box, and the model writes it** ([ADR-0042]).
+    SearXNG sends the query to the engines in `searxngEngines`. An injected model can
+    put up to 512 runes of chat or recall text into each one, and nothing flags it.
+    It reaches the search engines, not a host the attacker picks.
+12. **Web and recall tools can be on in the same chat** ([ADR-0042]). Villa cannot
+    stop it, and the pairing already exists without the tool server: the recall
+    collection is attached to the served model, and native web search can be on in
+    the same chat.
+13. **The recall unit can read every vector in Qdrant** ([ADR-0042]). Qdrant has no
+    API key, so the per-user scope is the unit's code, and every closed-network peer
+    already has the same reach. The identity header and Qdrant's layout are Open
+    WebUI's, read at the pinned image and not observed on a running container, so a
+    pin bump can change either. `villa update chat` does not prove the tool server.
+    Each failure constructed is closed: a 403, an empty result or a 502.
+14. **Native recall stays shared** ([ADR-0042]). On a box with two users that
+    acknowledged shared recall, the tool is per user and the attached collection is
+    not. The tool is narrower than the path it sits beside and does not narrow it.
 
 [ADR-0002]: adr/0002-the-web-guard-flags-injection-it-never-blocks.md
 [ADR-0011]: adr/0011-the-sandbox-reaches-inference-through-a-v1-proxy.md
@@ -127,6 +154,7 @@ proof that bounds their outbound. It is a measurement, not a standing control.
 [ADR-0036]: adr/0036-services-with-no-runtime-egress-join-a-closed-network.md
 [ADR-0039]: adr/0039-a-launched-coding-agent-runs-with-its-telemetry-off-and-a-capture-to-show-it.md
 [ADR-0040]: adr/0040-web-content-in-a-task-taints-it-per-source.md
+[ADR-0042]: adr/0042-the-tool-server-is-two-fixed-units-one-per-privilege.md
 [ADR-0043]: adr/0043-inference-joins-the-closed-network.md
 [Workspace-agent spec]: spec/v1.11-workspace-agent.md
 [Update spec]: spec/v1.8-villa-update.md

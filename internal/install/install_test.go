@@ -239,7 +239,9 @@ func TestPlanGatesMatchTheConfigItWrites(t *testing.T) {
 		{"image opt-in", config.VillaConfig{}, Opts{Image: true}, fit()},
 		{"image persisted", config.VillaConfig{ImageEnabled: true}, Opts{}, fit()},
 		{"workspace agent opt-in", config.VillaConfig{}, Opts{WorkspaceAgent: true}, fit()},
-		{"everything", config.VillaConfig{MemoryEnabled: true}, Opts{CodingAgent: true, WebSearch: true, WorkspaceAgent: true, Voice: true, Image: true}, coderFit()},
+		{"tool server opt-in", config.VillaConfig{WebSearchEnabled: true}, Opts{ToolServer: true}, fit()},
+		{"tool server persisted", config.VillaConfig{ToolServer: true, MemoryEnabled: true}, Opts{}, fit()},
+		{"everything", config.VillaConfig{MemoryEnabled: true}, Opts{CodingAgent: true, WebSearch: true, WorkspaceAgent: true, Voice: true, Image: true, ToolServer: true}, coderFit()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

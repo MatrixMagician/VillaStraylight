@@ -444,6 +444,24 @@ func TestPathUnderUserConfigDir(t *testing.T) {
 	}
 }
 
+// TestLocalCatalogPathSitsBesideConfig: the catalog villa manages (ADR-0041) lives in
+// the same directory as config.toml, which is what lets `villa backup` name it and
+// restore write it back without reading the archive's config first.
+func TestLocalCatalogPathSitsBesideConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := LocalCatalogPath()
+	if err != nil {
+		t.Fatalf("LocalCatalogPath: %v", err)
+	}
+	if want := filepath.Join(filepath.Dir(cfg), "catalog-local.json"); got != want {
+		t.Errorf("LocalCatalogPath() = %q, want %q", got, want)
+	}
+}
+
 // TestSaveRefusesTraversal asserts that a path escaping the config dir is
 // refused (V12 path-traversal guard).
 func TestSaveRefusesTraversal(t *testing.T) {

@@ -38,6 +38,13 @@ _Avoid_: precision, format, bit depth
 One model in the shipped catalog — the only place a model name may come from.
 _Avoid_: model definition, catalog item, listing
 
+**Operator-supplied entry**:
+A catalog entry whose id is not in the embedded seed (or, as _operator-edited_, whose
+content differs from the seed's entry of that id). Nothing in a release vetted it.
+Derived from the seed, never stored. `villa catalog add` writes one from a
+commit-pinned URL; `model list`, `status` and `doctor` mark it.
+_Avoid_: custom model, user model, local model
+
 ### The stack
 
 **The stack**:
@@ -351,9 +358,16 @@ result. Follow-ups are a new task; there are no sessions.
 _Avoid_: job, session, run, request
 
 **Task record**:
-The persisted, `--json`-frozen account of a task: its state, files, approvals
-and grounding report. Its state machine decides the exit code.
+The persisted, `--json`-frozen account of a task: its state, files, approvals,
+grounding report and observations. Its state machine decides the exit code.
 _Avoid_: log, history, transcript
+
+**Observation**:
+What villa itself read at a path the harness reported written, once, after the
+run: present (with size and sha256), absent, or unobserved when the read failed
+for any other reason. The file event is the harness's word; the observation is
+villa's. An absent observation flags the task (ADR-0047).
+_Avoid_: verification, check, confirmation
 
 **Approval**:
 A task's request to perform a write-class action, answered by the operator.
@@ -384,8 +398,16 @@ _Avoid_: worker, daemon, scheduler
 
 **Tools mode**:
 The chat unit served with the model's own chat template so tool calls parse.
-One config flag; coding mode implies it.
+One config flag; coding mode implies it. A tool server needs it, and is not it.
 _Avoid_: jinja mode, agent mode, function calling
+
+**Tool server**:
+Villa's own two read-only OpenAPI services that publish web search and recall
+search to Open WebUI as model-callable tools: `villa-tools-web` on the routed
+network and `villa-tools-recall` on the closed one, registered from the rendered
+environment. A fixed set; there is no operator-named tool, image or URL. It
+publishes tools, where tools mode only lets the model call them.
+_Avoid_: MCP server, plugin, tool container, function server
 
 **Grounding audit**:
 The second pass villa runs after a task, one chat completion per document the
@@ -395,7 +417,7 @@ auditor found none"; it is never evidence that a document is correct.
 _Avoid_: grounded, verified, fact-checked, validation
 
 **Flagged**:
-A task that finished with claims the grounding audit could not support, or
-whose audit could not run. Exit `2`, never `0`; the document is left as
-written.
+A task that finished with claims the grounding audit could not support, whose
+audit could not run, or with a reported file absent after the run. Exit `2`,
+never `0`; the document is left as written.
 _Avoid_: warning, partial, degraded

@@ -120,6 +120,11 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	fmt.Fprintf(tw, "backend\t%s\n", r.Backend)
 	fmt.Fprintf(tw, "speculation\t%s\n", r.Speculation)
 	fmt.Fprintf(tw, "vision\t%s\n", yesNo(r.Vision))
+	// Rendered only for an operator-supplied or edited model (ADR-0041): a seed model is
+	// the unchanged default and needs no line.
+	if r.ModelOrigin != "" {
+		fmt.Fprintf(tw, "model\t%s (%s)\n", r.Model, r.ModelOrigin)
+	}
 	// Rendered only when on: an off stack is the unchanged default, and a line
 	// saying so on every install would be noise (spec v1.11 §3.5).
 	if r.Tools {
@@ -264,6 +269,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	return &status.Deps{
 		LoadConfig:    config.LoadVilla,
 		ModelFile:     liveModelFile,
+		ModelOrigin:   liveModelOrigin,
 		ResidentUnits: liveResidentUnits,
 		ImageServe:    liveImageServe,
 		ModelsDir:     modelsDir,
@@ -882,6 +888,19 @@ func liveStatusServices() []status.Service {
 			Unit:  unitServiceName(orchestrate.ImageContainerUnitName()),
 			Kind:  status.Managed,
 			Probe: liveImageHealth,
+		},
+		{
+			// The tool server's two units each answer an unauthenticated /healthz on
+			// the network they join (ADR-0042). Whether a tool call works end to end
+			// is `villa verify tools`, not a status probe.
+			Unit:  unitServiceName(orchestrate.ToolsWebContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsWebHealth() },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.ToolsRecallContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsRecallHealth() },
 		},
 		{
 			// The dashboard is a native systemd --user service, not a Quadlet
