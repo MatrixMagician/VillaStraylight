@@ -147,6 +147,11 @@ graph TD
     stackapply -.catalog.Image → ImageServe.-> orchestrate
     orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
     owui -.automatic1111 engine, villa-closed.-> image
+    orchestrate -.tools.container.tmpl, the villa-websafe base image, villa binary bind-mounted.-> toolsweb["villa-tools-web<br/>villa tools-serve --set web: GET /web/search<br/>on villa.network only (ADR-0042)"]
+    orchestrate -.tools.container.tmpl.-> toolsrecall["villa-tools-recall<br/>villa tools-serve --set recall: GET /recall/search<br/>on villa-closed.network only, scoped by X-Villa-User-Id (ADR-0042)"]
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsweb
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsrecall
+    stackapply -.heal: bearers, tools/*.env, recall scope.-> toolsrecall
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
@@ -235,7 +240,14 @@ emits through its `Emit` seam.
    `villa-closed.network` (`Internal=true`) only, so inference has no route off-box
    while its loopback publish still serves the host (ADR-0043); Open WebUI is on
    both `villa.network` and the closed network, and `villa-inferproxy` bridges the
-   closed and sandbox networks.
+   closed and sandbox networks. With `tool_server` on, two more units render after the
+   voice units: `villa-tools-web` (needs web search) on `villa.network` only and
+   `villa-tools-recall` (needs memory) on `villa-closed.network` only. Both run the
+   host `villa` binary in the `villa-websafe` base image, publish no port, and read a
+   0600 env file for their bearer; Open WebUI's one extra `EnvironmentFile=` carries
+   both bearers in the `TOOL_SERVER_CONNECTIONS` line it registers them from. The stack
+   apply's heal generates the bearers and writes those files and the recall scope
+   file before it renders (ADR-0042).
 6. **Reconcile**: `orchestrate.Reconcile(units, unitDir)` (pure) does a sha256
    render-vs-disk diff, classifying each unit Changed or Unchanged. An empty Changed
    slice is a true no-op, the idempotency core.

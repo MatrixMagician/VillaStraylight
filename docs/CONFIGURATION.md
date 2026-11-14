@@ -84,6 +84,9 @@ chat_port = 3000
 | `voice_enabled` | bool | _(absent → false)_ | The voice subsystem's gate (ADR-0030): speech-to-text (`villa-stt`, whisper.cpp on Vulkan) plus text-to-speech (`villa-tts`, Kokoro-FastAPI on the CPU), proven together by one round trip. Written by `villa install --voice`, which also pre-stages the whisper model into the models dir. With it on, Open WebUI's voice input and read-aloud point at the two units by container DNS, `villa recommend` reserves the `stt` and `tts` rows off the envelope, and `villa verify voice` speaks a sentence, transcribes it back and reads villa-stt's journal to prove whisper ran on the GPU, failing on a CPU fallback (ADR-0037). Nothing leaves the box: the Kokoro image bakes its weights in and was proven to make no outbound call. |
 | `image_enabled` | bool | _(absent → false)_ | The image-generation gate (`subsystem.Image`, ADR-0032). Written by `villa install --image`; nothing on the command line turns it off. With it on, the render appends the `villa-image` sd-server unit, Open WebUI's image generation is wired to it, and the image model's measured footprint is reserved off the envelope before the chat-model fit. See [Image generation](#image-generation). |
 | `image_model` | string | _(absent → `z-image-turbo`)_ | The image-table id `villa-image` serves: `z-image-turbo` (Z-Image-Turbo Q8_0) or `z-image-turbo-q4` (Q4_K, about 2.5 GiB less resident and 3 GiB less reserved). Edit by hand, then `villa install`; `catalog_path` never overrides the image table. Self-healed to the default on load and omitted from the file while `image_enabled` is off. |
+| `tool_server` | bool | _(absent → false)_ | The tool server's gate (`subsystem.ToolServer`, ADR-0042). Written by `villa install --tool-server`, which also raises `tools_mode`; nothing on the command line turns it off, and it is never self-healed. With it on, the render appends `villa-tools-web` (when web search is on) and `villa-tools-recall` (when memory is on), and Open WebUI registers each as a model-callable tool. See [The tool server](#the-tool-server). |
+| `tool_web_secret` | string | _(generated with the gate)_ | The bearer `villa-tools-web` requires of Open WebUI, generated once by `villa install --tool-server` or the next stack apply and reused verbatim after. It reaches the unit and Open WebUI only through 0600 files under `~/.config/villa/tools/`, never a 0644 unit. Omitted from the file while `tool_server` is off; never logged. |
+| `tool_recall_secret` | string | _(generated with the gate)_ | The same, for `villa-tools-recall`. It is a separate value from `tool_web_secret`, so the unit that parses untrusted pages never holds the key to the recall index. |
 
 ### The resident set
 
@@ -269,6 +272,66 @@ Quadlet (`UnitFileState=generated`), which podman-systemd.unit(5) says
 itself, so removing the `.container` file is what takes it out of the boot set.
 sd-server ignores SIGTERM, so the stop in that apply waits podman's 10 s SIGKILL fallback.
 
+### The tool server
+
+Villa publishes two read-only tools to Open WebUI from its own fixed OpenAPI servers
+(#313, ADR-0042). There is no operator-named image or URL, no third-party server and
+no tool that writes.
+
+| Key | Type | Default | Written by | Read by |
+|-----|------|---------|------------|---------|
+| `tool_server` | bool | `false` | `villa install --tool-server` | the render, the stack apply's heal, `villa status` (the two `villa-tools-*.service` rows), `villa doctor` (`tool-server` while on, `orphan-units` when off until `villa up` removes the units) |
+| `tool_web_secret`, `tool_recall_secret` | string | generated | `villa install --tool-server`, or the next stack apply | the heal, which writes the three files below |
+
+`villa install --tool-server` needs web search, memory or both. It refuses, with the
+remedy, when neither is on or asked for in the same run, because the gate would be a flag
+with no unit behind it. It persists the gate, raises `tools_mode` (a model served without
+tool calling cannot use a tool), generates one bearer per unit, writes the files, starts each
+unit after the services it reads and waits for each to answer `/healthz`.
+
+| Unit | Renders when | Network | Tool |
+|------|--------------|---------|------|
+| `villa-tools-web` | `tool_server` and web search | `villa.network` only (a search that returns page text must fetch) | `villa_web_search` on `GET /web/search` |
+| `villa-tools-recall` | `tool_server` and memory | `villa-closed.network` only (no route off-box) | `villa_recall_search` on `GET /recall/search` |
+
+Both run the host `villa` binary, bind-mounted read-only, in the distroless image
+`villa-websafe` already pins, as `villa tools-serve --set web|recall` (a hidden verb). There
+is no new image or pin, no published host port, and nothing joins both networks. The recall
+unit also mounts `~/.local/share/villa/recall-scope/` read-only, which holds one file of
+ids.
+
+Three files under `~/.config/villa/tools/` (directory 0700, files 0600) carry the secrets;
+a rendered unit names them by path and never holds a value:
+
+| File | Holds | Read by |
+|------|-------|---------|
+| `web.env` | `VILLA_TOOLS_KEY=<tool_web_secret>` | `villa-tools-web` |
+| `recall.env` | `VILLA_TOOLS_KEY=<tool_recall_secret>` | `villa-tools-recall` |
+| `openwebui.env` | `TOOL_SERVER_CONNECTIONS=<JSON>`, one line, with both bearers | `villa-openwebui` |
+
+Open WebUI registers each unit from that one line at every start, because the stack already
+renders `ENABLE_PERSISTENT_CONFIG=False`; no admin-API write is made. The recall connection
+asks Open WebUI to fill the session user's id into an `X-Villa-User-Id` header, which the
+recall unit scopes every query on; the web connection carries no header. Both connections
+are private to Open WebUI admins.
+
+The recall scope is `~/.local/share/villa/recall-scope/scope.json`: the recall collection's
+id and a map from each indexed transcript's file id to its owner, derived from
+`recall-state.json`. `villa install --tool-server` and every stack apply write it while the
+recall unit renders, and `villa recall index` rewrites it after every state save. It holds ids
+only. Until `villa recall index` has run once, the recall unit answers 503 and `villa doctor`
+warns.
+
+To turn the tool server off, set `tool_server = false` and run `villa up`. The apply stops
+and removes both units through the unit registry (ADR-0035) and re-renders Open WebUI
+without the connection file, so the tool list is empty again. The files under `tools/` stay,
+with keys no unit accepts any more, and `villa uninstall` leaves them as it leaves
+`websafe.env` and `llama.env`. `villa backup` carries no new entry: the secrets are in
+`config.toml`, and a restore applies through the stack apply, which rewrites the files and
+the scope. The units have no pin of their own, so `villa update search` moves their base
+image and restarts them with the rest of what the apply changed. `villa verify tools` and
+its doctor finding are tracked in #363.
+
 ### Inspecting and editing the config
 
 Two commands read and write `config.toml` safely:
@@ -406,6 +469,17 @@ seed** rather than failing.
 
 The generated Quadlet units embed runtime configuration that is **not** exposed as
 user settings. It is recorded here for transparency.
+
+**Tool server (`tool_server = true`).** `villa-tools-web` and `villa-tools-recall` run
+`/usr/local/bin/villa tools-serve --set <web|recall> --host 0.0.0.0 --port <8092|8093>` from the
+`villa-websafe` base image with the host binary mounted `:ro,z`, `Network=` set to one
+network each, one `EnvironmentFile=` and no `PublishPort=`; the recall unit adds
+`--embedding-model <embedding_model>` and the scope directory mounted `:ro,z` at
+`/villa/recall-scope`. Open WebUI's unit gains exactly one `EnvironmentFile=` line, for
+`~/.config/villa/tools/openwebui.env`, and no `Environment=` key: the connection list holds
+both bearers, so it lives in the 0600 file only. If no other group already rendered it, the
+trailing `ENABLE_PERSISTENT_CONFIG=False` is rendered, because the connection list is a
+persistent config value that Open WebUI would otherwise seed once and then ignore.
 
 **Voice (`voice_enabled = true`).** `villa-stt` runs `whisper-server` from the pinned
 ggml-org Vulkan image with `Entrypoint=` set to the server binary (the image's own
