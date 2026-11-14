@@ -47,7 +47,7 @@ type lifecycleDeps struct {
 // liveStackDeps is the ONE live adapter every unit-writing verb applies the stack
 // through (ADR-0013): the catalog, the pinned render (pinresolve), the Quadlet unit
 // dir, the unit writer, systemd, the inference-secret writers (GHSA-qxg9,
-// ADR-0011), and the crush.json key heal (ADR-0019).
+// ADR-0011), and the crush.json heal (ADR-0019, ADR-0044).
 func liveStackDeps() stackapply.Deps {
 	sys := orchestrate.NewSystemd()
 	return stackapply.Deps{

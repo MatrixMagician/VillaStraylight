@@ -689,7 +689,7 @@ func liveAgentToolCallVerdict(parent context.Context, cfg config.VillaConfig, bu
 		if killed {
 			drain := liveSlotDrain(parent, cfg)
 			after, _ := client.Counters(parent)
-			kill = &killedRound{Drain: drain, Work: roundWorkBetween(before, after)}
+			kill = &killedRound{Drain: drain, Work: roundWorkBetween(before, after), RequestTimeout: agent.RequestTimeoutSeconds(cfg.CoderAgentCtx)}
 		}
 		return agentToolCallVerdict(completed, err, b, kill)
 	}
