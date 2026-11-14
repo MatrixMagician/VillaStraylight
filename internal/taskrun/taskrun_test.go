@@ -1046,3 +1046,33 @@ func TestSessionAllowNeverAutoGrantsADeletion(t *testing.T) {
 		t.Errorf("a deletion must still park after approve --all: %+v", got.Approvals)
 	}
 }
+
+// TestWorkspaceHoldingProjectSkillsIsRefusedAtSubmit guards #438: a workspace
+// that ships a project skill dir is refused synchronously, before any sandbox
+// starts, with the path named; a clean workspace queues as before.
+func TestWorkspaceHoldingProjectSkillsIsRefusedAtSubmit(t *testing.T) {
+	h := newHarness(t)
+	skills := filepath.Join(h.ws, ".claude", "skills")
+	h.deps.ProjectSkills = func(workspace string) []string {
+		if workspace == h.ws {
+			return []string{skills}
+		}
+		return nil
+	}
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	if task.State != taskstore.Refused {
+		t.Fatalf("State = %q, want refused", task.State)
+	}
+	log := h.logText(task.ID)
+	if !strings.Contains(log, skills) {
+		t.Errorf("refusal %q does not name %s", log, skills)
+	}
+
+	h2 := newHarness(t)
+	h2.deps.ProjectSkills = func(string) []string { return nil }
+	h2.start()
+	if got := h2.submit(approval.ModeAsk); got.State == taskstore.Refused {
+		t.Errorf("clean workspace was refused: %q", got.State)
+	}
+}

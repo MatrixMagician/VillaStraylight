@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +60,9 @@ type Deps struct {
 	// Registered resolves a workspace path against the config's grant list.
 	Registered func(cfg config.VillaConfig, path string) (string, bool)
 	ToolsOn    func(cfg config.VillaConfig) bool
+	// ProjectSkills lists the project skill directories a workspace holds. Nil
+	// skips the check. A non-empty answer refuses the task (#438).
+	ProjectSkills func(workspace string) []string
 	// SandboxReady is PRE-09's verdict; the remediation is the refusal text.
 	SandboxReady func() (ok bool, remediation string)
 	Audit        func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
@@ -241,6 +245,8 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 		refusal = fmt.Sprintf("refused: %s is not a registered workspace; run `villa workspace add %s`", req.Workspace, req.Workspace)
 	} else if t.Workspace = ws; !r.d.ToolsOn(cfg) {
 		refusal = "refused: tools mode is off; run `villa tools-mode enter`"
+	} else if dirs := r.projectSkills(ws); len(dirs) > 0 {
+		refusal = SkillsRefusal(dirs)
 	} else if ready, remediation := r.d.SandboxReady(); !ready {
 		refusal = "refused: the sandbox cannot start: " + remediation
 	}
@@ -268,6 +274,20 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 	default:
 	}
 	return t, nil
+}
+
+func (r *Runner) projectSkills(ws string) []string {
+	if r.d.ProjectSkills == nil {
+		return nil
+	}
+	return r.d.ProjectSkills(ws)
+}
+
+// SkillsRefusal is the refusal text for a workspace holding project skills.
+// The launch path reuses it, so a skill added after Submit reads the same.
+func SkillsRefusal(dirs []string) string {
+	return "refused: the workspace holds project skills (" + strings.Join(dirs, ", ") +
+		"); Crush would advertise them to the task as procedures to follow. Move or remove the directory, then submit again"
 }
 
 // Approve answers the parked request with allow, or allow_session when all is

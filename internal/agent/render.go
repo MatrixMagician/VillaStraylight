@@ -111,6 +111,10 @@ type crushOptions struct {
 	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
 	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
 	DisabledTools []string `json:"disabled_tools"`
+	// DisabledSkills hides skills by name (sandbox render only, #438). Crush
+	// applies it to every discovered skill, builtin or on disk, so it cannot
+	// replace the workspace refusal for project skills of any other name.
+	DisabledSkills []string `json:"disabled_skills,omitempty"`
 	// RequestTimeout is Crush's idle bound on a request, in seconds (RequestTimeoutSeconds,
 	// ADR-0044). Never omitempty: an omitted key is Crush's 60 s default, which a slow
 	// prefill outlasts, and 0 would disable the bound.
@@ -313,6 +317,11 @@ func canonicalize(b []byte) []byte {
 	return out
 }
 
+// sandboxDisabledSkills names the three skills Crush v0.101.0 embeds
+// (internal/skills/builtin). A task needs none of them, and a skill is a
+// procedure the model is told to follow (#438).
+var sandboxDisabledSkills = []string{"crush-config", "crush-hooks", "jq"}
+
 // sandboxDisabledTools is the workspace-task denylist (spec v1.11 3.3): the four
 // the coding agent already disables, plus web_fetch and web_search, plus the four
 // subagent tools Crush added in v0.100.0. A subagent runs in a child Crush session
@@ -362,6 +371,7 @@ func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
 			DisableDefaultProviders:   true,
 			AutoLSP:                   false,
 			DisabledTools:             sandboxDisabledTools,
+			DisabledSkills:            sandboxDisabledSkills,
 			RequestTimeout:            RequestTimeoutSeconds(ctxWindow),
 		},
 		Providers: map[string]crushProvider{

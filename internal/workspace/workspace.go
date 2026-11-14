@@ -166,6 +166,26 @@ func CheckGrant(resolved string, d Deps) error {
 	return nil
 }
 
+// projectSkillSubdirs are the directories Crush v0.101.0 reads project skills
+// from under its working directory (internal/config/load.go projectSkillSubdirs).
+var projectSkillSubdirs = []string{".agents/skills", ".crush/skills", ".claude/skills", ".cursor/skills"}
+
+// ProjectSkillDirs returns the project skill directories resolved holds, as
+// absolute paths. Crush adds them to every task's skill catalog and no option
+// turns them off, so a task refuses a workspace that has one (#438). Inside the
+// sandbox the workspace mount is both the working directory and the repository
+// root, so the mount root is the only place Crush looks.
+func ProjectSkillDirs(resolved string, d Deps) []string {
+	var found []string
+	for _, sub := range projectSkillSubdirs {
+		p := filepath.Join(resolved, sub)
+		if info, err := d.Stat(p); err == nil && info.IsDir() {
+			found = append(found, p)
+		}
+	}
+	return found
+}
+
 // Register validates path against every spec §3.1 refusal and, on success,
 // returns cfg with the resolved absolute path appended to cfg.Workspace.
 // Re-registering an already-granted path is a no-op, not a duplicate.

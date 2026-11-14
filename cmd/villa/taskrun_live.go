@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -60,6 +61,9 @@ func liveTaskRunDeps(ctx context.Context, inf inference.Client) taskrun.Deps {
 		Registered: func(cfg config.VillaConfig, path string) (string, bool) {
 			return workspace.Registered(cfg, path, liveWorkspaceDeps())
 		},
+		ProjectSkills: func(ws string) []string {
+			return workspace.ProjectSkillDirs(ws, liveWorkspaceDeps())
+		},
 		ToolsOn:      subsystem.ToolsOn,
 		SandboxReady: liveSandboxReady,
 		Audit:        liveGroundingAudit(inf),
@@ -91,6 +95,9 @@ func liveSandboxImage() string {
 func liveRenderSandboxArgs(cfg config.VillaConfig, ws, id string) ([]string, error) {
 	if err := workspace.CheckGrant(ws, liveWorkspaceDeps()); err != nil {
 		return nil, err
+	}
+	if dirs := workspace.ProjectSkillDirs(ws, liveWorkspaceDeps()); len(dirs) > 0 {
+		return nil, errors.New(taskrun.SkillsRefusal(dirs))
 	}
 	self, err := os.Executable()
 	if err != nil {

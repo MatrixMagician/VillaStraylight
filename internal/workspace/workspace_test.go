@@ -255,3 +255,34 @@ func TestRemove(t *testing.T) {
 		t.Error("Remove(unknown) = nil error, want a refusal")
 	}
 }
+
+// TestProjectSkillDirsNamesEveryDirTheWorkspaceHolds guards the #438 refusal's
+// input: a workspace holding any of Crush's four project skill dirs reports
+// each one by absolute path, and a workspace without them reports none.
+func TestProjectSkillDirsNamesEveryDirTheWorkspaceHolds(t *testing.T) {
+	ws := t.TempDir()
+	d := realDeps(t.TempDir(), "", "")
+
+	if got := ProjectSkillDirs(ws, d); len(got) != 0 {
+		t.Fatalf("clean workspace: ProjectSkillDirs = %v, want none", got)
+	}
+
+	for _, sub := range []string{".claude/skills/x", ".cursor/skills"} {
+		if err := os.MkdirAll(filepath.Join(ws, sub), 0o700); err != nil {
+			t.Fatalf("MkdirAll %s: %v", sub, err)
+		}
+	}
+	// A plain file named like a skills dir is not one Crush walks.
+	if err := os.MkdirAll(filepath.Join(ws, ".agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".agents", "skills"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ProjectSkillDirs(ws, d)
+	want := []string{filepath.Join(ws, ".claude/skills"), filepath.Join(ws, ".cursor/skills")}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ProjectSkillDirs = %v, want %v", got, want)
+	}
+}
