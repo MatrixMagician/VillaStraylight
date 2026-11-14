@@ -128,7 +128,7 @@ jobs:
       #
       # v8 of the action was the first that defaults to a golangci-lint v2
       # binary; v6 pinned a v1.6x build compiled with go1.24, which refuses a
-      # module targeting go1.26.10 ("the Go language version used to build
+      # module targeting go1.26.11 ("the Go language version used to build
       # golangci-lint is lower than the targeted Go version"). v9 keeps the v2
       # default and moves the action's own runtime to Node 24; it still accepts
       # the `version` and `only-new-issues` inputs this step depends on. The
