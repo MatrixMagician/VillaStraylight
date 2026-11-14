@@ -307,6 +307,39 @@ func TestDriveToolChat(t *testing.T) {
 	}
 }
 
+// TestDriveToolChatAcceptsANullBody: without a session id Open WebUI blocks until the tool loop
+// ends and then answers 200 with the body `null` (issue #363). That is the completed exchange,
+// not a parse failure, and the request it was sent streams with message ids.
+func TestDriveToolChatAcceptsANullBody(t *testing.T) {
+	var seen []openwebui.Request
+	owui := openwebui.New(fakeToolOWUI(t, `null`, &seen))
+	got, err := driveToolChat(t.Context(), owui, toolproof.ChatRequest{Set: toolserver.SetWeb, ServerID: "villa-web", Prompt: "search"})
+	if err != nil {
+		t.Fatalf("a null body is a completed exchange: %v", err)
+	}
+	if got != "" {
+		t.Errorf("answer = %q, want none: a null body carries no text", got)
+	}
+	var body map[string]json.RawMessage
+	for _, r := range seen {
+		if r.Path == "/api/chat/completions" {
+			_ = json.Unmarshal(r.Body, &body)
+		}
+	}
+	if string(body["stream"]) != "true" || string(body["parent_id"]) != "null" || len(body["id"]) == 0 || body["session_id"] != nil {
+		t.Errorf("completion body = %v", body)
+	}
+}
+
+// TestToolChatTimeoutCoversTwoModelTurns: the chat leg waits for a tool call and then an answer,
+// each a model turn bounded by Open WebUI's own 300 s tool timeout, so the leg's bound must not
+// be shorter than two of them and must fit inside the whole proof's.
+func TestToolChatTimeoutCoversTwoModelTurns(t *testing.T) {
+	if toolChatTimeout < 2*toolModelTurnTimeout || toolChatTimeout >= toolsProofTimeout {
+		t.Errorf("toolChatTimeout = %v, toolModelTurnTimeout = %v, toolsProofTimeout = %v", toolChatTimeout, toolModelTurnTimeout, toolsProofTimeout)
+	}
+}
+
 // TestDoctorReadsWhatVerifyToolsRecords: the record the verb writes is the record doctor's
 // tool-server-proof finding reads, through the live wiring. A fresh PASS passes, a fresh FAIL
 // fails, a stale PASS and an absent record warn, and the search record is a different file.
