@@ -78,13 +78,14 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    agent's own web tools are outbound by design. villa disables Crush's in
    `crush.json` (`TestRenderRestrictiveTools`) and not the other two agents'.
    A launch with no route is a design question, not code.
-3. **GPU units run with `seccomp=unconfined`** ([#343]). The flag is in
-   `vulkanGPUAccess` (`internal/inference/backend_vulkan.go`), which the Vulkan
-   chat unit and `villa-image` share, and in `internal/inference/backend_rocm.go`.
-   Measured on the dev host on 2026-11-14: throwaway containers on the pinned
-   Vulkan chat image, with a 2B model, and on the pinned image-server image
-   passed every criterion without the flag, one run each. The code change is
-   pending. ROCm, the default backend, was not measured and keeps the flag.
+3. **ROCm units run with `seccomp=unconfined`** ([#343]). ROCm is the default
+   backend and its flag is in `internal/inference/backend_rocm.go`. Nobody has
+   measured whether it can go. The Vulkan chat unit and `villa-image` no longer
+   carry it (`vulkanGPUAccess`, `internal/inference/backend_vulkan.go`).
+   Measured on the dev host on 2026-11-14: the real Vulkan chat unit served the
+   live model with its projector and n-gram speculation without the flag, and a
+   throwaway container on the pinned image-server image generated two images
+   without it. `villa-image` as an installed unit was not run.
 4. **The inference port is published on loopback** ([ADR-0043]). `villa-llama` and
    each resident slot join `villa-closed.network` only, and `villa-inferproxy` joins
    it and the sandbox network, so none has a route off-box

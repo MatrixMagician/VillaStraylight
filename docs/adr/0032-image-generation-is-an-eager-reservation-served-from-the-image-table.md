@@ -152,7 +152,7 @@ The flag vocabulary lives in `internal/inference/image_server.go`
 `--diffusion-model` and `--eager-load` outside the seam, and allowlisting
 `orchestrate/image.go` for every pattern would have exempted it from the device-args
 check too. The device access is one value, `inference.VulkanGPUAccess()`
-(`/dev/dri`, `keep-groups`, `seccomp=unconfined`), that the Vulkan chat unit's
+(`/dev/dri`, `keep-groups`; `seccomp=unconfined` too until #343), that the Vulkan chat unit's
 `ContainerArgs` and the image unit both render, so the two GPU consumers cannot
 drift apart on the rootless device contract. The image literal is the one thing
 `orchestrate/image.go` holds, allowlisted like `searxng.go`.
@@ -209,6 +209,13 @@ existing path with no change to `Deps.Pick`.
 - `--security-opt seccomp=unconfined` is rendered because the measurement ran with
   it; whether sd-server on RADV needs it is unmeasured, and dropping it is a
   separate measurement.
+  Amended by #343 (2026-11-14): measured, and dropped. On the dev host (Fedora 45,
+  Podman 6.1.3) a throwaway container on the pinned sd-server image placed every
+  parameter on the device (`VRAM 8808.62MB, RAM 0.00MB`) and generated 512x512 and
+  1024x1024 images without the option, byte-identical in size to the run with it.
+  The Vulkan chat unit was proven the same way and then as the live unit.
+  `inference.VulkanGPUAccess()` now returns no security option, so the image unit
+  renders no `PodmanArgs=` line. `villa-image` as an installed unit was not run.
 - ADR-0027's open footprint question is answered here for image generation: a
   provenanced row in a compiled-in table, because the operator picks the model.
   #308 (ADR-0028) chose a pinned constant for the reranker, which the operator does

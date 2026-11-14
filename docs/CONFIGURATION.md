@@ -439,9 +439,10 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 | `--cache-ram 8192` | Caps the RAM prompt cache at 8 GiB (ADR-0021). Rendered, not configurable: there is no `config.toml` key, and the fit counts exactly this value, once per chat unit, so each resident model adds one. `villa-embed` does not render it. |
 | `--ctx-checkpoints 1` | Caps the sliding-window context checkpoints each slot keeps in host memory (ADR-0034). Rendered only on a unit whose model has sliding-window layers (a catalog `swa` block, today `gemma-4-31b`), primary or resident, and the fit counts exactly this value. Not configurable. |
 
-The inference container also receives `--device /dev/dri`, `--group-add keep-groups`,
-`--security-opt seccomp=unconfined`, and a read-only model bind mount
-(`<models-dir>:/models:ro,z`). The container-internal server binds `0.0.0.0:8080`,
+The inference container also receives `--device /dev/dri`, `--group-add keep-groups`
+and a read-only model bind mount. A ROCm unit also receives `/dev/kfd` and
+`--security-opt seccomp=unconfined`; the Vulkan unit carries no security option
+since #343 (measured unnecessary). The mount is `<models-dir>:/models:ro,z`. The container-internal server binds `0.0.0.0:8080`,
 but only the loopback host publish `127.0.0.1:8080:8080` is reachable from the host.
 
 **Backend-specific image, devices, and env.** The image, device passthrough, and
@@ -505,7 +506,7 @@ switch to a single-model server, and `AUTOMATIC1111_PARAMS` stays unset because
 **The image server (`villa-image`)** runs `stable-diffusion.cpp`'s `sd-server`
 (`ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:367ccc…`, a rolling
 tag pinned by digest, `internal/orchestrate/image.go`) with the entrypoint
-`/sd-server`, the same `/dev/dri`, `keep-groups` and `seccomp=unconfined` device
+`/sd-server`, the same `/dev/dri` and `keep-groups` device
 access the Vulkan chat unit reads from the seam, the read-only models mount, and no
 host port. Its flags come from `internal/inference/image_server.go`:
 

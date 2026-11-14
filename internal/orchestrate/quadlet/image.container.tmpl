@@ -10,8 +10,8 @@ Network={{.Network}}
 {{range .AddDevice}}AddDevice={{.}}
 {{end}}{{range .GroupAdd}}GroupAdd={{.}}
 {{end}}Volume={{.Volume}}
-PodmanArgs={{.PodmanArgs}}
-Entrypoint={{.Entrypoint}}
+{{if .PodmanArgs}}PodmanArgs={{.PodmanArgs}}
+{{end}}Entrypoint={{.Entrypoint}}
 Exec={{.Exec}}
 
 [Service]

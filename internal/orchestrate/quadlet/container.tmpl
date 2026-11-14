@@ -13,8 +13,8 @@ EnvironmentFile={{.SecretEnvFile}}
 {{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
 {{end}}PublishPort={{.PublishPort}}
 Volume={{.Volume}}
-PodmanArgs={{.PodmanArgs}}
-Exec={{.Exec}}
+{{if .PodmanArgs}}PodmanArgs={{.PodmanArgs}}
+{{end}}Exec={{.Exec}}
 
 [Service]
 Restart=on-failure
