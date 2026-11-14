@@ -94,16 +94,46 @@ func TestCheckKernelFloor(t *testing.T) {
 	}
 }
 
-func TestCheckFirmwareFloorIsWarnAdvisory(t *testing.T) {
-	got := checkFirmwareFloor(detect.HostProfile{})
-	if got.Tier != TierWarn {
-		t.Errorf("firmware floor must be WARN tier, got %v", got.Tier)
+// TestCheckFirmwareFloor guards PRE-07's reading of HostProfile.FirmwareDate: a
+// known date at or above the floor passes, a known date below it or on the
+// denylist warns with the remediation, and an Unknown or non-date value warns
+// rather than ever claiming a pass. The tier stays WARN throughout.
+func TestCheckFirmwareFloor(t *testing.T) {
+	tests := []struct {
+		name         string
+		fw           detect.Str
+		wantStatus   Status
+		wantContains string
+	}{
+		{"at floor passes", detect.KnownStr("20260110", "rpm"), StatusPass, "20260110"},
+		{"above floor passes", detect.KnownStr("20260910", "rpm"), StatusPass, "20260910"},
+		{"below floor warns", detect.KnownStr("20251201", "rpm"), StatusWarn, "below"},
+		{"denied build warns naming it", detect.KnownStr("20251125", "rpm"), StatusWarn, "20251125"},
+		{"unknown warns", detect.UnknownStr("rpm absent", ""), StatusWarn, "not"},
+		{"known but not a date warns", detect.KnownStr("rawhide", "rpm"), StatusWarn, "rawhide"},
 	}
-	if got.Status != StatusWarn {
-		t.Errorf("firmware floor (unprobed in Phase 1) should WARN, got %v", got.Status)
-	}
-	if got.Remediation == "" {
-		t.Errorf("firmware advisory must carry a remediation hint")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := checkFirmwareFloor(detect.HostProfile{FirmwareDate: tc.fw})
+			if got.Tier != TierWarn {
+				t.Errorf("firmware floor must be WARN tier, got %v", got.Tier)
+			}
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status = %v, want %v (detail %q)", got.Status, tc.wantStatus, got.Detail)
+			}
+			if !strings.Contains(got.Detail, tc.wantContains) {
+				t.Errorf("detail %q should contain %q", got.Detail, tc.wantContains)
+			}
+			if tc.wantStatus == StatusWarn && got.Remediation == "" {
+				t.Errorf("a WARN must carry a remediation hint")
+			}
+			if tc.fw.Known && !strings.Contains(got.Provenance, tc.fw.Source) {
+				t.Errorf("provenance %q should carry the probe source %q", got.Provenance, tc.fw.Source)
+			}
+			if strings.Contains(got.Detail, "Phase 1") {
+				t.Errorf("detail carries stale Phase 1 wording: %q", got.Detail)
+			}
+		})
 	}
 }
 
