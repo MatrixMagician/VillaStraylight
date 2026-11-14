@@ -431,6 +431,23 @@ suite proves the parsing, ordering, rendering, and verdict logic against frozen
 fixtures, while the UAT proves the integrated stack comes up healthy on the
 detected hardware.
 
+### Tool server: the two-account check
+
+`villa verify tools` shows cross-user isolation only when two users own indexed chats. A
+single-operator box has one, so its `scope` leg says the check was not shown, and the
+run below is by hand, under the live-stack mutation protocol (back up `config.toml`,
+`pin-state.json` and `~/.config/containers/systemd/` first, mutate only through villa's
+verbs, restore and diff afterwards):
+
+1. Add a second admin account in Open WebUI. Each account holds one chat with a distinct
+   canary string that appears nowhere else.
+2. Run `villa recall index --i-understand-shared-recall`, then `villa verify tools`. The
+   `scope` leg now queries as both users and must pass without the not-shown note.
+3. In each account, in a chat with the recall tool on, ask for the other account's canary.
+   Neither the answer nor either tool result may hold it.
+4. Remove the second account, its chat and its transcript, run `villa recall index` once
+   more, and confirm `villa doctor` is as it was.
+
 ## CI integration
 
 `.github/workflows/ci.yml` runs on **every push and pull request**. It needs no

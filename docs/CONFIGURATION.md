@@ -280,7 +280,7 @@ no tool that writes.
 
 | Key | Type | Default | Written by | Read by |
 |-----|------|---------|------------|---------|
-| `tool_server` | bool | `false` | `villa install --tool-server` | the render, the stack apply's heal, `villa status` (the two `villa-tools-*.service` rows), `villa doctor` (`tool-server` while on, `orphan-units` when off until `villa up` removes the units) |
+| `tool_server` | bool | `false` | `villa install --tool-server` | the render, the stack apply's heal, `villa status` (the two `villa-tools-*.service` rows), `villa doctor` (`tool-server` and `tool-server-proof` while on, `orphan-units` when off until `villa up` removes the units) |
 | `tool_web_secret`, `tool_recall_secret` | string | generated | `villa install --tool-server`, or the next stack apply | the heal, which writes the three files below |
 
 `villa install --tool-server` needs web search, memory or both. It refuses, with the
@@ -329,8 +329,30 @@ with keys no unit accepts any more, and `villa uninstall` leaves them as it leav
 `websafe.env` and `llama.env`. `villa backup` carries no new entry: the secrets are in
 `config.toml`, and a restore applies through the stack apply, which rewrites the files and
 the scope. The units have no pin of their own, so `villa update search` moves their base
-image and restarts them with the rest of what the apply changed. `villa verify tools` and
-its doctor finding are tracked in #363.
+image and restarts them with the rest of what the apply changed.
+
+**Proving it.** `villa verify tools` runs seven legs against the running units and records
+its verdict and time in `~/.local/share/villa/verify-tools-state.json` (a second document,
+never the search one), which `villa doctor` reads as `tool-server-proof`:
+
+| Leg | Asserts |
+|-----|---------|
+| `contract` | each unit's `/openapi.json`, fetched in-network with its bearer, equals the compiled-in document byte for byte |
+| `refusals` | no bearer and a wrong bearer are 401, a POST is 405, and recall answers 403 without a well-formed `X-Villa-User-Id` while accepting one |
+| `registration` | Open WebUI's tool-server list holds `villa-web` and `villa-recall`, enabled (a malformed `openwebui.env` line reads as an empty list) |
+| `web` | one real search returns results, each fenced with one nonce and carrying a guard verdict |
+| `scope` | recall returns a user's own chats only, each fenced; an identity that owns nothing gets the empty result; with two users who own indexed chats, neither sees the other's |
+| `closed-network` | each unit is on exactly the network its unit file joins (web on `villa` only, recall on `villa-closed` only); a helper on `villa-closed` reaches Qdrant (the control, asked first) and not 1.1.1.1; the recall unit is not reachable from `villa` |
+| `chat` | one completion per unit through Open WebUI offers that unit's tool, and the unit's own request log shows a new call. A completion with no new log line is a REJECT however plausible its text |
+
+A leg that cannot be conducted (a unit unreachable, every search engine refusing, a model
+that made no call, no transcript indexed) is a REJECT and exits 2. A leg that ran and found
+the property absent is a FAIL and exits 1. A unit that is not rendered skips its legs. The
+cross-user check needs two accounts with indexed chats, so with one the `scope` leg says it
+was not shown, and the two-account run is by hand (see
+[TESTING.md](TESTING.md#tool-server-the-two-account-check)). The `tool-server-proof`
+finding is a PASS for a fresh PASS, a BLOCK-class FAIL for a fresh FAIL, and a WARN for a
+fresh REJECT or a stale, absent or unreadable record (24 hours is fresh).
 
 ### Inspecting and editing the config
 

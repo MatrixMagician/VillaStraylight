@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // systemd.go is the thin os/exec lifecycle seam over the rootless user manager:
@@ -185,6 +186,17 @@ func (s Systemd) JournalText(service string) (string, bool) {
 		return "", false
 	}
 	return out, true
+}
+
+// JournalSince returns one user unit's journal from since onward, message text only
+// (`journalctl --user -u <service> --since @<epoch> -o cat --no-pager`). Unlike JournalText
+// and ResidencyJournal it distinguishes an empty window (an answer, returned as "") from an
+// unreadable journal (an error), because its caller counts lines and must not read a failed
+// read as "the unit logged nothing". The bound is the same io.LimitReader; the window keeps
+// a tool unit's request log far below it.
+func (s Systemd) JournalSince(service string, since time.Time) (string, error) {
+	return s.run("journalctl", "--user", "-u", service,
+		"--since", "@"+strconv.FormatInt(since.Unix(), 10), "-o", "cat", "--no-pager")
 }
 
 // JournalTail returns the most recent n entries across a SET of units, merged and

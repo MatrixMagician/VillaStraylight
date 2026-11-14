@@ -319,6 +319,7 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		},
 		// The scope file the recall tool unit mounts, read through the same fail-closed
 		// store the host writes it with.
+		ReadToolsVerifyState: liveReadToolsVerifyState,
 		ReadRecallScope: func() (recall.Scope, error) {
 			return recall.LoadScope(recall.Deps{ReadAll: storeReader(recall.ScopePath())})
 		},

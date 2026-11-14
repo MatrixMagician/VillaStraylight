@@ -128,7 +128,12 @@ const (
 //     is on: neither web search nor memory is on, tools mode is off, or the recall
 //     scope names no collection. A tool-server-off config is byte-identical except
 //     this bump.
-const reportSchemaVersion = 14
+//   - v15: the tool-server-proof finding (#363, ADR-0042) — a NEW doctor-owned finding
+//     type, emitted only while the tool server gate is on: the last recorded `villa verify
+//     tools` result under the freshness rule `search-egress` uses (a fresh FAIL fails, a
+//     fresh REJECT, a stale or absent record warns). A tool-server-off config is
+//     byte-identical except this bump.
+const reportSchemaVersion = 15
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -305,6 +310,11 @@ type Deps struct {
 	// an absent or corrupt file is the zero Scope, which names no collection. nil is the
 	// same answer, so a caller that wires no reader never reads a PASS.
 	ReadRecallScope func() (recall.Scope, error)
+
+	// ReadToolsVerifyState reads the last recorded `villa verify tools` result (#363,
+	// ADR-0042). nil, as a reader or as a result, means the record could not be read; a zero
+	// State means none is recorded.
+	ReadToolsVerifyState func() *verifystate.State
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -612,6 +622,7 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	// has a collection to search, so that is one finding, emitted only while the gate is on.
 	if subsystem.ToolServerOn(cfg) {
 		findings = append(findings, d.toolServerFinding(cfg))
+		findings = append(findings, d.toolServerProofFinding())
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -796,6 +807,58 @@ func (d Deps) toolServerFinding(cfg config.VillaConfig) Finding {
 		Remediation: strings.Join(remedies, "; "),
 		Provenance:  "subsystem.ToolWebOn / ToolRecallOn, subsystem.ToolsOn, recall scope file",
 	}
+}
+
+// toolServerProofFinding maps the last recorded `villa verify tools` result into a Finding,
+// under the freshness rule `villa status` applies to `villa verify search` (status.VerifyFresh),
+// and never a config bool:
+//
+//   - a fresh PASS is a PASS;
+//   - a fresh FAIL is a BLOCK-class FAIL, a confident failure that is never swallowed;
+//   - a fresh REJECT is a WARN: the proof could not be conducted, so nothing was disproven
+//     and nothing was shown;
+//   - anything else (unreadable, absent, stale, future-dated, undated, an unknown verdict) is
+//     a WARN that says which, because the property must be re-proven and never trusted from
+//     a stale or missing record.
+//
+// Every non-PASS carries a Remediation naming the verb. Emitted only while the gate is on.
+func (d Deps) toolServerProofFinding() Finding {
+	f := Finding{
+		ID:         "tool-server-proof",
+		Name:       "Tool server proof",
+		Provenance: "cached `villa verify tools` result + freshness gate (status.VerifyFresh)",
+	}
+	const reprove = "run `villa verify tools` to prove the tool server, then re-run `villa doctor`"
+	var st *verifystate.State
+	if d.ReadToolsVerifyState != nil {
+		st = d.ReadToolsVerifyState()
+	}
+	warn := func(detail string) Finding {
+		f.Tier, f.Status, f.Detail, f.Remediation = tierWarn, statusWarn, detail, reprove
+		return f
+	}
+	switch {
+	case st == nil:
+		return warn("the tool server is not proven: the recorded `villa verify tools` result could not be read")
+	case st.CheckedAt == "":
+		return warn("the tool server is not proven: no `villa verify tools` result is recorded")
+	case !status.VerifyFresh(st.CheckedAt):
+		return warn("the tool server is not proven: the last `villa verify tools` (checked " + st.CheckedAt + ") is stale or cannot be dated")
+	}
+	switch st.Verdict {
+	case "PASS":
+		f.Tier, f.Status = tierBlock, statusPass
+		f.Detail = "a recent `villa verify tools` PASS (checked " + st.CheckedAt + ")"
+	case "FAIL":
+		f.Tier, f.Status = tierBlock, statusFail
+		f.Detail = "the last `villa verify tools` did not pass (verdict FAIL, checked " + st.CheckedAt + ")"
+		f.Remediation = "run `villa verify tools` for the failing leg and fix it, then re-run `villa doctor`"
+	case "REJECT":
+		return warn("the last `villa verify tools` (checked " + st.CheckedAt + ") could not be conducted: a unit, the search engines or the model was unavailable, so nothing was proven")
+	default:
+		return warn("the last `villa verify tools` recorded the verdict " + st.Verdict + ", which is not a pass")
+	}
+	return f
 }
 
 // toolsDriftFinding builds TMD-01 from the seam's three-valued answer.

@@ -309,6 +309,18 @@ type UpdatesInfo struct {
 // AND `villa doctor` all inherit the SAME freshness gate — no forked literal to drift.
 const VerifyFreshnessWindow = 24 * time.Hour
 
+// VerifyFresh reports whether a recorded check time (RFC3339) parses, is not in the future
+// and is within VerifyFreshnessWindow. It is the one freshness rule: the web-search section
+// and the tool-server proof finding both ask it, so a PASS ages the same way for each.
+func VerifyFresh(checkedAt string) bool {
+	checked, err := time.Parse(time.RFC3339, checkedAt)
+	if err != nil {
+		return false
+	}
+	age := time.Since(checked)
+	return age >= 0 && age <= VerifyFreshnessWindow
+}
+
 // MemoryInfo is the v1.3 memory-stack summary section of the Report (Phase-23
 // EmbeddingModel/EmbeddingDim are the ACTIVE configured identity
 // (cfg.EmbeddingModel/EmbeddingDim — config is the single source of truth);
@@ -986,15 +998,12 @@ func WebSearchSection(readVerify func() *verifystate.State) *WebSearchInfo {
 	if st == nil {
 		return wi // absent/unreadable store → typed-Unknown, never a fabricated PASS
 	}
-	checked, err := time.Parse(time.RFC3339, st.CheckedAt)
-	if err != nil {
-		return wi // unparseable timestamp → cannot assert freshness → "unknown"
-	}
-	if age := time.Since(checked); age < 0 || age > VerifyFreshnessWindow {
-		// Stale OR future-dated result — a PASS this old (or stamped in the future by a
-		// skewed/forged clock) must be re-proven, NEVER read as bounded. A negative age
-		// is never > window, so the lower-bound clamp is required to keep the no-false-green
-		// invariant. VerifyCheckedAt stays omitted (no fabricated "current" timestamp).
+	if !VerifyFresh(st.CheckedAt) {
+		// Unparseable, stale OR future-dated result — a PASS this old (or stamped in the
+		// future by a skewed/forged clock) must be re-proven, NEVER read as bounded: a
+		// negative age is never > window, so VerifyFresh clamps the lower bound too, to keep
+		// the no-false-green invariant. VerifyCheckedAt stays omitted (no fabricated
+		// "current" timestamp).
 		return wi
 	}
 	// Fresh, evaluable result: surface its timestamp and map the verdict.

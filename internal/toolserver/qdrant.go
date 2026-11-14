@@ -6,8 +6,8 @@ package toolserver
 // The shapes follow what the pinned Open WebUI sends (its Qdrant client calls
 // query_points with a must filter of the tenant and metadata conditions) and Qdrant's
 // documented REST API for POST /collections/{name}/points/query. They are pinned by
-// hand-written fixtures, NOT captured from the pinned Qdrant: ADR-0042 lists that capture
-// as not established in the tree. The recall tool's only Qdrant call is this one query.
+// testdata/qdrant-query-response.captured.json, a capture of villa-qdrant 1.18.2 with the
+// ids, names and text replaced. The recall tool's only Qdrant call is this one query.
 
 import (
 	"bytes"
