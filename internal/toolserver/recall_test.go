@@ -188,6 +188,7 @@ func TestRecallDropsHitsOutsideTheCallersFiles(t *testing.T) {
 			{Score: 0.5, Text: "mine-2", FileID: "f2", Name: "not-a-transcript-name.txt"},
 			{Score: 0.4, Text: "OTHER-COLLECTION", FileID: "f1", Tenant: "kb-other", Name: "villa-recall-chat-e.txt"},
 			{Score: 0.3, Text: "NO-TENANT", FileID: "f1", OmitTenantInfo: true, Name: "villa-recall-chat-f.txt"},
+			{Score: 0.2, Text: "NO-NAME-OTHER-TENANT", FileID: "f-other", Tenant: "kb-other", OmitName: true},
 		}))
 	})
 	var got recallResp
@@ -197,7 +198,7 @@ func TestRecallDropsHitsOutsideTheCallersFiles(t *testing.T) {
 	if len(got.Results) != 2 {
 		t.Fatalf("results = %d, want the 2 of the caller's files: %s", len(got.Results), rec.Body.String())
 	}
-	for _, bad := range []string{"OTHER-USERS", "NO-FILE-ID", "UNKNOWN-FILE", "OTHER-COLLECTION", "NO-TENANT"} {
+	for _, bad := range []string{"OTHER-USERS", "NO-FILE-ID", "UNKNOWN-FILE", "OTHER-COLLECTION", "NO-TENANT", "NO-NAME-OTHER-TENANT"} {
 		if strings.Contains(rec.Body.String(), bad) {
 			t.Errorf("a point outside the caller's files was returned: %s", bad)
 		}

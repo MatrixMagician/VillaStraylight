@@ -1,16 +1,16 @@
 package toolserver
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 )
 
-// The Qdrant request builder and response parser are pinned here against documented
-// shapes, not against a capture. testdata/qdrant-query-response.handwritten.json was
-// written by hand from Qdrant's REST documentation and Open WebUI's client, and is marked
-// as such. A fixture captured from the pinned Qdrant replaces it (ADR-0042 "Not
-// established in the tree").
+// The response parser is pinned against testdata/qdrant-query-response.captured.json, a
+// capture of villa-qdrant 1.18.2 taken on the dev host on 2026-11-14 with every id, name and
+// text replaced. Its structure and types are as Qdrant returned them: there is no top-level
+// usage key, and metadata.embedding_config is an object, not a string.
 
 // TestQdrantQueryRequestShape pins the exact body of the one query the recall tool sends:
 // query vector, limit, payload on, and a filter of exactly the tenant and the caller's
@@ -37,15 +37,30 @@ func TestQdrantQueryRequestShape(t *testing.T) {
 	}
 }
 
-// TestQdrantResponseFixture parses the hand-written fixture.
+// TestQdrantResponseFixture parses the captured fixture. It asserts the fixture still says
+// it is a capture and still has the two shape facts a hand-written one got wrong, so it
+// cannot be swapped back for a guess.
 func TestQdrantResponseFixture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/qdrant-query-response.handwritten.json")
+	raw, err := os.ReadFile("testdata/qdrant-query-response.captured.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "NOT captured from the pinned Qdrant") {
-		t.Fatal("the fixture must say it is not a capture until it is replaced by one")
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
 	}
+	if note, _ := doc["_captured"].(string); !strings.Contains(note, "villa-qdrant 1.18.2") {
+		t.Fatalf("the fixture must carry the capture note naming the Qdrant version: %q", note)
+	}
+	if _, ok := doc["usage"]; ok {
+		t.Error("the capture has no top-level usage key")
+	}
+	points := doc["result"].(map[string]any)["points"].([]any)
+	meta := points[0].(map[string]any)["payload"].(map[string]any)["metadata"].(map[string]any)
+	if _, ok := meta["embedding_config"].(map[string]any); !ok {
+		t.Errorf("embedding_config must be an object in the capture: %T", meta["embedding_config"])
+	}
+
 	hits, err := parseQdrantQuery(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -54,11 +69,25 @@ func TestQdrantResponseFixture(t *testing.T) {
 		t.Fatalf("hits = %d, want 2", len(hits))
 	}
 	h := hits[0]
-	if h.Score != 0.7123 || h.FileID != "file-aaa" || h.Name != "villa-recall-chat-111.txt" || h.Tenant != "kb-1" || !strings.Contains(h.Text, "which ferry") {
+	if h.Score != 0.5115 || h.FileID != "file-0" || h.Tenant != "knowledge-id" ||
+		h.Name != "villa-recall-00000000-0000-4000-8000-000000000000.txt" || h.Text != "redacted chunk 0" {
 		t.Errorf("first hit = %+v", h)
 	}
-	if hits[1].FileID != "file-bbb" || hits[1].Score != 0.6011 {
+	if hits[1].FileID != "file-1" || hits[1].Score != 0.4631 {
 		t.Errorf("second hit = %+v", hits[1])
+	}
+}
+
+// TestQdrantPointWithoutAName: the collection holds other tenants' points and some have no
+// metadata.name at all. The parser returns such a point with an empty name and no error.
+func TestQdrantPointWithoutAName(t *testing.T) {
+	hits, err := parseQdrantQuery([]byte(`{"result":{"points":[{"id":"x","version":1,"score":0.3,` +
+		`"payload":{"text":"t","tenant_id":"other","metadata":{"file_id":"f9","created_by":"u"}}}]},"status":"ok","time":0.1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Name != "" || hits[0].Tenant != "other" || hits[0].FileID != "f9" {
+		t.Errorf("hits = %+v", hits)
 	}
 }
 

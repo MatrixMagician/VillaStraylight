@@ -244,13 +244,17 @@ type qdrantHitFixture struct {
 	Tenant         string
 	OmitFileID     bool
 	OmitTenantInfo bool
+	OmitName       bool
 }
 
 func qdrantResponse(hits []qdrantHitFixture) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		points := []any{}
 		for i, h := range hits {
-			meta := map[string]any{"name": h.Name}
+			meta := map[string]any{}
+			if !h.OmitName {
+				meta["name"] = h.Name
+			}
 			if !h.OmitFileID {
 				meta["file_id"] = h.FileID
 			}
