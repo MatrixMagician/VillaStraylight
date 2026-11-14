@@ -14,6 +14,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
+	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/toolproof"
 	"github.com/MatrixMagician/VillaStraylight/internal/toolserver"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -303,6 +304,43 @@ func TestDriveToolChat(t *testing.T) {
 	failing := openwebui.New(func(context.Context, openwebui.Request) ([]byte, error) { return nil, errors.New("connection refused") })
 	if _, err := driveToolChat(t.Context(), failing, toolproof.ChatRequest{ServerID: "villa-web"}); err == nil {
 		t.Error("an unreachable Open WebUI must be an error")
+	}
+}
+
+// TestDoctorReadsWhatVerifyToolsRecords: the record the verb writes is the record doctor's
+// tool-server-proof finding reads, through the live wiring. A fresh PASS passes, a fresh FAIL
+// fails, a stale PASS and an absent record warn, and the search record is a different file.
+func TestDoctorReadsWhatVerifyToolsRecords(t *testing.T) {
+	const cfgTOML = doctorHostBaseTOML + "web_search_enabled = true\ntool_server = true\n"
+	okReport := func() status.Report { return status.Report{LoopbackOnly: true} }
+	record := func(t *testing.T, verdict string, at time.Time) {
+		t.Helper()
+		if err := liveVerifyToolsStatePersist(verifystate.State{Verdict: verdict, CheckedAt: at.UTC().Format(time.RFC3339)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		record func(t *testing.T)
+		want   string
+	}{
+		{"fresh pass", func(t *testing.T) { record(t, "PASS", time.Now()) }, "PASS"},
+		{"fresh fail", func(t *testing.T) { record(t, "FAIL", time.Now()) }, "FAIL"},
+		{"stale pass", func(t *testing.T) { record(t, "PASS", time.Now().Add(-72*time.Hour)) }, "WARN"},
+		{"nothing recorded", func(*testing.T) {}, "WARN"},
+		{"only the search proof passed", func(t *testing.T) { recordVerifySearch(t, "PASS", time.Now()) }, "WARN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			newDoctorHost(t, cfgTOML)
+			tc.record(t)
+			f, ok := doctorFindingsFor(t, okReport)["tool-server-proof"]
+			if !ok {
+				t.Fatal("no tool-server-proof finding")
+			}
+			if f.Status != tc.want {
+				t.Errorf("tool-server-proof = %s %q, want %s", f.Status, f.Detail, tc.want)
+			}
+		})
 	}
 }
 

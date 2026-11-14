@@ -62,6 +62,17 @@ func liveVerifyToolsStatePersist(s verifystate.State) error {
 	}, s)
 }
 
+// liveReadToolsVerifyState loads verify-tools-state.json read-only, as liveReadVerifyState
+// does the search record: an absent or corrupt file is the zero State (the freshness gate reads
+// it as no result), and a read error is nil, which doctor reads as unreadable.
+func liveReadToolsVerifyState() *verifystate.State {
+	st, err := verifystate.LoadTools(verifystate.Deps{ReadAll: storeReader(verifystate.ToolsPath())})
+	if err != nil {
+		return nil
+	}
+	return &st
+}
+
 func newVerifyTools() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tools",
