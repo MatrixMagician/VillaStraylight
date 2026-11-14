@@ -135,20 +135,42 @@ type crushProvider struct {
 	Models  []crushModel `json:"models"`
 }
 
-// crushModel mirrors the v0.76.0 Model required-field set. Cost fields are 0
-// (local, no cost); id is villa- prefixed (#2649-safe).
+// crushModel mirrors the Catwalk v3 model that Crush v0.99+ reads and writes
+// back (a v2 file is rewritten in place on first load; migrateLegacyModels is the
+// read side of that move). Pricing is all 0 (local, no cost); id is villa-
+// prefixed (#2649-safe).
 type crushModel struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	CostPer1MIn         float64 `json:"cost_per_1m_in"`
-	CostPer1MOut        float64 `json:"cost_per_1m_out"`
-	CostPer1MInCached   float64 `json:"cost_per_1m_in_cached"`
-	CostPer1MOutCached  float64 `json:"cost_per_1m_out_cached"`
-	ContextWindow       int     `json:"context_window"`
-	DefaultMaxTokens    int     `json:"default_max_tokens"`
-	CanReason           bool    `json:"can_reason"`
-	SupportsAttachments bool    `json:"supports_attachments"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	ContextWindow    int               `json:"context_window"`
+	DefaultMaxTokens int               `json:"default_max_tokens"`
+	Pricing          crushPricing      `json:"pricing"`
+	Capabilities     crushCapabilities `json:"capabilities"`
+	Reasoning        crushReasoning    `json:"reasoning"`
 }
+
+// crushPricing is the v3 per-million-token price block, replacing the four
+// cost_per_1m_* keys.
+type crushPricing struct {
+	Input       float64 `json:"input"`
+	Output      float64 `json:"output"`
+	CacheCreate float64 `json:"cache_create"`
+	CacheHit    float64 `json:"cache_hit"`
+}
+
+// crushCapabilities replaces v2's supports_attachments with capabilities.vision.
+type crushCapabilities struct {
+	Vision bool `json:"vision"`
+}
+
+// crushReasoning replaces v2's can_reason; Thinking is "never" where v2 said
+// false and "toggleable" where it said true. villa renders no effort levels.
+type crushReasoning struct {
+	Thinking string `json:"thinking"`
+}
+
+// thinkingNever is the v3 spelling of v2's can_reason=false, the only value villa renders.
+const thinkingNever = "never"
 
 // crushLSPEntry is a single detected-toolchain LSP entry. Only Command is
 // rendered (a fixed literal); other fields are omitted (Crush defaults apply).
@@ -192,13 +214,12 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 	}
 
 	model := crushModel{
-		ID:                  id,
-		Name:                base + " (local)",
-		ContextWindow:       ctxWindow,
-		DefaultMaxTokens:    ctxWindow / maxTokensDivisor,
-		CanReason:           false,
-		SupportsAttachments: false,
-		// cost_* default to 0 (local, no cost).
+		ID:               id,
+		Name:             base + " (local)",
+		ContextWindow:    ctxWindow,
+		DefaultMaxTokens: ctxWindow / maxTokensDivisor,
+		Reasoning:        crushReasoning{Thinking: thinkingNever},
+		// pricing defaults to 0 (local, no cost); capabilities.vision to false.
 	}
 
 	lsp, warns := renderLSP(probes)
@@ -274,11 +295,17 @@ func renderLSP(probes []LSPProbe) (map[string]crushLSPEntry, []Warning) {
 // re-marshals so whitespace-only differences normalize away while semantic edits
 // survive. Returns the input unchanged on a parse error (a non-JSON on-disk file
 // is, semantically, a drift the byte path will catch). Used by drift.go.
+//
+// It also reads a Catwalk v2 model as the v3 one Crush rewrites it to
+// (migrateLegacyModels), on BOTH sides of the compare, so DetectDrift,
+// VillaOwnedDrift and doctor's finding all see it. Villa never writes the
+// migrated form; this is the comparison path only.
 func canonicalize(b []byte) []byte {
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return bytes.TrimSpace(b)
 	}
+	migrateLegacyModels(v)
 	out, err := json.Marshal(v)
 	if err != nil {
 		return bytes.TrimSpace(b)
@@ -348,6 +375,7 @@ func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
 					Name:             base + " (local)",
 					ContextWindow:    ctxWindow,
 					DefaultMaxTokens: ctxWindow / maxTokensDivisor,
+					Reasoning:        crushReasoning{Thinking: thinkingNever},
 				}},
 			},
 		},
