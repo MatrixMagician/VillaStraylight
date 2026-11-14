@@ -21,7 +21,7 @@ That is host-conditional for a small number of tests:
 
 ## Test framework and setup
 
-- **Framework:** Go stdlib `testing` (`go1.26.10`, per `go.mod`). No Jest/Vitest/
+- **Framework:** Go stdlib `testing` (`go1.26.11`, per `go.mod`). No Jest/Vitest/
   pytest equivalent; assertions are hand-written `t.Errorf` / `t.Fatalf`.
 - **Helpers:** the only external testing import is `github.com/spf13/cobra`,
   used to construct in-memory command objects (`cmd.SetOut`/`cmd.SetErr` into a
