@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -119,9 +118,9 @@ const (
 // distinguishes a genuinely-blocked external host from a probe that could not RUN — the core
 // honesty fix for the negative-control-FIRST gate.
 //
-//   - sanityErr != nil: the in-network sanity probe to villa-llama failed, so the probe
+//   - sanityErr != nil: the in-network sanity probe to Open WebUI failed, so the probe
 //     environment is wholesale-broken (missing image/network, podman daemon error, curl
-//     absent, villa-llama down). Return an ERROR (the pure evalAgentVerify maps it to FAIL
+//     absent, Open WebUI down). Return an ERROR (the pure evalAgentVerify maps it to FAIL
 //     "could not run the egress negative-control probe"). NEVER blocked=true — that is exactly
 //     the false-green this control exists to forbid.
 //   - sanity ok + a curl CONNECTION/TIMEOUT exit (6/7/28): the external host is genuinely
@@ -133,7 +132,7 @@ const (
 func classifyEgressProbe(sanityErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
 	return classifyReachabilityProbe(sanityErr, externalExitCode, externalErr,
 		func(e error) error {
-			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to villa-llama's model list failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", e, routedNetwork)
+			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to Open WebUI's health route failed (%w) — verify the %q network, a reachable helper image, and that villa-openwebui is up, then re-run", e, routedNetwork)
 		},
 		func(code int, e error) error {
 			return fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", code, e, egressNegativeControlHost)
@@ -170,14 +169,14 @@ func classifyReachabilityProbe(sanityErr error, externalExitCode int, externalEr
 // evalAgentVerify.
 //
 //   - egressBlocked: a TWO-LAYER negative control. FIRST a positive in-network sanity
-//     probe to villa-llama by container DNS (the in-network inference client) proves the
-//     probe environment works; if it fails the control FAILs ("could not run the probe"),
+//     probe to Open WebUI's health route (agentEgressSanity, on the routed network villa-llama
+//     no longer joins, ADR-0043) proves the probe environment works; if it fails the control FAILs ("could not run the probe"),
 //     never false-greens as blocked. THEN a negative external probe (runProbeCurlCode) is
 //     classified by curl exit code via classifyEgressProbe: a CONNECTION/TIMEOUT exit (6/7/28)
 //     → genuinely blocked; exit 0 → not blocked; any other failure → infrastructure FAIL. The
 //     helper image is sourced from orchestrate.EmbedImage() and the in-network URL from
 //
-// the in-network inference client — NO re-typed image/host literal (
+// orchestrate.OpenWebUIInNetworkHealthURL() — NO re-typed image/host literal (
 //
 //	  TestSeamGrepGate green).
 //
@@ -200,21 +199,14 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		// FAIL the control, never false-green as "blocked". Two layers, the in-network sanity
 		// probe being the primary robust mechanism:
 		//
-		// (1) Positive in-network sanity probe FIRST. Curl villa-llama by its CONTAINER DNS
-		//     name + server port (inNetworkInferenceClient), INSIDE the same villa
-		//     network the negative probe uses. CRITICAL: runProbeCurl runs in a --network villa
-		//     helper container where 127.0.0.1 is the HELPER's OWN loopback — so the agent
-		//     task's host-loopback providerBaseURL would ALWAYS fail here and false-FAIL the
-		//     control on every healthy host. The sanity probe proves podman runs, the villa
-		//     network exists, the helper image is present, curl works in it, AND villa-llama is
-		//     reachable by DNS. If it fails, the probe environment is wholesale-broken → error
-		//     (the pure core maps it to FAIL "could not run the probe"), NOT blocked=true.
-		//     The request comes from the in-network inference client (ADR-0014). The
-		//     model list is a public route, so a config that cannot be read costs only
-		//     a header the probe does not need.
-		cfg, _ := config.LoadVilla()
-		models := inNetworkInferenceClient(cfg).CurlModels()
-		_, sanityErr := runProbeCurlIn(ctx, helperImage, models, "-sf", "--max-time", "5")
+		// (1) Positive in-network sanity probe FIRST, on the same routed network the
+		//     negative probe uses (agentEgressSanity). It proves podman runs, the villa
+		//     network exists, the helper image is present and curl works in it. If it
+		//     fails, the probe environment is wholesale-broken → error (the pure core
+		//     maps it to FAIL "could not run the probe"), NOT blocked=true. The target
+		//     is Open WebUI, not villa-llama: inference joins villa-closed only
+		//     (ADR-0043), so a probe on the routed network cannot reach it.
+		sanityErr := agentEgressSanity(ctx, helperImage)
 
 		// (2) Negative external probe, classified by curl exit semantics. A genuinely-blocked
 		//     host fails with a curl CONNECTION/TIMEOUT code (6/7/28) → blocked=true; any other
@@ -268,6 +260,15 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		return memoryProof{status: proof.status, detail: proof.detail + " " + warning}
 	}
 	return proof
+}
+
+// agentEgressSanity is the positive control of the egress negative control: a curl
+// from the routed network to a service that is on it. Without -f, any HTTP reply is a
+// pass, because the question is whether the probe environment can reach a peer at all,
+// not whether Open WebUI has finished starting.
+func agentEgressSanity(ctx context.Context, helperImage string) error {
+	_, err := runProbeCurl(ctx, helperImage, "-s", "--max-time", "5", orchestrate.OpenWebUIInNetworkHealthURL())
+	return err
 }
 
 // runLlamaDownControl runs the llama-down negative control as a PURE orchestration over

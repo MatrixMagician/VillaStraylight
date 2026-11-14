@@ -617,11 +617,11 @@ func probeWebsafeURL(url string) status.HealthState {
 var inferproxyHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
 
 // liveInferproxyHealth is a liveness probe of villa-inferproxy's root from
-// villa.network. The root is off the proxy's allowlist, so the proxy answers 403
+// villa-closed, the network it shares with villa-llama (ADR-0043). The root is off the proxy's allowlist, so the proxy answers 403
 // itself: the probe proves the listener is up without reaching villa-llama.
 func liveInferproxyHealth() status.HealthState {
 	return inferproxyHealthCache.Get(func() status.HealthState {
-		return statusProber(routedNetwork).Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
+		return statusProber(closedNetwork).Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
 	})
 }
 
