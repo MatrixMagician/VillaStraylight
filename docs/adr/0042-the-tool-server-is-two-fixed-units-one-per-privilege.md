@@ -352,7 +352,7 @@ a header or an upstream body, because Open WebUI hands a 4xx or 5xx body to the 
 | 403 | recall only: `X-Villa-User-Id` is absent, repeated, or does not match `^[A-Za-z0-9_-]{1,64}$` |
 | 429 | the rate or concurrency cap is reached. `Retry-After: 2` |
 | 431 | the request line and headers exceed 16 KiB |
-| 502 | SearXNG, the embedder or Qdrant failed or answered out of shape |
+| 502 | SearXNG, the embedder or Qdrant failed or answered out of shape, or the web tool found no result and SearXNG named an engine in `unresponsive_engines` (the text names up to four engines and their reasons: `search engines refused: brave (Suspended: too many requests), duckduckgo (CAPTCHA)`). Zero results with no engine refusing is still a 200 |
 | 503 | recall only: the scope file is missing, unreadable or names no collection. The text names `villa recall index` |
 | 504 | the request deadline passed |
 

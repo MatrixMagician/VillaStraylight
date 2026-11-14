@@ -15,7 +15,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
@@ -41,7 +44,7 @@ type searxResult struct {
 }
 
 func (s *Server) webSearch(c *call) outcome {
-	items, err := s.searxng(c.ctx, c.q)
+	items, refused, err := s.searxng(c.ctx, c.q)
 	if err != nil {
 		return fail(c.ctx)
 	}
@@ -84,7 +87,84 @@ func (s *Server) webSearch(c *call) outcome {
 		}
 		out.Results = append(out.Results, res)
 	}
+	// An empty answer is only an answer when no engine refused to give one. SearXNG answers
+	// 200 with no results when every engine is suspended or behind a CAPTCHA, and passing that
+	// on as {"results": []} would tell the model, and through it the user, that nothing exists.
+	if len(out.Results) == 0 && len(refused) > 0 {
+		return outcome{status: http.StatusBadGateway, body: map[string]string{"error": enginesRefusedText(refused)}}
+	}
 	return outcome{status: http.StatusOK, body: out, results: len(out.Results), flagged: flagged}
+}
+
+// Limits on the engine text a refusal repeats. The text is SearXNG's, not the caller's, but it
+// is still upstream text that Open WebUI hands to the model.
+const (
+	refusedFieldRunes = 60
+	refusedMaxEngines = 4
+)
+
+// engineRefusal is one entry of SearXNG's unresponsive_engines: an engine and why it did not
+// answer. Reason is empty when SearXNG gave none.
+type engineRefusal struct{ Engine, Reason string }
+
+// parseUnresponsive reads SearXNG's unresponsive_engines, an array of [engine, reason] arrays.
+// An entry that is not a non-empty array whose first element is a non-empty string is skipped,
+// and a value that is not an array at all reads as none.
+func parseUnresponsive(raw json.RawMessage) []engineRefusal {
+	var entries []json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil
+	}
+	var out []engineRefusal
+	for _, e := range entries {
+		var pair []any
+		if json.Unmarshal(e, &pair) != nil || len(pair) == 0 {
+			continue
+		}
+		name, _ := pair[0].(string)
+		if name = cleanEngineField(name); name == "" {
+			continue
+		}
+		reason := ""
+		if len(pair) > 1 {
+			r, _ := pair[1].(string)
+			reason = cleanEngineField(r)
+		}
+		out = append(out, engineRefusal{Engine: name, Reason: reason})
+	}
+	return out
+}
+
+// cleanEngineField drops control characters and cuts the text to refusedFieldRunes.
+func cleanEngineField(s string) string {
+	s = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, s))
+	if r := []rune(s); len(r) > refusedFieldRunes {
+		return string(r[:refusedFieldRunes])
+	}
+	return s
+}
+
+// enginesRefusedText is the fixed-shape message of the 502: the first four engines and their
+// reasons, and a count of the rest.
+func enginesRefusedText(refused []engineRefusal) string {
+	var parts []string
+	for _, r := range refused[:min(len(refused), refusedMaxEngines)] {
+		if r.Reason == "" {
+			parts = append(parts, r.Engine)
+			continue
+		}
+		parts = append(parts, r.Engine+" ("+r.Reason+")")
+	}
+	text := "search engines refused: " + strings.Join(parts, ", ")
+	if more := len(refused) - refusedMaxEngines; more > 0 {
+		text += fmt.Sprintf(" and %d more", more)
+	}
+	return text
 }
 
 // buildWebResult guards one result. The fetched page, when there is one, is already guarded
@@ -128,22 +208,23 @@ func acceptableResultURL(raw string) bool {
 
 // searxng asks SearXNG for q. The request is built here from the fixed base URL and two
 // fixed keys, and q is URL-encoded into one parameter, so the model steers nothing else.
-func (s *Server) searxng(ctx context.Context, q string) ([]searxResult, error) {
+func (s *Server) searxng(ctx context.Context, q string) ([]searxResult, []engineRefusal, error) {
 	target := s.cfg.SearxngURL + "/search?" + url.Values{"q": {q}, "format": {"json"}}.Encode()
 	body, err := s.upstream(ctx, s.lim.SearxngLeg, s.lim.SearxngBody, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var env struct {
-		Results *[]searxResult `json:"results"`
+		Results      *[]searxResult  `json:"results"`
+		Unresponsive json.RawMessage `json:"unresponsive_engines"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if env.Results == nil {
-		return nil, errors.New("searxng: answer has no results field")
+		return nil, nil, errors.New("searxng: answer has no results field")
 	}
-	return *env.Results, nil
+	return *env.Results, parseUnresponsive(env.Unresponsive), nil
 }
 
 // upstream performs one request to a fixed upstream under a leg deadline and returns the
