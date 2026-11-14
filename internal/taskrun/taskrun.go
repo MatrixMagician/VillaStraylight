@@ -30,7 +30,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/research"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
 
@@ -64,8 +66,24 @@ type Deps struct {
 	Audit        func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
 	// ReadFile reads one workspace-relative file for the audit.
 	ReadFile func(workspace, rel string) ([]byte, error)
-	Now      func() time.Time
-	Rand     io.Reader
+	// WebSearchOn answers the research task's gate (subsystem.WebSearchOn).
+	WebSearchOn func(cfg config.VillaConfig) bool
+	// Web is the host's reach for a research task; see WebDeps.
+	Web  WebDeps
+	Now  func() time.Time
+	Rand io.Reader
+}
+
+// WebDeps is what a research task reaches the world through. cmd/villa binds each
+// to an in-network call or the inference client; the config is the one the job
+// loaded when it started, so a secret or a model name is read once per task.
+type WebDeps struct {
+	// Search returns result URLs for one query through SearXNG.
+	Search func(ctx context.Context, cfg config.VillaConfig, query string) ([]string, error)
+	// Fetch loads pages through villa-websafe, which fences them.
+	Fetch func(ctx context.Context, cfg config.VillaConfig, urls []string) ([]research.Page, error)
+	// Complete runs one chat completion through the inference client (ADR-0014).
+	Complete func(ctx context.Context, cfg config.VillaConfig, req llm.ChatRequest) (string, error)
 }
 
 // SubmitRequest is one `villa work` submission.
@@ -198,8 +216,12 @@ func (r *Runner) Load(id string) (taskstore.Task, error) { return r.d.Store.Load
 func (r *Runner) Recover() error {
 	ids, err := r.d.Store.Recover()
 	for _, id := range ids {
-		_ = r.d.KillByName(orchestrate.SandboxContainerName(id))
-		if t, loadErr := r.d.Store.Load(id); loadErr == nil {
+		t, loadErr := r.d.Store.Load(id)
+		// A research task runs no container, so there is nothing to kill.
+		if loadErr != nil || !t.IsResearch() {
+			_ = r.d.KillByName(orchestrate.SandboxContainerName(id))
+		}
+		if loadErr == nil {
 			r.narrate(&t, KindState, "interrupted: the dashboard service restarted while this task was running")
 			r.closeSubs(id)
 		}
@@ -244,6 +266,13 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 	} else if ready, remediation := r.d.SandboxReady(); !ready {
 		refusal = "refused: the sandbox cannot start: " + remediation
 	}
+	return r.admit(t, refusal, now)
+}
+
+// admit writes a new record and either refuses it (a non-empty refusal makes it a
+// refused record carrying that text) or queues it and wakes the worker. It is the
+// tail Submit and SubmitResearch share.
+func (r *Runner) admit(t taskstore.Task, refusal string, now time.Time) (taskstore.Task, error) {
 	if refusal != "" {
 		t.State = taskstore.Refused
 		t.FinishedAt = stamp(now)
@@ -274,7 +303,8 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 // one call a taint source makes, and it must land before that content reaches
 // the model: from the next permission request on, the task's write and execute
 // actions ask. One-way and idempotent; a task already tainted keeps its first
-// source. Nothing calls it yet: the first source is the research task (#408).
+// source. The research task is its caller (ADR-0045): it taints before its first
+// fetch.
 func (r *Runner) Taint(id string, source approval.Taint) error {
 	_, _, err := r.d.Store.SetTaint(id, source, r.d.Now())
 	return err
