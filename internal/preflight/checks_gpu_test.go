@@ -77,6 +77,7 @@ func TestCheckKernelFloor(t *testing.T) {
 	}{
 		{"at tested baseline passes", detect.KnownStr("6.18.9", "osrelease"), StatusPass},
 		{"above baseline passes", detect.KnownStr("7.0.10-201.fc44.x86_64", "osrelease"), StatusPass},
+		{"fedora 45 kernel passes", detect.KnownStr("7.3.3-300.fc45.x86_64", "osrelease"), StatusPass},
 		{"between floor and baseline warns", detect.KnownStr("6.18.5", "osrelease"), StatusWarn},
 		{"below floor warns", detect.KnownStr("6.17.0", "osrelease"), StatusWarn},
 		{"unknown warns", detect.UnknownStr("osrelease unreadable", ""), StatusWarn},
