@@ -67,7 +67,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`),
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
-  bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
+  bind-mounted-binary shape — GHSA-gvp9, ADR-0011), tools-serve (hidden, the same shape:
+  the tool-server process, ADR-0042), backend, speculation, coding-mode,
   code (Crush, or Claude Code / Qwen Code via --agent claude / qwen; opt-in --offline), tools-mode, workspace, work, task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
@@ -134,6 +135,13 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   placement-line fold: RAM > 0 is a FAIL). `cmd/villa/install_image.go` holds the
   pre-stage and THE image proof install, doctor (`IMG-DOC-residency`) and
   `update image` share.
+
+  The tool server (#313, ADR-0042) is `toolserver`: one Go tool table yields the
+  routes, the dispatcher and the OpenAPI document, so a tool cannot be served without
+  being documented. One process serves one set (`tools-serve --set web|recall`), every
+  route is a bearer-gated GET, and every returned text goes through `websafe.Guard`.
+  Recall needs the `X-Villa-User-Id` header Open WebUI fills and filters to the
+  caller's files through `recall.ScopeOf`.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
