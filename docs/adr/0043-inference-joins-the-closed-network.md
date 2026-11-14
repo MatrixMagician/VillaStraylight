@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Inference joins the closed network
@@ -25,8 +25,8 @@ future flag fails the build instead of failing at start on a network with no rou
   same as the closed services.
 - **The loopback host publish is unchanged** (`127.0.0.1:8080`, and one port per
   slot). `villa code`, the CLI, the dashboard and the residency proof reach inference
-  through it, and the units keep it. See the open question below: whether a published
-  port works from an `Internal=true` network is the premise this change rests on.
+  through it, and the units keep it. Whether a published port works from an
+  `Internal=true` network is the premise this change rests on; it is measured below.
 - **`villa-inferproxy` joins `villa-closed` and `villa-sandbox`.** It reaches llama on
   the closed network and the task VMs on the sandbox network, and drops `villa.network`:
   nothing it does needs a route off-box. `villa-llama` still does not join the sandbox
@@ -101,17 +101,37 @@ future flag fails the build instead of failing at start on a network with no rou
 - A future inference-like unit joins `villa-closed` unless it must fetch, and says why
   in its ADR.
 
-## Open question: a published port on an internal network
+## Measured: a published port on an internal network
 
 Rootless Podman has to forward `127.0.0.1:8080` to a container whose only network is
-`Internal=true`. Two records in the tree disagree. ADR-0036 states that a prototype on
+`Internal=true`. Two records in the tree disagreed. ADR-0036 states that a prototype on
 this host (podman 5.8.7, netavark 1.17.2, aardvark-dns 1.17.1) "showed a published
 loopback port still works on an internal-only network". The v1.11 spec (section 3.4,
-from #161, 2026-09) says "a port published from a container on an `--internal` network
-is unreachable from the host under crun and krun alike". No test in this repository can
-settle it, because it is a property of the host's netavark and rootless networking, not
-of villa's render. The first reading is the premise of this ADR. The on-hardware proofs
-(#364) decide it: the residency proof, `villa code` and the dashboard all go through
-the published port, so each fails at once if the second reading is the true one. If it
-is, this ADR is rejected and inference stays routed, with the sandbox boundary carried
-by the proxy alone as before.
+from #161, 2026-09) says such a port "is unreachable from the host under crun and krun
+alike". No test in this repository can settle it, because it is a property of the
+host's rootless networking, not of villa's render.
+
+Measured on the dev host on 2026-11-14 (Fedora 45, podman 6.1.3, netavark with pasta,
+crun 1.31), first on a throwaway internal network and then on the live stack (#364):
+
+- a container on an internal-only network answered `200` on its loopback publish from
+  the host, could not reach `1.1.1.1`, and was resolved by name from an internal-only
+  and from a dual-homed container;
+- after `villa up`, `villa-llama` was on `villa-closed` only and `127.0.0.1:8080/health`
+  answered; a completion was read by eye; `curl https://1.1.1.1` from inside
+  `villa-llama` failed to connect (exit 7);
+- `villa doctor` passed overall, with `networks`, the offload proof, the agent tool-call
+  round trip, and the memory and search residency findings;
+- `villa verify memory` (Open WebUI to the embedder, Qdrant and llama), `villa verify
+  agent` and `villa verify search` passed;
+- with the workspace agent on, `villa-inferproxy` was on `villa-closed` and
+  `villa-sandbox`, and one workspace task ran to `done` through it.
+
+So ADR-0036's reading holds on podman 5.8.7 (its prototype) and on 6.1.3 (this run).
+The spec's sentence was not reproduced under crun; the krun half of it concerns a task
+VM, which publishes no port. This is evidence for those two versions, not a guarantee
+for every rootless network backend: a host where the publish fails loses `villa code`,
+the CLI and the dashboard at once, and `villa doctor`'s health finding names it.
+
+Accepted on 2026-11-14: the maintainer filed this move as ADR-0036's follow-up pending
+an on-hardware proof, and directed it merged once the proofs above passed.
