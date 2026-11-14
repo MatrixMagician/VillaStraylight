@@ -20,7 +20,7 @@ const offlineProxyURL = "http://127.0.0.1:1"
 
 // offlineProxyKeys are the variables set to offlineProxyURL, in both cases because tools
 // differ on which they read.
-var offlineProxyKeys = []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"}
+var offlineProxyKeys = []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"}
 
 // offlineNoProxyKeys carry the one address that stays reachable.
 var offlineNoProxyKeys = []string{"NO_PROXY", "no_proxy"}

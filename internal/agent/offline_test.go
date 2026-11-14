@@ -61,7 +61,7 @@ func envValues(env []string, key string) []string {
 func TestOfflineContractEveryAgent(t *testing.T) {
 	for name, env := range offlineLaunchEnvs(t, true) {
 		t.Run(name, func(t *testing.T) {
-			for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+			for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
 				if got := envValues(env, k); !reflect.DeepEqual(got, []string{offlineProxyURL}) {
 					t.Errorf("%s = %v, want exactly [%s]", k, got, offlineProxyURL)
 				}
@@ -105,7 +105,7 @@ func TestOfflineNoProxyCoversTheModelServer(t *testing.T) {
 func TestDefaultLaunchEnvCarriesNoOfflineChange(t *testing.T) {
 	for name, env := range offlineLaunchEnvs(t, false) {
 		t.Run(name, func(t *testing.T) {
-			for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+			for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
 				if got := envValues(env, k); !reflect.DeepEqual(got, []string{"http://corp:3128"}) {
 					t.Errorf("%s = %v, want the operator's value untouched", k, got)
 				}
