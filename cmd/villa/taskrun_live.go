@@ -66,6 +66,7 @@ func liveTaskRunDeps(ctx context.Context, inf inference.Client) taskrun.Deps {
 		},
 		ToolsOn:      subsystem.ToolsOn,
 		SandboxReady: liveSandboxReady,
+		ServedProps:  liveServedProps(inf),
 		Audit:        liveGroundingAudit(inf),
 		ReadFile:     liveWorkspaceRead,
 		Now:          time.Now,
@@ -114,6 +115,20 @@ func liveRenderSandboxArgs(cfg config.VillaConfig, ws, id string) ([]string, err
 		HostVillaPath: self,
 		CrushPath:     agentBinPath(),
 	})
+}
+
+// propsTimeout bounds the /props read a submission makes; past it the answer is
+// Unknown and the task is accepted with a warning.
+const propsTimeout = 5 * time.Second
+
+// liveServedProps reads the served model's /props through the inference client
+// (ADR-0014), with its own deadline.
+func liveServedProps(inf inference.Client) func(context.Context) *inference.PropsInfo {
+	return func(ctx context.Context) *inference.PropsInfo {
+		ctx, cancel := context.WithTimeout(ctx, propsTimeout)
+		defer cancel()
+		return inf.Props(ctx)
+	}
 }
 
 // liveSandboxReady is PRE-09's verdict as a refusal: a confident FAIL refuses

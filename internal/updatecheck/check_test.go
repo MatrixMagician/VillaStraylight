@@ -148,8 +148,8 @@ func TestANewCrushReleaseIsANewVersion(t *testing.T) {
 	v := acceptedVerdict(func(d *manifest.Document) {
 		for i := range d.Components {
 			if d.Components[i].ID == string(pins.Crush) {
-				d.Components[i].Ref = "v0.99.0"
-				d.Components[i].Version = "v0.99.0"
+				d.Components[i].Ref = "v0.102.0"
+				d.Components[i].Version = "v0.102.0"
 				d.Components[i].Checksum = "abc123"
 			}
 		}
@@ -158,6 +158,82 @@ func TestANewCrushReleaseIsANewVersion(t *testing.T) {
 	r := checkWith(fullConfig(), v)
 	if c := findComponent(t, r, string(pins.Crush)); c.Change != ChangeNewVersion {
 		t.Errorf("a new Crush release reported %q, want new_version", c.Change)
+	}
+}
+
+// crushOffer returns a verdict whose manifest names ref for Crush.
+func crushOffer(ref string) manifestverify.Verdict {
+	return acceptedVerdict(func(d *manifest.Document) {
+		for i := range d.Components {
+			if d.Components[i].ID == string(pins.Crush) {
+				d.Components[i].Ref = ref
+				d.Components[i].Version = ref
+				d.Components[i].Checksum = "abc123"
+			}
+		}
+	})
+}
+
+// TestAManifestBehindTheBinaryIsNotAnUpdate guards #435: an offer older than the
+// host's effective pin is never labelled an update and never reaches the apply
+// path. Comparison is numeric, so v0.93.1 is older than v0.101.0.
+func TestAManifestBehindTheBinaryIsNotAnUpdate(t *testing.T) {
+	r := checkWith(fullConfig(), crushOffer("v0.93.1"))
+	c := findComponent(t, r, string(pins.Crush))
+	if c.Change != ChangeManifestBehind {
+		t.Fatalf("an older Crush offer reported %q, want manifest_behind", c.Change)
+	}
+	if c.Available != "" {
+		t.Errorf("a refused offer still set available = %q", c.Available)
+	}
+	if !strings.Contains(c.Reason, "v0.93.1") {
+		t.Errorf("reason does not name the offered version: %q", c.Reason)
+	}
+	for _, name := range Updatable(r) {
+		if name == "agent" {
+			t.Error("agent is listed as updatable on a downgrade offer")
+		}
+	}
+}
+
+// TestAnEqualCrushOfferIsCurrent: the offer matching the effective pin is no change.
+func TestAnEqualCrushOfferIsCurrent(t *testing.T) {
+	vetted := checkWith(fullConfig(), acceptedVerdict(nil))
+	ref := findComponent(t, vetted, string(pins.Crush)).Effective
+	r := checkWith(fullConfig(), crushOffer(ref))
+	if c := findComponent(t, r, string(pins.Crush)); c.Change != ChangeNone {
+		t.Errorf("an equal offer reported %q, want none", c.Change)
+	}
+}
+
+// TestAnUnorderableOfferFailsClosed: when the two refs cannot be put in order, the
+// offer is not an update, and the row says why.
+func TestAnUnorderableOfferFailsClosed(t *testing.T) {
+	for _, ref := range []string{"nightly", "0.101.0"} {
+		r := checkWith(fullConfig(), crushOffer(ref))
+		c := findComponent(t, r, string(pins.Crush))
+		if c.Change != ChangeUnorderable {
+			t.Errorf("offer %q reported %q, want unorderable", ref, c.Change)
+		}
+		if c.Available != "" || c.Reason == "" {
+			t.Errorf("offer %q: available %q, reason %q", ref, c.Available, c.Reason)
+		}
+	}
+}
+
+// TestAnOlderVersionTagIsNotAnUpdate: the version_tag shape has the same flaw as
+// the checksummed asset, and the same predicate closes it.
+func TestAnOlderVersionTagIsNotAnUpdate(t *testing.T) {
+	v := acceptedVerdict(func(d *manifest.Document) {
+		for i := range d.Components {
+			if d.Components[i].ID == string(pins.Qdrant) {
+				d.Components[i].Ref = "docker.io/qdrant/qdrant:v1.2.0-unprivileged@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+			}
+		}
+	})
+	r := checkWith(fullConfig(), v)
+	if c := findComponent(t, r, string(pins.Qdrant)); c.Change != ChangeManifestBehind || c.Available != "" {
+		t.Errorf("an older qdrant tag reported %q (available %q), want manifest_behind", c.Change, c.Available)
 	}
 }
 
@@ -375,7 +451,7 @@ func TestUpdatableIsInApplyOrder(t *testing.T) {
 		for i := range d.Components {
 			switch d.Components[i].ID {
 			case string(pins.Crush):
-				d.Components[i].Ref = "v0.99.0"
+				d.Components[i].Ref = "v0.102.0"
 			case string(pins.OpenWebUI), string(pins.Qdrant):
 				name, _, _ := strings.Cut(d.Components[i].Ref, "@sha256:")
 				d.Components[i].Ref = name + "@sha256:5555555555555555555555555555555555555555555555555555555555555555"
