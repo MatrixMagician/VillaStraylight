@@ -1,0 +1,19 @@
+16:48:20.321716 ?     P   IP 10.99.8.240.44068 > 10.99.8.1.domain: 24816+ [1au] AAAA? api.github.com. (43)
+16:48:20.321740 ?     P   IP 10.99.8.240.49995 > 10.99.8.1.domain: 39912+ [1au] A? api.github.com. (43)
+16:48:20.324465 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [S], seq 1769189975, win 65480, options [mss 65480,sackOK,TS val 3496150863 ecr 0,nop,wscale 10], length 0
+16:48:20.327616 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [.], ack 2682736983, win 64, length 0
+16:48:20.327878 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [P.], seq 0:1536, ack 1, win 64, length 1536
+16:48:20.332618 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [.], ack 3104, win 100, length 0
+16:48:20.335072 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [P.], seq 1536:1566, ack 3104, win 100, length 30
+16:48:20.335105 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [F.], seq 1566, ack 3104, win 100, length 0
+16:48:20.337497 ?     P   IP 10.99.8.240.36988 > 20.26.156.210.https: Flags [.], ack 3105, win 100, length 0
+16:48:50.887959 ?     P   IP 10.99.8.240.53137 > 10.99.8.1.domain: 15198+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:48:50.888058 ?     P   IP 10.99.8.240.41665 > 10.99.8.1.domain: 54590+ [1au] A? proto-llama.dns.podman. (51)
+16:48:50.888346 ?     P   IP 10.99.8.240.41567 > 10.99.8.1.domain: 21884+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:48:50.888382 ?     P   IP 10.99.8.240.53510 > 10.99.8.1.domain: 50057+ [1au] A? proto-llama.dns.podman. (51)
+16:49:05.612612 ?     P   IP 10.99.8.240.53786 > 10.99.8.1.domain: 27966+ [1au] A? proto-llama.dns.podman. (51)
+16:49:05.612620 ?     P   IP 10.99.8.240.39351 > 10.99.8.1.domain: 34938+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:50:06.738543 ?     P   IP 10.99.8.240.44588 > 10.99.8.1.domain: 3653+ [1au] A? proto-llama.dns.podman. (51)
+16:50:06.738554 ?     P   IP 10.99.8.240.51802 > 10.99.8.1.domain: 55267+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:50:08.490657 ?     P   IP 10.99.8.240.59004 > 10.99.8.1.domain: 11084+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:50:08.490724 ?     P   IP 10.99.8.240.39551 > 10.99.8.1.domain: 50568+ [1au] A? proto-llama.dns.podman. (51)

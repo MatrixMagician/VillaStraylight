@@ -1,0 +1,8 @@
+16:52:09.253583 ?     P   IP 10.99.8.240.35784 > 10.99.8.1.domain: 49678+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:52:09.253605 ?     P   IP 10.99.8.240.51533 > 10.99.8.1.domain: 14533+ [1au] A? proto-llama.dns.podman. (51)
+16:52:10.695105 ?     P   IP 10.99.8.240.36153 > 10.99.8.1.domain: 51894+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:52:10.695111 ?     P   IP 10.99.8.240.33869 > 10.99.8.1.domain: 49792+ [1au] A? proto-llama.dns.podman. (51)
+16:53:24.852465 ?     P   IP 10.99.8.240.59582 > 10.99.8.1.domain: 6532+ [1au] A? proto-llama.dns.podman. (51)
+16:53:24.852472 ?     P   IP 10.99.8.240.40032 > 10.99.8.1.domain: 29864+ [1au] AAAA? proto-llama.dns.podman. (51)
+16:53:26.525102 ?     P   IP 10.99.8.240.39317 > 10.99.8.1.domain: 54505+ [1au] A? proto-llama.dns.podman. (51)
+16:53:26.525107 ?     P   IP 10.99.8.240.35267 > 10.99.8.1.domain: 10434+ [1au] AAAA? proto-llama.dns.podman. (51)
