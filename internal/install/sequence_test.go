@@ -12,17 +12,19 @@ import (
 
 func units() Units {
 	return Units{
-		Inference: "villa-llama.service",
-		ChatUI:    "villa-openwebui.service",
-		Qdrant:    "villa-qdrant.service",
-		Embed:     "villa-embed.service",
-		Rerank:    "villa-rerank.service",
-		Extract:   "villa-extract.service",
-		Searxng:   "villa-searxng.service",
-		Websafe:   "villa-websafe.service",
-		Stt:       "villa-stt.service",
-		Tts:       "villa-tts.service",
-		Image:     "villa-image.service",
+		Inference:   "villa-llama.service",
+		ChatUI:      "villa-openwebui.service",
+		Qdrant:      "villa-qdrant.service",
+		Embed:       "villa-embed.service",
+		Rerank:      "villa-rerank.service",
+		Extract:     "villa-extract.service",
+		Searxng:     "villa-searxng.service",
+		Websafe:     "villa-websafe.service",
+		Stt:         "villa-stt.service",
+		Tts:         "villa-tts.service",
+		Image:       "villa-image.service",
+		ToolsWeb:    "villa-tools-web.service",
+		ToolsRecall: "villa-tools-recall.service",
 	}
 }
 
