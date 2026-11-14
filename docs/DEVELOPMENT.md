@@ -10,7 +10,8 @@ backend seam), see [ARCHITECTURE.md](ARCHITECTURE.md); this doc does not repeat 
 
 Clone the repo and confirm the toolchain. `villa` is a single Go module with no code
 generation step and no system-library build dependencies: `go build` is the whole
-toolchain.
+toolchain for the binary. First-party code in another language is allowed on
+ADR-0046's terms; when one lands with tests, its toolchain joins `make check`.
 
 ```bash
 git clone https://github.com/MatrixMagician/VillaStraylight.git
