@@ -36,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 through v1.19 (v1.19: doctor `CAP-01`/`CAP-02` against `/props`, `recommend --envelope`, `villa code --offline`, Fedora 45 and Podman 6 tested, Go 1.26.11 for GO-2026-6859), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
+**Shipped:** v1.0 through v1.20 (v1.20: inference on `villa-closed` only (ADR-0043), Crush v0.101.0, task refusals for a model without tool calls and for project skills, the post-run file observation in the task record (ADR-0047), `update --check` refuses an older offer), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
 release notes and `docs/adr/` are the history. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
@@ -195,11 +195,11 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: the `villa` binary is Go (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers): one static, CGO-free binary, easy self-hosted distribution. Other first-party code may be any language when it integrates through that binary: villa ships it (embedded or sha256-pinned), runs it, renders its config from `config.toml`, proves it, and runs it on a pinned runtime (ADR-0046).
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44 and 45 (the tested set) on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
-- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389).
+- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389), or none with `villa code --offline` (captured for all three agents).
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, Qdrant, SearXNG); build only the control plane.
 
@@ -207,7 +207,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. The binary stays Go and static; first-party code in another language is allowed only on ADR-0046's terms.
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.

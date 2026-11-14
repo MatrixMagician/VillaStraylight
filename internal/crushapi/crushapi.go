@@ -1,9 +1,10 @@
-// Package crushapi is villa's client for Crush v0.76.0's `crush server` HTTP+SSE
+// Package crushapi is villa's client for Crush v0.101.0's `crush server` HTTP+SSE
 // surface, plus the typed stdio line protocol the bridge and the runner share.
 //
-// Every route and body was derived from the Crush source at tag v0.76.0:
+// Every route and body was derived from the Crush source at tag v0.76.0 and
+// re-checked at v0.101.0, where the route table moved:
 //
-//   - the route table: internal/server/server.go (mux.HandleFunc lines 120-179)
+//   - the route table: internal/server/endpoints.go (server.go before v0.101.0)
 //   - the handlers and their status codes: internal/server/proto.go
 //     (handleGetVersion, handlePostWorkspaces, handleGetWorkspaceEvents,
 //     handlePostWorkspaceAgent, handlePostWorkspacePermissionsGrant,

@@ -150,7 +150,7 @@ func newCodeCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 // internal/agent/crush-policy.json (Plan 03, on-hardware). agent.Run loads the
 // embedded policy, so a fake installed binary must carry this exact hash to be
 // non-drifting; any other value is now a confident binary-drift signal.
-const pinnedPolicyBinSHA = "e59e1baecfc810027d424a8ef2a23d6ed091ca93ac36f5f32e95ce6788c5fbf9"
+const pinnedPolicyBinSHA = "47339786383813914a018e83636b6b47682cc7751e54ab44e1dc78e1141e42d4"
 
 // TestCodeLockdownEnv — on the clean path a fake Launch captures the env; it MUST
 // contain the three lockdown vars.

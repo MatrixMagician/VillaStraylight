@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
 // fixtureServer stands in for `crush server`: it serves the recorded SSE stream on
@@ -149,7 +150,7 @@ func TestEventsDecodesEveryKindFromTheFixture(t *testing.T) {
 	}
 
 	file := got[3].File
-	if file == nil || file.Path != "/workspace/reports/duplicates.md" || file.Version != 3 {
+	if file == nil || file.Path != "/workspace/reports/duplicates.md" || file.Version != 3 || file.Op != FileOpCreated {
 		t.Errorf("file = %+v", file)
 	}
 
@@ -163,6 +164,20 @@ func TestEventsDecodesEveryKindFromTheFixture(t *testing.T) {
 
 	if got[5].Message != nil || got[5].Permission != nil {
 		t.Error("an unrecognised event type was decoded into a typed field")
+	}
+}
+
+// TestAFileEventCarriesItsPubsubVerb guards the one signal that tells a write
+// from a dropped history record: Crush publishes "deleted" when it removes its
+// record of a file, and the runner must be able to see that.
+func TestAFileEventCarriesItsPubsubVerb(t *testing.T) {
+	data := []byte(`{"type":"file","payload":{"type":"deleted","payload":{"id":"file-1","session_id":"sess-1","path":"/workspace/old.md","version":2}}}`)
+	ev, err := decodeEvent(data, time.Now())
+	if err != nil {
+		t.Fatalf("decodeEvent: %v", err)
+	}
+	if ev.File == nil || ev.File.Op != FileOpDeleted || ev.File.Path != "/workspace/old.md" {
+		t.Errorf("file = %+v, want old.md under the deleted verb", ev.File)
 	}
 }
 

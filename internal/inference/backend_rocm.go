@@ -56,6 +56,9 @@ type backendROCm struct {
 	// load is the resident-weights flag spelling this image's llama.cpp build
 	// accepts; see llamaServerFlags.
 	load []string
+	// noSpeculation marks an image whose llama.cpp build has no --spec-type
+	// (rocwmma, build 7690).
+	noSpeculation bool
 }
 
 // Compile-time assertion that backendROCm satisfies Backend (incl. ResidencyProof).
@@ -67,6 +70,9 @@ func (b backendROCm) Name() string { return b.name }
 
 // Image returns the digest-pinned ROCm container image for the selected variant.
 func (b backendROCm) Image() string { return b.image }
+
+// ServesSpeculation is false only for the image whose build predates --spec-type.
+func (b backendROCm) ServesSpeculation() bool { return !b.noSpeculation }
 
 // ContainerArgs renders the full `podman run` argument slice for one ROCm run. It is
 // a DELTA over backendVulkan.ContainerArgs: in addition to the shared /dev/dri
