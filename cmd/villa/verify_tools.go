@@ -138,14 +138,17 @@ func toolsVerdictName(s verify.Status) string {
 }
 
 // The bounds of the live legs. Each in-network request starts a helper container, so the
-// per-request bound allows for that and for the web tool's own 25 s deadline. The chat bound
-// matches Open WebUI's 300 s tool timeout, since a model decoding a tool call and then an
-// answer is the slowest thing the proof asks for.
+// per-request bound allows for that and for the web tool's own 25 s deadline. The chat request
+// blocks until Open WebUI's whole tool loop ends: one model turn decodes the tool call, the
+// tool runs, and a second turn writes the answer. Each turn is bounded by Open WebUI's 300 s
+// tool timeout, so the chat bound is two of them, which is the slowest thing the proof asks
+// for.
 const (
-	toolUnitCallTimeout = 45 * time.Second
-	toolReachTimeout    = 20 * time.Second
-	toolChatTimeout     = 5 * time.Minute
-	toolsProofTimeout   = 25 * time.Minute
+	toolUnitCallTimeout  = 45 * time.Second
+	toolReachTimeout     = 20 * time.Second
+	toolModelTurnTimeout = 5 * time.Minute
+	toolChatTimeout      = 2 * toolModelTurnTimeout
+	toolsProofTimeout    = 25 * time.Minute
 	// wrongBearer is sent where a request must be refused for its key. It is never a key
 	// villa generates, which are 64 hex characters.
 	wrongBearer = "villa-verify-not-the-key"
@@ -288,7 +291,10 @@ func toolRegistrations(ctx context.Context, owui *openwebui.Client) ([]toolproof
 }
 
 // driveToolChat runs one completion that offers the unit's connection and returns the model's
-// text. The caller learns whether a tool was called from the unit's own log, not from this.
+// text when the response has any. The caller learns whether a tool was called from the unit's
+// own log, not from this. The request streams without a session id, so Open WebUI runs the tool
+// loop to its end and then answers 200 with the body `null`: that is the completed exchange and
+// the answer text is in the chat it created, which the proof does not read.
 func driveToolChat(ctx context.Context, owui *openwebui.Client, r toolproof.ChatRequest) (string, error) {
 	token, err := liveOpenWebUISignIn(ctx, owui)
 	if err != nil {
@@ -305,6 +311,9 @@ func driveToolChat(ctx context.Context, owui *openwebui.Client, r toolproof.Chat
 	raw, err := owui.ChatCompletion(ctx, token, body)
 	if err != nil {
 		return "", err
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", nil
 	}
 	answer, _ := parseChatAnswerAndCitation(raw)
 	return answer, nil
