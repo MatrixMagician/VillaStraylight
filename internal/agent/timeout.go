@@ -1,11 +1,15 @@
 package agent
 
 // timeout.go is the ONE home of the request_timeout formula (#351, ADR-0044). Crush
-// aborts a request that sends nothing for options.request_timeout seconds, and its
-// default is 60 s. Crush's own prompt and tool list are about 17k tokens, which
+// aborted a request that sent nothing for options.request_timeout seconds, with a
+// 60 s default. Crush's own prompt and tool list are about 17k tokens, which
 // gemma-4-31b prefills at 219 to 221 tok/s: 71 to 77 s before the first token, so
-// no round could start. The timeout is a pure function of the context window the
-// file renders, never of a live reading, so the golden-pinned Render stays
+// no round could start. Since v0.96 the value bounds the silence between streamed
+// tokens, the first token waits max(request_timeout, 5 min), and a non-streaming
+// call gets one deadline of request_timeout. The formula still holds under those
+// rules and still stretches the first-token wait for windows over 60k. The timeout
+// is a pure function of the context window the file renders, never of a live
+// reading, so the golden-pinned Render stays
 // deterministic and drift does not flap with GPU load.
 
 const (
