@@ -262,6 +262,10 @@ var lockRules = map[string]lockRule{
 	"liveConfigDeps":       {lockers: []string{"runConfigSet"}}, // config show only reads
 	"liveWorkspaceCmdDeps": {lockers: []string{"runWorkspaceAdd", "runWorkspaceRemove"}},
 	"saveRecommendation":   {lockers: []string{"saveRecommendation"}},
+	// `catalog add` pulls WITHOUT the lock (a multi-gigabyte download must not block
+	// every swap) and takes it through the Lock seam catalogadd.Run calls, around the
+	// catalog read-extend-write and the catalog_path write only (ADR-0041).
+	"liveCatalogAddDeps": {lockers: []string{"liveCatalogAddDeps"}},
 
 	// backup stops Open WebUI and Qdrant for a clean export (#267).
 	"liveDeps": {lockers: []string{"runBackup"}},
