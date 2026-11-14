@@ -45,6 +45,9 @@ type Page struct {
 	// text (flag-not-block: Detected never drops Content; it is surfaced additively in the
 	// /load response metadata.guard sub-key for Phase 34 to count).
 	Verdict Verdict
+	// Truncated says Bounds.MaxContentRunes cut the text before the fence. It is never
+	// set on the /load path, where that bound is zero.
+	Truncated bool
 }
 
 // Loader is the fetch core: it holds the injected Deps and the resource Bounds.
@@ -129,7 +132,7 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return Page{}, fmt.Errorf("scheme not allowed: %q", rawURL)
 	}
-	if hostRejected(u.Hostname()) {
+	if HostRejected(u.Hostname()) {
 		return Page{}, fmt.Errorf("host rejected: %q", u.Hostname())
 	}
 
@@ -166,9 +169,15 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 	//                 the verdict is USED (stored on Page.Verdict), NOT discarded.
 	//  4. fence     — wrap in the crypto/rand-nonced UNTRUSTED_WEB_CONTENT provenance fence.
 	// flag-not-block: the fenced text is the Page Content regardless of the verdict.
-	clean := sanitize(string(body))
-	clean = normalize(clean)
-	verdict := classify(clean)
+	// Guard owns that order (and the optional MaxContentRunes cut before the fence).
+	guarded, err := Guard(string(body), SourceWeb, l.bounds.MaxContentRunes)
+	if err != nil {
+		// FAIL-CLOSED: a fence with no crypto/rand nonce would carry a forgeable
+		// constant delimiter, defeating the fence's sole security property. Omit the page
+		// (skip-and-continue, honest partial) rather than ship a breakout-able fence.
+		return Page{}, err
+	}
+	verdict := guarded.Verdict
 
 	// The title is untrusted web content that reaches model context via metadata.title
 	// (OWUI citation), so it gets the SAME defang as the body (sanitize+normalize) AND is
@@ -182,15 +191,7 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 	title := normalize(sanitize(extractTitle(body)))
 	verdict = mergeVerdicts(verdict, classify(title))
 
-	fenced, err := fence(clean)
-	if err != nil {
-		// FAIL-CLOSED: a fence with no crypto/rand nonce would carry a forgeable
-		// constant delimiter, defeating the fence's sole security property. Omit the page
-		// (skip-and-continue, honest partial) rather than ship a breakout-able fence.
-		return Page{}, err
-	}
-
-	return Page{Content: fenced, Source: rawURL, Title: title, Verdict: verdict}, nil
+	return Page{Content: guarded.Content, Source: rawURL, Title: title, Verdict: verdict, Truncated: guarded.Truncated}, nil
 }
 
 // NOTE: the Phase-31 hand-rolled extractText stripper was DELETED in Phase 32 — the
