@@ -108,14 +108,15 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		return dashboard.Config{}, err
 	}
 
-	// The runner exists only when the workspace agent is on at startup. Recover
+	// The runner exists only when the workspace agent or web search is on at startup:
+	// a research task (ADR-0045) needs the runner and not the sandbox. Recover
 	// runs HERE, before Serve binds, so a record left running by the previous
 	// service instance is interrupted before any client can read it. A recovery
 	// error is reported and does not stop the dashboard: one corrupt task record
 	// must not take the whole service down. The grounding audit reaches the SAME
 	// server villa status reports on, through the authenticated client (ADR-0014).
 	var tasks *taskrun.Runner
-	if subsystem.SandboxOn(cfg) {
+	if subsystem.SandboxOn(cfg) || subsystem.WebSearchOn(cfg) {
 		tasks = taskrun.New(liveTaskRunDeps(ctx, inferenceClient(cfg)))
 		if err := tasks.Recover(); err != nil {
 			fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)

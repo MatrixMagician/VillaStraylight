@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
 
@@ -23,10 +25,13 @@ import (
 type taskDeps struct {
 	load func() (config.VillaConfig, error)
 	api  func(config.VillaConfig) taskAPIDeps
+	// reportPath resolves a research record's relative report path to the file on
+	// this host, for `task show` to name.
+	reportPath func(rel string) string
 }
 
 func liveTaskDeps() *taskDeps {
-	return &taskDeps{load: config.LoadVilla, api: liveTaskAPIDeps}
+	return &taskDeps{load: config.LoadVilla, api: liveTaskAPIDeps, reportPath: taskstore.New(pathsafe.DataRoot()).ReportPath}
 }
 
 // newTask builds the `villa task` noun and its five subcommands.
@@ -157,7 +162,11 @@ func runTaskList(cmd *cobra.Command, asJSON bool, d *taskDeps) int {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tWORKSPACE\tSTATE\tSUBMITTED\tEXIT")
 	for _, t := range view.Tasks {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.Workspace, t.State, t.SubmittedAt, exitCell(t.Exit))
+		workspace := t.Workspace
+		if t.Kind == taskstore.KindResearch {
+			workspace = "(research)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID, workspace, t.State, t.SubmittedAt, exitCell(t.Exit))
 	}
 	_ = tw.Flush()
 	return exitPass
@@ -197,17 +206,43 @@ func runTaskShow(cmd *cobra.Command, id string, asJSON bool, d *taskDeps) int {
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "id\t%s\n", t.ID)
-	fmt.Fprintf(tw, "workspace\t%s\n", t.Workspace)
-	fmt.Fprintf(tw, "instruction\t%s\n", t.Instruction)
-	fmt.Fprintf(tw, "mode\t%s\n", t.Mode)
+	if t.IsResearch() {
+		fmt.Fprintf(tw, "kind\t%s\n", t.Kind)
+		fmt.Fprintf(tw, "question\t%s\n", t.Instruction)
+		if t.Research != nil {
+			fmt.Fprintf(tw, "budget\t%d rounds, %d minutes (soft)\n", t.Research.Budget.Rounds, t.Research.Budget.Minutes)
+		}
+	} else {
+		fmt.Fprintf(tw, "workspace\t%s\n", t.Workspace)
+		fmt.Fprintf(tw, "instruction\t%s\n", t.Instruction)
+		fmt.Fprintf(tw, "mode\t%s\n", t.Mode)
+	}
 	fmt.Fprintf(tw, "state\t%s (exit %s)\n", t.State, exitCell(t.Exit))
 	fmt.Fprintf(tw, "harness\t%s %s\n", t.Harness.Name, t.Harness.Version)
 	fmt.Fprintf(tw, "submitted\t%s\n", t.SubmittedAt)
 	if t.FinishedAt != "" {
 		fmt.Fprintf(tw, "finished\t%s\n", t.FinishedAt)
 	}
-	if t.Taint.Tainted() {
+	if t.Taint.Tainted() && t.IsResearch() {
+		fmt.Fprintf(tw, "taint\t%s: the report is text derived from web pages; the task itself has no write or execute action\n", t.Taint)
+	} else if t.Taint.Tainted() {
 		fmt.Fprintf(tw, "taint\t%s: write and execute ask in every mode\n", t.Taint)
+	}
+	if t.Research != nil {
+		for _, src := range t.Research.Sources {
+			line := src.URL
+			if src.Flagged {
+				line += " (flagged by websafe: " + strings.Join(src.Rules, ", ") + ")"
+			}
+			fmt.Fprintf(tw, "source #%d\t%s\n", src.N, line)
+		}
+		if t.Research.Report != "" {
+			path := t.Research.Report
+			if d.reportPath != nil {
+				path = d.reportPath(path)
+			}
+			fmt.Fprintf(tw, "report\t%s\n", path)
+		}
 	}
 	for _, f := range t.Files {
 		fmt.Fprintf(tw, "file\t%s %s\n", f.Action, f.Path)

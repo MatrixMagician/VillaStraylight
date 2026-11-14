@@ -33,8 +33,9 @@ type fakeTaskAPI struct {
 	showRaw []byte
 	status  int
 
-	submits []map[string]string
-	answers []answerCall
+	submits         []map[string]string
+	researchSubmits []map[string]any
+	answers         []answerCall
 }
 
 func newFakeTaskAPI(t *testing.T) *fakeTaskAPI {
@@ -49,6 +50,15 @@ func newFakeTaskAPI(t *testing.T) *fakeTaskAPI {
 			return
 		}
 		f.submits = append(f.submits, body)
+		writeFakeJSON(w, http.StatusAccepted, f.record)
+	})
+	mux.HandleFunc("POST /api/research", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		f.researchSubmits = append(f.researchSubmits, body)
 		writeFakeJSON(w, http.StatusAccepted, f.record)
 	})
 	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, _ *http.Request) {
