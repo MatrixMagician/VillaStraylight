@@ -195,7 +195,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: the `villa` binary is Go (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers): one static, CGO-free binary, easy self-hosted distribution. Other first-party code may be any language when it integrates through that binary: villa ships it (embedded or sha256-pinned), runs it, renders its config from `config.toml`, proves it, and runs it on a pinned runtime (ADR-0046).
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44 and 45 (the tested set) on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
@@ -207,7 +207,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. The binary stays Go and static; first-party code in another language is allowed only on ADR-0046's terms.
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
