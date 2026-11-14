@@ -124,7 +124,7 @@ func Run(d Deps) Result {
 	if stop := resolveDrift(d, report, onDisk, reference, &res); stop {
 		return res
 	}
-	readyToLaunch(cfg, &res)
+	readyToLaunch(cfg, d.Offline, &res)
 	return res
 }
 
@@ -234,14 +234,14 @@ func resolveDrift(d Deps, report DriftReport, onDisk, reference []byte, res *Res
 // coding-mode-off / first-run-rendered / lsp-missing Warnings, and cores never print
 // or exec (architecture invariant). On a normal exec the caller's d.Launch never
 // returns; a returned error there is a launch failure it maps.
-func readyToLaunch(cfg config.VillaConfig, res *Result) {
+func readyToLaunch(cfg config.VillaConfig, offline bool, res *Result) {
 	if !subsystem.CodingModeOn(cfg) {
 		res.Warnings = append(res.Warnings, Warning{
 			Code: "coding_mode_off",
 			Msg:  "coding mode is OFF — the running stack may not be serving the coder model; run `villa coding-mode enter` to flip it. Launching against the current endpoint anyway.",
 		})
 	}
-	res.LaunchEnv = lockdownEnv()
+	res.LaunchEnv = withOffline(lockdownEnv(), offline)
 	res.ReadyToLaunch = true
 }
 
@@ -361,6 +361,9 @@ type Deps struct {
 	// env — fixed-arg, no shell. It is the generic PATH-agent exec seam: the
 	// caller launches claude and qwen through it; Run (Crush) never calls it.
 	LaunchClaude func(bin string, args, env []string) error
+	// Offline is the `villa code --offline` switch, not a host seam: every Run* adds the
+	// shared fail-closed proxy environment (offline.go) to its launch env when set.
+	Offline bool
 	// QwenHome resolves the villa-owned directory QWEN_HOME points Qwen Code at
 	// (<user config dir>/villa/qwen in the live wiring). Used only by RunQwen.
 	QwenHome func() (string, error)

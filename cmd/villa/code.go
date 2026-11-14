@@ -51,6 +51,7 @@ import (
 // code via os.Exit (runCodeDispatch returns the int so tests assert output+code).
 func newCode() *cobra.Command {
 	var agentFlag string
+	var offline bool
 	cmd := &cobra.Command{
 		Use:   "code [-- args...]",
 		Short: "Launch a strictly-local terminal coding agent (Crush, or Claude Code / Qwen Code via --agent)",
@@ -74,15 +75,21 @@ func newCode() *cobra.Command {
 			"read, and it sets the telemetry opt-outs (QWEN_USAGE_STATISTICS_ENABLED=false, " +
 			"QWEN_CODE_MODELS_DEV_REFRESH=off) in the environment. Approval mode stays at Qwen Code's default; " +
 			"villa never passes --approval-mode yolo. Trailing args are forwarded verbatim; forwarding args is " +
-			"valid only with `--agent claude` or `--agent qwen`.",
+			"valid only with `--agent claude` or `--agent qwen`.\n\n" +
+			"With `--offline`, the launch also fails closed: HTTPS_PROXY / HTTP_PROXY (and the lowercase forms) " +
+			"point at a closed loopback port, and NO_PROXY / no_proxy name only the model server, so a request " +
+			"an agent makes to anywhere else cannot connect (the default launch has Crush's one disclosed " +
+			"release check, ADR-0039). The cost: the agent's own shell inherits these variables, so `git clone` " +
+			"or `go mod download` over HTTPS fails in that mode, and an operator-set proxy is overridden, not merged.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			code := runCodeDispatch(cmd, args, agentFlag, liveAgentDeps())
+			code := runCodeDispatch(cmd, args, agentFlag, liveCodeDeps(offline))
 			os.Exit(code)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&agentFlag, "agent", "crush", "coding agent to launch (crush|claude|qwen)")
+	cmd.Flags().BoolVar(&offline, "offline", false, "fail closed: point HTTP(S)_PROXY at a closed port, exempting only the model server; the agent's shell inherits it, so git clone / go mod download over HTTPS fail")
 	return cmd
 }
 
@@ -208,6 +215,13 @@ func runCode(cmd *cobra.Command, d *agent.Deps) int {
 		// A non-launching clean success (defensive; the clean path always launches).
 		return exitPass
 	}
+}
+
+// liveCodeDeps is liveAgentDeps plus the launch-time --offline switch.
+func liveCodeDeps(offline bool) *agent.Deps {
+	d := liveAgentDeps()
+	d.Offline = offline
+	return d
 }
 
 // liveAgentDeps wires the agent core to the real host (clone of liveCodingModeDeps):

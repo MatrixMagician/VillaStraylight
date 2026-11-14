@@ -217,6 +217,9 @@ villa code --agent claude             # launch Claude Code against the same loop
                                       # mode on and `claude` already on PATH — villa never installs it)
 villa code --agent qwen               # launch Qwen Code the same way (villa-owned settings, telemetry opt-outs in the
                                       # environment; needs coding mode on and `qwen` already on PATH)
+villa code --offline                  # any agent, fail closed: proxy variables at a closed port, only the model server
+                                      # exempt. The agent's shell inherits them, so git clone / go mod download over
+                                      # HTTPS fail in this mode (ADR-0039, #389)
 villa verify agent                    # negative-control-first proof of zero outbound + no silent cloud fallback
 ```
 
