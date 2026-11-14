@@ -79,8 +79,10 @@ func fixtureRecommendation() recommend.Recommendation {
 		PromptCacheBytes: 8589934592,
 		// Schema 9 (ADR-0027): the append-only reservations array lands directly
 		// above schema_version, as [] here: the nothing-reserved contract shape.
-		Reservations:  []recommend.Reservation{},
-		SchemaVersion: 9,
+		Reservations: []recommend.Reservation{},
+		// Schema 10 (#406): the append-only simulated_envelope key, false for a
+		// normal run, lands directly above schema_version.
+		SchemaVersion: 10,
 	}
 }
 
@@ -99,8 +101,8 @@ func TestRecommendJSONCarriesThePromptCache(t *testing.T) {
 	if v := got["prompt_cache_bytes"]; v != float64(8589934592) || uint64(8589934592) != inference.PromptCacheBytes {
 		t.Errorf("prompt_cache_bytes = %v, want 8589934592 (inference.PromptCacheBytes = %d)", v, inference.PromptCacheBytes)
 	}
-	if v := got["schema_version"]; v != float64(9) {
-		t.Errorf("schema_version = %v, want 9", v)
+	if v := got["schema_version"]; v != float64(10) {
+		t.Errorf("schema_version = %v, want 10", v)
 	}
 }
 

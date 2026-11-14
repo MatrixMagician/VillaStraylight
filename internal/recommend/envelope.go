@@ -1,6 +1,12 @@
 package recommend
 
-import "github.com/MatrixMagician/VillaStraylight/internal/detect"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+)
 
 // headroomFraction reserves a slice of the usable envelope for the OS, compute
 // buffers, and KV growth beyond the modelled context (Open Question 1 / Assumption
@@ -50,4 +56,53 @@ func resolveEnvelope(p detect.HostProfile) (envelope uint64, degraded bool, ok b
 		return floor, true, true
 	}
 	return 0, false, false
+}
+
+// Bounds of a simulated envelope. Below the floor no catalog entry can fit, so the
+// value is a typo (512 for 512 GiB) rather than a host; above the ceiling no
+// Strix-class or Apple-Silicon machine exists.
+const (
+	minSimulatedEnvelope = 1 << 30
+	maxSimulatedEnvelope = 4 << 40
+	envelopeForms        = "a number with a unit, such as 64GiB, 64G or 1.5TiB (units M, G, T with optional iB or B, all binary; 1 GiB to 4 TiB)"
+)
+
+// ParseEnvelope reads a --envelope value into bytes. The unit is mandatory so a
+// bare "64" is never guessed as bytes or GiB, every unit is binary to match the
+// rest of villa's memory math, and anything else fails closed.
+func ParseEnvelope(s string) (uint64, error) {
+	refuse := func(why string) (uint64, error) {
+		return 0, fmt.Errorf("invalid envelope %q: %s; accepted forms: %s", s, why, envelopeForms)
+	}
+	t := strings.TrimSpace(s)
+	i := 0
+	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '.') {
+		i++
+	}
+	num, unit := t[:i], strings.ToUpper(strings.TrimSpace(t[i:]))
+	if num == "" {
+		return refuse("no leading number")
+	}
+	v, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return refuse("the number is malformed")
+	}
+	var scale float64
+	switch unit {
+	case "M", "MB", "MIB":
+		scale = 1 << 20
+	case "G", "GB", "GIB":
+		scale = 1 << 30
+	case "T", "TB", "TIB":
+		scale = 1 << 40
+	case "":
+		return refuse("the unit is missing")
+	default:
+		return refuse("unknown unit " + strconv.Quote(unit))
+	}
+	b := v * scale
+	if b < minSimulatedEnvelope || b > maxSimulatedEnvelope {
+		return refuse("outside the plausible range")
+	}
+	return uint64(b), nil
 }
