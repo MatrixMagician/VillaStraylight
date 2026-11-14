@@ -1108,7 +1108,7 @@ func imageResidencyFinding(v inference.Verdict) Finding {
 }
 
 // agentConfigDriftFindings is the config half of agentDriftFindings: one WARN when
-// crush.json drifted, none otherwise. A key-only drift (ADR-0019) names the heal a
+// crush.json drifted, none otherwise. A villa-owned drift (ADR-0019, ADR-0044) names the heal a
 // stack apply or `villa code` performs; doctor itself stays read-only (ADR-0017).
 func agentConfigDriftFindings(r agent.DriftReport) []Finding {
 	if !r.ConfigDrift {
@@ -1123,9 +1123,9 @@ func agentConfigDriftFindings(r agent.DriftReport) []Finding {
 		Remediation: "review your crush.json edits or re-render from config.toml; villa surfaces drift but never overwrites your file automatically",
 		Provenance:  "agent.DetectDrift (ConfigDrift)",
 	}
-	if r.ConfigKeyOnly {
-		f.Remediation = "nothing to edit — run `villa up` (or any stack apply) or `villa code`; either rewrites only the stale inference key and keeps the old file as crush.json.bak"
-		f.Provenance = "agent.DetectDrift (ConfigDrift, key only)"
+	if r.ConfigVillaOwned {
+		f.Remediation = "nothing to edit — run `villa up` (or any stack apply) or `villa code`; either rewrites only villa's own values (the inference key, request_timeout) and keeps the old file as crush.json.bak"
+		f.Provenance = "agent.DetectDrift (ConfigDrift, villa-owned values only)"
 	}
 	return []Finding{f}
 }
@@ -1139,7 +1139,7 @@ func agentConfigDriftFindings(r agent.DriftReport) []Finding {
 //   - BinaryDriftUnknown     → typed-Unknown WARN (the policy hash is not yet pinned).
 //   - BinaryDrift            → WARN + re-install remediation (never auto-corrected).
 //   - ConfigDrift            → WARN + review/re-render remediation (never overwritten); a
-//     key-only drift names the stack-apply / `villa code` heal instead (ADR-0019).
+//     villa-owned drift names the stack-apply / `villa code` heal instead (ADR-0019).
 //   - ConfigAbsent ALONE     → NO finding (the first-run render trigger, parallels BinaryAbsent
 //     — NOT drift; emitting a finding here would mis-report a false drift at the first run).
 //   - all clean              → a single PASS finding (agent-drift).

@@ -11,9 +11,10 @@ import (
 // and NO repair path of its own. The live filesystem reads + binary hash are
 // injected via Deps.ReadConfig / Deps.HashBinary (Plan 02); this core does zero I/O.
 //
-// AGENT-04, as narrowed by ADR-0019: villa never overwrites the operator's edits to
-// crush.json. A drift whose ONLY difference is providers.villa.api_key, the value
-// villa alone writes, is reported as ConfigKeyOnly so the callers that write
+// AGENT-04, as narrowed by ADR-0019 and ADR-0044: villa never overwrites the operator's
+// edits to crush.json. A drift whose ONLY differences are providers.villa.api_key and
+// options.request_timeout, the values villa alone writes, is reported as
+// ConfigVillaOwned so the callers that write
 // (agent.Run, and every stack apply through its HealAgentConfig seam) can heal it;
 // every other config drift is surfaced and never written.
 //
@@ -26,8 +27,8 @@ import (
 //	    Never auto-corrected.
 // (b) config drift — on-disk crush.json semantically != freshly-rendered.
 //	    Parsed-semantic compare (canonicalize → bytes.Equal) so a whitespace-only
-//	    re-save is NOT drift, while a semantic edit IS (Pitfall 4). Its key-only
-//	    case (ConfigKeyOnly, KeyOnlyDrift) is the one a caller may heal.
+//	    re-save is NOT drift, while a semantic edit IS (Pitfall 4). Its villa-owned
+//	    case (ConfigVillaOwned, VillaOwnedDrift) is the one a caller may heal.
 //
 // A DISTINCT third signal — config-ABSENT — is the FIRST-RUN render trigger: no
 // on-disk crush.json yet. It is NOT drift (it parallels BinaryAbsent); the caller
@@ -74,12 +75,13 @@ type DriftReport struct {
 	// from ConfigDrift; parallels BinaryAbsent). Not a refusal.
 	ConfigAbsent bool
 	// ConfigDrift: on-disk crush.json present but semantically differs from the
-	// rendered reference → surface + remediation; never written unless ConfigKeyOnly.
+	// rendered reference → surface + remediation; never written unless ConfigVillaOwned.
 	ConfigDrift bool
-	// ConfigKeyOnly: set together with ConfigDrift when the ONLY difference is
-	// villa's own inference key (KeyOnlyDrift, ADR-0019). The operator edited
+	// ConfigVillaOwned: set together with ConfigDrift when the ONLY differences are
+	// villa's own inference key and request_timeout (VillaOwnedDrift, ADR-0019,
+	// ADR-0044). The operator edited
 	// nothing, so a stack apply or `villa code` heals it; doctor names that heal.
-	ConfigKeyOnly bool
+	ConfigVillaOwned bool
 	// Reason is the human refusal/remediation/informational explanation (empty when
 	// every signal is clean).
 	Reason string
@@ -87,7 +89,7 @@ type DriftReport struct {
 
 // DetectDrift compares the installed binary + on-disk config against the pinned
 // policy + freshly-rendered reference and returns a REPORT ONLY. It never
-// writes, never repairs; a caller acts on ConfigKeyOnly (ADR-0019).
+// writes, never repairs; a caller acts on ConfigVillaOwned (ADR-0019).
 func DetectDrift(in DriftInput) DriftReport {
 	var r DriftReport
 	var reasons []string
@@ -112,7 +114,7 @@ func DetectDrift(in DriftInput) DriftReport {
 
 	// (b) Config presence vs drift.
 	c := detectConfigDrift(in)
-	r.ConfigAbsent, r.ConfigDrift, r.ConfigKeyOnly = c.ConfigAbsent, c.ConfigDrift, c.ConfigKeyOnly
+	r.ConfigAbsent, r.ConfigDrift, r.ConfigVillaOwned = c.ConfigAbsent, c.ConfigDrift, c.ConfigVillaOwned
 	if c.Reason != "" {
 		reasons = append(reasons, c.Reason)
 	}
@@ -132,21 +134,22 @@ func detectConfigDrift(in DriftInput) DriftReport {
 			Reason: "no crush.json found — villa will render it from your config.toml on first launch"}
 	case semanticallyEqualConfig(in.OnDiskConfig, in.RenderedConfig):
 		return DriftReport{}
-	case KeyOnlyDrift(in.OnDiskConfig, in.RenderedConfig):
-		return DriftReport{ConfigDrift: true, ConfigKeyOnly: true,
-			Reason: "only villa's inference key in crush.json is stale — any stack apply (`villa up`) or `villa code` rewrites it (the old file is kept as crush.json.bak)"}
+	case VillaOwnedDrift(in.OnDiskConfig, in.RenderedConfig):
+		return DriftReport{ConfigDrift: true, ConfigVillaOwned: true,
+			Reason: "only villa's own values in crush.json (its inference key, request_timeout) are stale — any stack apply (`villa up`) or `villa code` rewrites it (the old file is kept as crush.json.bak)"}
 	}
 	return DriftReport{ConfigDrift: true,
 		Reason: "on-disk crush.json differs from what villa would render from config.toml — review your edits or re-render; villa surfaces drift but never overwrites your file automatically"}
 }
 
-// KeyOnlyDrift reports whether onDisk differs from rendered ONLY in
-// providers.villa.api_key (ADR-0019): the two are not semantically equal, and
-// putting rendered's key into the parsed on-disk document makes them so. An
-// unparseable on-disk file, one without a villa provider, or any other difference,
-// alone or beside a stale key, is false: that is the operator's edit, never villa's
-// to overwrite (AGENT-04).
-func KeyOnlyDrift(onDisk, rendered []byte) bool {
+// VillaOwnedDrift reports whether onDisk differs from rendered ONLY in the values
+// villa alone writes, providers.villa.api_key and options.request_timeout (ADR-0019,
+// ADR-0044): the two are not semantically equal, and putting rendered's two values
+// into the parsed on-disk document makes them so. An unparseable on-disk file, one
+// without a villa provider or an options object, or any other difference, alone or
+// beside a stale value, is false: that is the operator's edit, never villa's to
+// overwrite (AGENT-04).
+func VillaOwnedDrift(onDisk, rendered []byte) bool {
 	if semanticallyEqualConfig(onDisk, rendered) {
 		return false
 	}
@@ -158,6 +161,22 @@ func KeyOnlyDrift(onDisk, rendered []byte) bool {
 	// which can never compare equal to it: no separate check is needed.
 	_, ref, _ := parseVillaProvider(rendered)
 	villa["api_key"] = ref["api_key"]
+	root, _ := doc.(map[string]any) // parseVillaProvider proved it a map
+	opts, ok := root["options"].(map[string]any)
+	if !ok {
+		return false
+	}
+	var renderedDoc struct {
+		Options map[string]any `json:"options"`
+	}
+	if err := json.Unmarshal(rendered, &renderedDoc); err != nil {
+		return false
+	}
+	if t, present := renderedDoc.Options["request_timeout"]; present {
+		opts["request_timeout"] = t
+	} else {
+		delete(opts, "request_timeout")
+	}
 	patched, err := json.Marshal(doc)
 	return err == nil && semanticallyEqualConfig(patched, rendered)
 }

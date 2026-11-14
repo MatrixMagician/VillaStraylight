@@ -177,6 +177,35 @@ func TestDashboardScrapeClientReadsTheKeyPerScrape(t *testing.T) {
 	}
 }
 
+// TestLiveTasksOnReadsConfigEachCall guards #418: the dashboard's task gate
+// follows config.toml as it is now, in both directions, and an unreadable
+// config reads as off.
+func TestLiveTasksOnReadsConfigEachCall(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if liveTasksOn() {
+		t.Fatal("no config: gate on, want off")
+	}
+	if err := config.SaveVilla(config.VillaConfig{WorkspaceAgent: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !liveTasksOn() {
+		t.Error("workspace_agent written after the first call: gate off, want on")
+	}
+	if err := config.SaveVilla(config.VillaConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	if liveTasksOn() {
+		t.Error("workspace_agent removed: gate on, want off")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "villa", "config.toml"), []byte("model = [not toml\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if liveTasksOn() {
+		t.Error("unparseable config: gate on, want off")
+	}
+}
+
 // TestLiveDashboardDepsConfigError asserts a config.toml that does not parse refuses
 // the dashboard at startup (newDashboard maps the error to exitBlocked) rather than
 // serving panels composed from a config it could not read.

@@ -1118,7 +1118,7 @@ func TestAgentResidencyFindingSwitch(t *testing.T) {
 //   - BinaryDrift → WARN + re-install remediation (agent-binary-drift).
 //   - BinaryAbsent → WARN + Phase-27 install remediation (agent-binary-drift).
 //   - ConfigDrift → WARN + review/re-render remediation (agent-config-drift).
-//   - ConfigKeyOnly → the same WARN, remediation naming the heal (ADR-0019).
+//   - ConfigVillaOwned → the same WARN, remediation naming the heal (ADR-0019).
 //   - ConfigAbsent ALONE → NO finding (first-run trigger, not drift).
 func TestAgentDriftFindingsMatrix(t *testing.T) {
 	hasID := func(fs []Finding, id string) (Finding, bool) {
@@ -1172,21 +1172,21 @@ func TestAgentDriftFindingsMatrix(t *testing.T) {
 		}
 	})
 
-	// ADR-0019: a key-only drift is still a read-only WARN, but its remediation names
+	// ADR-0019: a villa-owned drift is still a read-only WARN, but its remediation names
 	// the heal instead of asking the operator to review edits they never made.
-	t.Run("config-drift-key-only", func(t *testing.T) {
-		fs := agentDriftFindings(agent.DriftReport{ConfigDrift: true, ConfigKeyOnly: true, Reason: "stale key"})
+	t.Run("config-drift-villa-owned", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{ConfigDrift: true, ConfigVillaOwned: true, Reason: "stale key"})
 		f, ok := hasID(fs, "agent-config-drift")
 		if !ok || f.Status != statusWarn || f.Tier != tierWarn {
-			t.Fatalf("ConfigKeyOnly → %+v, want WARN agent-config-drift", fs)
+			t.Fatalf("ConfigVillaOwned → %+v, want WARN agent-config-drift", fs)
 		}
 		for _, want := range []string{"villa up", "villa code", "crush.json.bak"} {
 			if !strings.Contains(f.Remediation, want) {
-				t.Errorf("key-only remediation %q does not mention %q", f.Remediation, want)
+				t.Errorf("villa-owned remediation %q does not mention %q", f.Remediation, want)
 			}
 		}
 		if strings.Contains(f.Remediation, "review your crush.json edits") {
-			t.Errorf("key-only remediation %q asks the operator to review edits they never made", f.Remediation)
+			t.Errorf("villa-owned remediation %q asks the operator to review edits they never made", f.Remediation)
 		}
 		plain := agentDriftFindings(agent.DriftReport{ConfigDrift: true, Reason: "edited crush.json"})
 		if p, _ := hasID(plain, "agent-config-drift"); strings.Contains(p.Remediation, "crush.json.bak") {

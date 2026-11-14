@@ -270,7 +270,8 @@ _Avoid_: filter, sanitiser, injection blocker, firewall
 **Closed network**:
 The `Internal=true` podman network (`villa-closed`) every service with no runtime
 need to reach off-box joins, so its zero egress is enforced rather than measured.
-Open WebUI joins it and the routed `villa` network (ADR-0036).
+Inference (`villa-llama` and the resident slots) is one of them (ADR-0043). Open
+WebUI joins it and the routed `villa` network (ADR-0036).
 _Avoid_: aux network, internal network (that is the sandbox's), private network
 
 **Bounded outbound**:
