@@ -206,7 +206,7 @@ func toolConnectionsFor(cfg config.VillaConfig) []toolConnection {
 			Type: "openapi", URL: fmt.Sprintf("http://%s:%d", config.ToolsWebAddr, config.ToolsWebPort),
 			SpecType: "url", Path: "openapi.json", AuthType: "bearer", Key: cfg.ToolWebSecret,
 			Config: toolConnectionCfg{Enable: true},
-			Info:   toolConnectionInf{ID: "villa-web", Name: "villa web search", Description: "Web search through villa's web guard"},
+			Info:   toolConnectionInf{ID: toolserver.ConnectionID(toolserver.SetWeb), Name: "villa web search", Description: "Web search through villa's web guard"},
 		})
 	}
 	if subsystem.ToolRecallOn(cfg) {
@@ -215,7 +215,7 @@ func toolConnectionsFor(cfg config.VillaConfig) []toolConnection {
 			SpecType: "url", Path: "openapi.json", AuthType: "bearer", Key: cfg.ToolRecallSecret,
 			Headers: map[string]string{toolserver.IdentityHeader: userIDPlaceholder},
 			Config:  toolConnectionCfg{Enable: true},
-			Info:    toolConnectionInf{ID: "villa-recall", Name: "villa recall", Description: "Search of your own past conversations"},
+			Info:    toolConnectionInf{ID: toolserver.ConnectionID(toolserver.SetRecall), Name: "villa recall", Description: "Search of your own past conversations"},
 		})
 	}
 	return out
