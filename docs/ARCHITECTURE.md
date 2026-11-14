@@ -585,9 +585,9 @@ internal/
                       ROCm (default) + Vulkan backends, podman runner, offload assert;
                       Client, the one authenticated caller of llama-server (ADR-0014).
   stackapply/         Stack apply: every render input derived from the config, the
-                      inference-secret heal, the crush.json key heal (only a
-                      drift that is villa's inference key, kept as crush.json.bak;
-                      ADR-0019), stop and remove the registry units the config no longer
+                      inference-secret heal, the crush.json heal (only a
+                      drift in villa's own values, the inference key and
+                      request_timeout, kept as crush.json.bak; ADR-0019, ADR-0044), stop and remove the registry units the config no longer
                       renders (refused when a service's state cannot be read, #344),
                       write changed + reload (ADR-0013, ADR-0035).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile (changed and orphaned) + atomic

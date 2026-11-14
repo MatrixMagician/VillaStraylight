@@ -294,3 +294,11 @@ stub server, two runs' agent requests differ only in that line, 28% of the way
 into the request. And a prefill cancelled at 60 s never reaches the end of its
 prompt, where the newest checkpoint would sit. ADR-0034 lowers the cap from 32 to
 1, so it cannot add a checkpoint that 32 did not hold.
+
+## Amendment (ADR-0044)
+
+The first alternative above, raising Crush's `request_timeout` in the rendered
+crush.json, was taken as ADR-0044 (#351): villa renders `clamp(ceil(ctx / 200),
+120, 600)` seconds and heals it with the inference key. The prefill remediation no
+longer says Crush gives up at 60 s. It names the rendered bound and points a
+crush.json that predates it at `villa up`.
