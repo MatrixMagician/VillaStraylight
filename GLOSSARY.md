@@ -38,6 +38,13 @@ _Avoid_: precision, format, bit depth
 One model in the shipped catalog — the only place a model name may come from.
 _Avoid_: model definition, catalog item, listing
 
+**Operator-supplied entry**:
+A catalog entry whose id is not in the embedded seed (or, as _operator-edited_, whose
+content differs from the seed's entry of that id). Nothing in a release vetted it.
+Derived from the seed, never stored. `villa catalog add` writes one from a
+commit-pinned URL; `model list`, `status` and `doctor` mark it.
+_Avoid_: custom model, user model, local model
+
 ### The stack
 
 **The stack**:

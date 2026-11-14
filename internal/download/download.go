@@ -67,20 +67,29 @@ func PullModel(ctx context.Context, m catalog.Model, modelsDir string) error {
 	return pullShards(ctx, client, m, modelsDir)
 }
 
+// confineShard resolves the final on-disk path of sh inside modelsDir, refusing
+// anything but a bare filename. The catalog filename is untrusted enough to guard
+// against `..`/absolute escapes, and a name with separators would write into a
+// subdirectory: the models dir is flat.
+func confineShard(sh catalog.Shard, modelsDir string) (string, error) {
+	finalPath := filepath.Join(modelsDir, sh.Filename)
+	if confErr := assertInsideDir(finalPath, modelsDir); confErr != nil {
+		return "", confErr
+	}
+	if strings.ContainsRune(sh.Filename, os.PathSeparator) || sh.Filename != filepath.Base(sh.Filename) {
+		return "", fmt.Errorf("download: shard filename %q must be a bare filename", sh.Filename)
+	}
+	return finalPath, nil
+}
+
 // downloadFile acquires a single shard into modelsDir: HEAD-verify metadata,
 // resume from any existing .part via Range, stream+hash, verify SHA256+size, and
 // atomically rename on success (deleting the .part and erroring on any mismatch).
 func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, modelsDir string) (err error) {
-	// Confine the final path inside modelsDir BEFORE any write. The
-	// catalog filename is untrusted enough to guard against `..`/absolute escapes.
-	finalPath := filepath.Join(modelsDir, sh.Filename)
-	if confErr := assertInsideDir(finalPath, modelsDir); confErr != nil {
-		return confErr
-	}
-	// A filename that introduces path separators (subdirectories) is also rejected:
-	// we write a flat file into modelsDir.
-	if strings.ContainsRune(sh.Filename, os.PathSeparator) || sh.Filename != filepath.Base(sh.Filename) {
-		return fmt.Errorf("download: shard filename %q must be a bare filename", sh.Filename)
+	// Confine the final path inside modelsDir BEFORE any write.
+	finalPath, err := confineShard(sh, modelsDir)
+	if err != nil {
+		return err
 	}
 	partPath := finalPath + partSuffix
 
@@ -98,20 +107,9 @@ func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, models
 	}
 
 	// (2) Resume: if a .part exists, seed the hash from it and request the suffix.
-	h := sha256.New()
-	var resumeFrom int64
-	if fi, statErr := os.Stat(partPath); statErr == nil && fi.Size() > 0 {
-		seeded, seedErr := seedHashFromPart(h, partPath)
-		if seedErr != nil {
-			// A corrupt/unreadable .part: discard it and restart clean.
-			_ = os.Remove(partPath)
-			h = sha256.New()
-			resumeFrom = 0
-		} else {
-			resumeFrom = seeded
-		}
-	}
+	h, resumeFrom := resumeState(partPath)
 
+	// (3) Stream the body.
 	written, dlErr := streamToPart(ctx, client, sh, partPath, h, resumeFrom)
 	if dlErr != nil {
 		// Leave the .part in place so a later invocation can resume from it; only a
@@ -138,37 +136,72 @@ func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, models
 	return nil
 }
 
-// headVerify issues a HEAD to the canonical URL and confirms the advertised
-// X-Linked-Size / X-Linked-Etag match the catalog values. A server that does not
-// expose these headers (e.g. a plain fixture) is tolerated — the authoritative
-// check is the post-download SHA256+size — but a header that is PRESENT and
-// DISAGREES fails fast.
-func headVerify(ctx context.Context, client httpDoer, sh catalog.Shard) error {
+// advertised is what an upstream HEAD says about a file. Each field is optional: a
+// server that does not expose X-Linked-Etag or X-Linked-Size (a plain fixture, or a
+// CDN hop that dropped them) advertises nothing, and the hash of the bytes is then
+// the only authority.
+type advertised struct {
+	etag    string
+	size    uint64
+	hasSize bool
+}
+
+// headAdvertised issues a HEAD to the canonical URL and returns what it exposes.
+func headAdvertised(ctx context.Context, client httpDoer, sh catalog.Shard) (advertised, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, sh.URL, nil)
 	if err != nil {
-		return fmt.Errorf("download: build HEAD for %s: %w", sh.Filename, err)
+		return advertised{}, fmt.Errorf("download: build HEAD for %s: %w", sh.Filename, err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download: HEAD %s: %w", sh.Filename, err)
+		return advertised{}, fmt.Errorf("download: HEAD %s: %w", sh.Filename, err)
 	}
 	defer drainClose(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download: HEAD %s: unexpected status %d", sh.Filename, resp.StatusCode)
+		return advertised{}, fmt.Errorf("download: HEAD %s: unexpected status %d", sh.Filename, resp.StatusCode)
 	}
-	if etag := resp.Header.Get("X-Linked-Etag"); etag != "" {
-		etag = strings.Trim(etag, "\"")
-		if !strings.EqualFold(etag, sh.SHA256) {
-			return fmt.Errorf("download: %s upstream X-Linked-Etag %s != catalog sha256 %s (re-uploaded?)", sh.Filename, etag, sh.SHA256)
-		}
-	}
+	a := advertised{etag: strings.Trim(resp.Header.Get("X-Linked-Etag"), "\"")}
 	if sz := resp.Header.Get("X-Linked-Size"); sz != "" {
-		n, convErr := strconv.ParseUint(sz, 10, 64)
-		if convErr == nil && n != sh.SizeBytes {
-			return fmt.Errorf("download: %s upstream X-Linked-Size %d != catalog size %d (re-uploaded?)", sh.Filename, n, sh.SizeBytes)
+		if n, convErr := strconv.ParseUint(sz, 10, 64); convErr == nil {
+			a.size, a.hasSize = n, true
 		}
+	}
+	return a, nil
+}
+
+// headVerify confirms the advertised X-Linked-Size / X-Linked-Etag match the
+// catalog values. A header that is PRESENT and DISAGREES fails fast, before
+// gigabytes are pulled; the authoritative check is still the post-download
+// SHA256+size.
+func headVerify(ctx context.Context, client httpDoer, sh catalog.Shard) error {
+	a, err := headAdvertised(ctx, client, sh)
+	if err != nil {
+		return err
+	}
+	if a.etag != "" && !strings.EqualFold(a.etag, sh.SHA256) {
+		return fmt.Errorf("download: %s upstream X-Linked-Etag %s != catalog sha256 %s (re-uploaded?)", sh.Filename, a.etag, sh.SHA256)
+	}
+	if a.hasSize && a.size != sh.SizeBytes {
+		return fmt.Errorf("download: %s upstream X-Linked-Size %d != catalog size %d (re-uploaded?)", sh.Filename, a.size, sh.SizeBytes)
 	}
 	return nil
+}
+
+// resumeState returns the rolling hash and byte offset a transfer into partPath
+// continues from: seeded from an existing .part, or fresh when there is none or it
+// cannot be read (a corrupt .part is discarded and the transfer restarts clean).
+func resumeState(partPath string) (hash.Hash, int64) {
+	h := sha256.New()
+	fi, statErr := os.Stat(partPath)
+	if statErr != nil || fi.Size() == 0 {
+		return h, 0
+	}
+	seeded, seedErr := seedHashFromPart(h, partPath)
+	if seedErr != nil {
+		_ = os.Remove(partPath)
+		return sha256.New(), 0
+	}
+	return h, seeded
 }
 
 // seedHashFromPart feeds the existing .part bytes into h and returns the byte

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/gguf"
@@ -24,6 +25,12 @@ import (
 
 // idCatalogGeometry is the CAT-01 requirement id every result carries.
 const idCatalogGeometry = "CAT-01"
+
+// The requirement ids of the two catalog-provenance findings (ADR-0041).
+const (
+	idCatalogOrigin = "CAT-02"
+	idCatalogDrift  = "CAT-03"
+)
 
 // RunCatalogGeometry cross-checks every catalog entry that is BOTH on this host
 // and carries declared fit dimensions against the GGUF header of its primary
@@ -86,10 +93,20 @@ func checkOneModelGeometry(m catalog.Model, want gguf.Geometry, open func(string
 	if got != want {
 		return fail(idCatalogGeometry, name,
 			catalogSide+"; "+headerSide,
-			"fix the "+m.ID+" entry in internal/catalog/seed.json (n_layers/n_kv_heads/head_dim and the swa block) to match the GGUF header, or re-pin the shard",
+			"fix the "+m.ID+" entry in "+whereEntryLives(m)+" (n_layers/n_kv_heads/head_dim and the swa block) to match the GGUF header, or re-pin the shard",
 			provenance, ""), true
 	}
 	return pass(idCatalogGeometry, name, TierBlock, catalogSide+"; "+headerSide, provenance), true
+}
+
+// whereEntryLives names the file an entry is fixed in: the seed for an entry that
+// is the seed's own, and the operator's catalog file for any other, because telling
+// an operator to edit internal/catalog/seed.json is advice about a file they do not own.
+func whereEntryLives(m catalog.Model) string {
+	if catalog.OriginOf(m) == catalog.OriginSeed {
+		return "internal/catalog/seed.json"
+	}
+	return "your catalog file (catalog_path)"
 }
 
 // unevaluableGeometry is the typed-Unknown degradation: villa could not read the
@@ -98,4 +115,50 @@ func unevaluableGeometry(name, provenance, detail string) CheckResult {
 	return warn(idCatalogGeometry, name, TierBlock, detail,
 		"confirm the file downloaded intact (`villa model pull` re-verifies it); a file villa cannot parse is not evidence the catalog is wrong",
 		provenance, "")
+}
+
+// RunCatalogOrigin reports on the provenance of an external catalog (ADR-0041), and
+// says nothing at all when externalPath is empty: the embedded seed is in use and
+// there is nothing to compare it to.
+//
+// CAT-02 is a PASS naming the configured model when it is not the seed's own entry:
+// supplying a model is not a fault, but the operator should see on every doctor run
+// that nothing in this release vetted it. CAT-03 is a WARN when the catalog lacks
+// entries the embedded seed ships. An external catalog REPLACES the seed and is never
+// merged, so after an upgrade that adds seed entries the operator's file is missing
+// them and no other surface says so. An addition is not drift.
+func RunCatalogOrigin(cat catalog.Catalog, model, externalPath string) []CheckResult {
+	if externalPath == "" {
+		return nil
+	}
+	var out []CheckResult
+	if m, ok := cat.FindByID(model); ok && model != "" {
+		if o := catalog.OriginOf(m); o != catalog.OriginSeed {
+			out = append(out, pass(idCatalogOrigin, "catalog origin: "+m.ID, TierWarn, originDetail(m.ID, o),
+				"catalog.OriginOf against the embedded seed ("+externalPath+")"))
+		}
+	}
+	if missing := catalog.MissingFromSeed(cat); len(missing) > 0 {
+		out = append(out, warn(idCatalogDrift, "catalog seed drift", TierWarn,
+			fmt.Sprintf("%s lacks %d entr%s this release's seed ships: %s", externalPath, len(missing), pluralY(len(missing)), strings.Join(missing, ", ")),
+			"copy the missing entries from this release's internal/catalog/seed.json into "+externalPath+", or run `villa config set catalog_path=` to use the embedded seed (an external catalog replaces the seed and is never merged)",
+			"catalog.MissingFromSeed", strings.Join(missing, ",")))
+	}
+	return out
+}
+
+func originDetail(id string, o catalog.Origin) string {
+	switch o {
+	case catalog.OriginEdited:
+		return id + " is operator-edited: it differs from the embedded seed's entry of the same id (a hand edit, or a stale copy after the seed re-pinned it); CAT-01 re-checks its geometry against the file"
+	default:
+		return id + " is operator-supplied: it is not in this release's embedded seed, so nothing in villa vetted it; its fit dimensions came from its GGUF header when it was added, CAT-01 re-checks them against the file, and its speculation and vision qualifications are whatever the entry says"
+	}
+}
+
+func pluralY(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }

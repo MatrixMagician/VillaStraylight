@@ -165,7 +165,10 @@ func TestCatalogGeometryMismatchNamesBoth(t *testing.T) {
 			t.Errorf("detail %q is missing %q", r.Detail, want)
 		}
 	}
-	if !strings.Contains(r.Remediation, "seed.json") {
+	// The fixture is not byte-equal to the seed's entry of that id, so which file the
+	// remediation names is TestCatalogGeometryRemediationNamesTheOperatorsFile's
+	// business; this one asks only that it names the entry.
+	if !strings.Contains(r.Remediation, m.ID) {
 		t.Errorf("remediation %q does not point at the catalog entry", r.Remediation)
 	}
 	if closed != 1 {

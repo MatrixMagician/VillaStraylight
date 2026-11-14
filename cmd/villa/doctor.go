@@ -242,6 +242,21 @@ func liveCatalogGeometry(cfg config.VillaConfig) func() []preflight.CheckResult 
 	}
 }
 
+// liveCatalogOrigin binds the catalog-provenance seam (CAT-02, CAT-03; ADR-0041). It is
+// nil on the embedded seed, where there is nothing to compare it to, and when the
+// external catalog cannot be loaded, which is the core's no-finding case.
+func liveCatalogOrigin(cfg config.VillaConfig) func() []preflight.CheckResult {
+	path := cmp.Or(modelCatalogPath, cfg.CatalogPath)
+	if path == "" {
+		return nil
+	}
+	cat, _, err := catalog.Load(path)
+	if err != nil {
+		return nil
+	}
+	return func() []preflight.CheckResult { return preflight.RunCatalogOrigin(cat, cfg.Model, path) }
+}
+
 // liveDoctorDeps wires doctor.Deps to the real host for the config the run loaded. It
 // binds reads, the four proofs that drive real workloads, and the preflight bindings,
 // and nothing else: it decides nothing, so it binds every seam whatever the config
@@ -283,6 +298,7 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		RunMemoryChecks: preflight.RunMemory,
 		ReadVerifyState: sd.ReadVerifyState,
 		CatalogGeometry: liveCatalogGeometry(cfg),
+		CatalogOrigin:   liveCatalogOrigin(cfg),
 		// SBX-01 reuses the exact same preflight.SandboxDeps PRE-09 uses
 		// (liveSandboxDeps, preflight_sandbox.go) so `villa preflight` and `villa
 		// doctor` can never observe the host through a different probe. It is built

@@ -756,7 +756,13 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 	}
 
 	if !m.UnifiedMemorySafe {
-		notes = append(notes, fmt.Sprintf("WARNING: model %q is flagged unified_memory_safe:false — it is known to misbehave on unified memory; using it only because you overrode", m.ID))
+		if o := catalog.OriginOf(m); o != catalog.OriginSeed {
+			// An entry the operator supplied carries the flag false because nothing
+			// qualified it (ADR-0041), not because anything is known to be wrong with it.
+			notes = append(notes, fmt.Sprintf("note: model %q is %s and flagged unified_memory_safe:false, so it is never auto-selected; using it because you chose it (set unified_memory_safe true in its catalog entry to let recommend pick it)", m.ID, o.Label()))
+		} else {
+			notes = append(notes, fmt.Sprintf("WARNING: model %q is flagged unified_memory_safe:false — it is known to misbehave on unified memory; using it only because you overrode", m.ID))
+		}
 	}
 	if m.Role == "coder" {
 		// Warn-and-allow (Open Question 1, the override philosophy): a

@@ -67,7 +67,7 @@ chat_port = 3000
 | `quant` | string | _(empty until recommended/set)_ | The chosen quantization label (e.g. `UD-Q4_K_M`). |
 | `ctx` | int | _(empty/0 until recommended/set)_ | Context length in tokens. Rendered into the llama-server `-c` flag; in tools mode it is raised to the served entry's `agent_ctx` when that is larger. `villa model swap` sizes its target at this ctx and keeps it when the target fits; when the target is over the envelope at it, the swap writes the target's `default_ctx` instead and prints `ctx reset to …`, and it refuses only when the target does not fit at its default either (ADR-0024). |
 | `backend` | string | `rocm` | Inference backend: `rocm` (ROCm 10.0, **default**), `rocm-10.0` (the same image by name), `rocm-7.2.4` (the former default), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or `vulkan` (Vulkan RADV, the fallback). `config set backend=` only accepts `vulkan`; every ROCm target must go through the transactional `villa backend set` command (see [Backend selection](#backend-selection)). |
-| `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
+| `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". An external catalog **replaces** the seed, it is never merged with it (see [Catalog (model list) configuration](#catalog-model-list-configuration)). `villa catalog add` sets it when it is empty, to `catalog-local.json` beside `config.toml`, and extends the file it names when it is not. |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
 | `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, `ngram` for llama-server's `ngram-mod`, or `draft` for the entry's draft sidecar. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary is refused on load. |
@@ -459,7 +459,7 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 | `backend` | `rocm` | `defaultConfig()` (ROCm 10.0 default, ADR-0022; `vulkan` is the RADV fallback) |
 | `dashboard_port` | `8888` | `defaultConfig()` |
 | `chat_port` | `3000` | `defaultConfig()` |
-| `catalog_path` | _(empty)_ → embedded seed catalog | `internal/catalog` falls back to the compiled-in `seed.json` |
+| `catalog_path` | _(empty)_ → embedded seed catalog | `internal/catalog` falls back to the compiled-in `seed.json`. `villa catalog add` creates `$XDG_CONFIG_HOME/villa/catalog-local.json` when it has to (`config.LocalCatalogPath()`) |
 | Models directory | `$XDG_DATA_HOME/villa/models` → `~/.local/share/villa/models` | `cmd/villa/model.go` `modelsDir()` |
 | Config file path | `$XDG_CONFIG_HOME/villa/config.toml` → `~/.config/villa/config.toml` | `internal/config` `Path()` |
 | Quadlet units directory | `$XDG_CONFIG_HOME/containers/systemd/` → `~/.config/containers/systemd/` | `cmd/villa/install.go` `quadletUnitDir()` |
@@ -475,7 +475,7 @@ hardware.
 
 The list of selectable models comes from a **catalog**. By default `villa` uses an
 embedded seed catalog compiled into the binary (`internal/catalog/seed.json`,
-`schema_version` 3). You can point `villa recommend` at an external catalog:
+`schema_version` 5). You can point `villa recommend` at an external catalog:
 
 ```bash
 villa recommend --catalog /path/to/catalog.json --save
@@ -486,6 +486,81 @@ reuse it without re-passing the flag. The external file is validated: a bad path
 a symlink, a directory, a file over 1 MiB, malformed JSON, or a mismatched
 `schema_version` causes `villa` to emit a warning and **fall back to the embedded
 seed** rather than failing.
+
+An external catalog **replaces** the embedded seed. `villa` never merges the two, so
+a catalog file is a copy of the seed you own from the day you set `catalog_path`. After
+a villa upgrade that adds seed entries, your file does not have them, and
+`villa recommend`, `villa model list` and `villa model swap` do not show them. `villa
+doctor` reports it as `CAT-03` (a WARN naming the missing ids); fix it by copying the
+entries from the release's `seed.json` into your file, or by clearing the setting
+(`villa config set catalog_path=`) to use the embedded seed.
+
+#### Adding a model of your own: `villa catalog add`
+
+```bash
+villa catalog add https://huggingface.co/<org>/<repo>/resolve/<40-hex commit>/<file>.gguf
+villa model swap <id>        # then use it like any catalog model
+```
+
+`catalog add` pulls the file through the same path `villa model pull` uses (the only
+outbound request is that pull), hashes it, reads its GGUF header, and writes a catalog
+entry. It holds the stack lock only for the catalog and config writes, not for the
+download.
+
+- **The URL must be pinned to a commit.** The accepted shape is exactly
+  `https://huggingface.co/<org>/<repo>/resolve/<40 lowercase hex>/<path>.gguf`. A
+  branch or tag (`resolve/main/...`), a short id, a `blob/` page URL, a query string
+  (`?download=true`), a percent-escape, any other host, and one numbered shard of a
+  split model (`-00001-of-00004.gguf`) are all refused, with the reason and the fix. A
+  moving target would record a sha256 of a file no other host can reproduce.
+- **The sha256 is trust on first use.** It is computed from the file villa received at
+  that commit. Every later `model pull` verifies against it. When the server's HEAD
+  response advertises an `X-Linked-Etag` or `X-Linked-Size` that disagrees with the
+  bytes, the add refuses.
+- **Which file.** If `catalog_path` names a file, that file is extended and the setting
+  is left alone. If it names none, `catalog-local.json` is created beside `config.toml`
+  as a copy of the embedded seed plus the new entry (so the model you already run keeps
+  resolving) and `catalog_path` is set to it. A `catalog_path` that names an unusable
+  file (missing, a symlink, malformed, another schema) refuses and changes nothing.
+  The pull is not undone by a refusal: the file stays in the models dir.
+- **Re-adding.** The same URL under the same id is reported as already present and
+  nothing is pulled; your edits to that entry are kept. The same id from a different
+  source, the same source under a different sha256, and a file name another entry
+  already writes from a different source are refused. `--id` adds one beside it.
+- **Flags.** `--id` (default: the file name, lowercased), `--quant` (default: parsed
+  from a trailing token such as `Q6_K`, `UD-Q4_K_XL`, `IQ4_XS`; required when the name
+  has none), `--name`, and `--ctx`.
+
+Where each field of the entry comes from. Nothing is guessed: a value is read from the
+file, left at the field's own absence value, or required of you.
+
+| Field | Value |
+|-------|-------|
+| `id`, `display_name`, `quant` | the file name, or `--id` / `--name` / `--quant` |
+| `weight_bytes` | the file size |
+| `n_layers`, `n_kv_heads`, `head_dim`, and `swa` when the model has sliding-window layers | the GGUF header (`n_layers` counts KV-bearing layers, not blocks), so CAT-01 starts out consistent |
+| `kv_bytes_per_elem` | `2`: villa renders no cache-type flag, so the cache is f16 |
+| `default_ctx` | `--ctx`, else the header's trained context capped at `32768`. The cap is a villa policy value for an entry it has not measured, not a measurement; the add prints it. A header with no context length makes `--ctx` required, and a `--ctx` above the trained length is refused. |
+| `min_envelope_bytes`, `tier_gb` | `0` (no floor, no tier). Only auto-selection reads the first, and nothing outside tests reads the second. |
+| `agent_ctx`, `role`, `backend_default` | absent. Tools mode then serves at `default_ctx`; `backend_default` empty follows `recommend`'s default (ROCm 10.0) instead of freezing a copy of it. Edit the file if you measured better. |
+| `unified_memory_safe` | `false`: the entry is **never auto-selected** by `villa recommend` or the guided install. You choose it with `villa model swap <id>`, which does not read the flag. Set it `true` in the file to let `recommend` pick it. |
+| `ngram_safe`, `projector`, `draft` | absent: speculation unqualified and text-only. Qualifying either is a measurement on your hardware, not something `add` can derive. |
+| `shards` | one: the canonical URL, the bare file name, the computed sha256, the size |
+
+`villa model list`, `villa status` and `villa doctor` mark a model that is not the
+embedded seed's own entry: `operator-supplied` when its id is not in the seed, and
+`operator-edited` when its id is but its content differs (a hand edit, or a stale copy
+after a release re-pinned it). The marking is derived from the seed, not stored, so it
+also covers an entry you wrote by hand. `model list --json` gains an `origin` key on
+those entries only; `status --json` gains `model_origin` (report `schema_version` 14);
+`doctor` reports `CAT-02` for the configured model. [ADR-0041](adr/0041-an-operator-adds-a-model-from-a-commit-pinned-url.md)
+has the reasoning.
+
+`villa backup` archives `catalog-local.json`, the managed file, when it exists, and
+`villa restore` writes it back before the restart. A `catalog_path` naming a file
+elsewhere is yours to back up: restore has to know where to write before it has read the
+archive's config. Losing the catalog leaves `config.toml` naming a model no catalog
+carries, and every stack apply then fails closed.
 
 ### Managed container environment
 

@@ -181,6 +181,10 @@ type modelListEntry struct {
 	ID     string `json:"id"`
 	Quant  string `json:"quant"`
 	Loaded bool   `json:"loaded"`
+	// Origin is "operator-supplied" or "operator-edited" for an entry that is not the
+	// embedded seed's own (ADR-0041), and omitted for a seed entry. The output is a bare
+	// array with no schema field to bump, so omission is what keeps it append-only.
+	Origin string `json:"origin,omitempty"`
 }
 
 // newModelList builds `villa model list`: print every catalog model marked
@@ -227,7 +231,7 @@ func runModelList(cmd *cobra.Command, opts listOpts, d *listDeps) int {
 
 	entries := make([]modelListEntry, 0, len(cat.Models))
 	for _, m := range cat.Models {
-		entries = append(entries, modelListEntry{ID: m.ID, Quant: m.Quant, Loaded: m.ID == cfg.Model})
+		entries = append(entries, modelListEntry{ID: m.ID, Quant: m.Quant, Loaded: m.ID == cfg.Model, Origin: catalog.OriginOf(m).Label()})
 	}
 
 	if opts.asJSON {
@@ -244,6 +248,10 @@ func runModelList(cmd *cobra.Command, opts listOpts, d *listDeps) int {
 		state := "available"
 		if e.Loaded {
 			state = "loaded"
+		}
+		if e.Origin != "" {
+			fmt.Fprintf(out, "%-10s %-24s %s (%s)\n", state, e.ID, e.Quant, e.Origin)
+			continue
 		}
 		fmt.Fprintf(out, "%-10s %-24s %s\n", state, e.ID, e.Quant)
 	}

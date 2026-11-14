@@ -74,7 +74,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),
-  backup, restore, update, uninstall.
+  backup, restore, update, uninstall, catalog add (an entry from a commit-pinned
+  Hugging Face GGUF URL, ADR-0041).
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -96,6 +97,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   and `Compare` onto `verify.Status`; `evalstore` holds the eval baselines in
   `eval-baselines.json` (jsonstore, one per model + quant + suite version); it is a
   backup entry, restored verbatim with a WARN naming the baselines that drops (ADR-0020).
+  `catalogadd` (ADR-0041) is `villa catalog add`'s pure core: it accepts only a
+  `resolve/<40-hex commit>/<file>.gguf` URL, builds the entry from the GGUF header and
+  the pulled file's sha256 (trust on first use at that commit), with
+  `unified_memory_safe: false` so nothing auto-selects it, and extends `catalog_path` or
+  creates the managed `catalog-local.json` (a backup entry). `operator-supplied` /
+  `operator-edited` is derived against the embedded seed, never stored.
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +

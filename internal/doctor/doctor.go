@@ -133,7 +133,12 @@ const (
 //     tools` result under the freshness rule `search-egress` uses (a fresh FAIL fails, a
 //     fresh REJECT, a stale or absent record warns). A tool-server-off config is
 //     byte-identical except this bump.
-const reportSchemaVersion = 15
+//   - v16: the CAT-02 / CAT-03 catalog-provenance findings (ADR-0041) — folded for free
+//     through the unchanged findingFromCheck path like v4/v5. CAT-02 appears only when
+//     the configured model is operator-supplied or operator-edited, and CAT-03 only when
+//     an external catalog lacks entries the embedded seed ships, so a host on the
+//     embedded seed is byte-identical except this bump.
+const reportSchemaVersion = 16
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -227,6 +232,12 @@ type Deps struct {
 	// (a caller that could not load the catalog) no CAT-01 finding is emitted at all,
 	// never a PASS-by-default.
 	CatalogGeometry func() []preflight.CheckResult
+	// CatalogOrigin is the provenance of an external catalog (preflight.RunCatalogOrigin,
+	// ADR-0041): CAT-02 names the configured model when the operator supplied or edited
+	// it, and CAT-03 warns when the catalog lacks entries the embedded seed ships. Its
+	// CheckResults fold through findingFromCheck. NIL-SAFE, and the cmd tier binds it
+	// only for an external catalog, so a host on the embedded seed emits neither.
+	CatalogOrigin func() []preflight.CheckResult
 	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
 	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
 	// kvm/probe seams — composition over re-implementation). Its CheckResults fold
@@ -479,6 +490,12 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	// running stack. A nil seam (no loadable catalog) emits nothing.
 	if d.CatalogGeometry != nil {
 		for _, c := range d.CatalogGeometry() {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
+	// 1a'. CATALOG ORIGIN: CAT-02 / CAT-03 (ADR-0041), the same kind of disk fact.
+	if d.CatalogOrigin != nil {
+		for _, c := range d.CatalogOrigin() {
 			findings = append(findings, findingFromCheck(c))
 		}
 	}

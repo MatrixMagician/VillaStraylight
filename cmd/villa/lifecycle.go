@@ -245,6 +245,22 @@ func followJournalLive(service string) error {
 	return c.Run()
 }
 
+// liveModelOrigin is status.Deps.ModelOrigin: who vouches for cfg.Model, as
+// catalog.OriginOf's label, resolved through the same catalog every verb reads. It is
+// empty for a seed model, an unknown model and an unreadable catalog, because a report
+// never reads an absent origin as a verdict (ADR-0041).
+func liveModelOrigin(cfg config.VillaConfig) string {
+	cat, _, err := loadCatalog()
+	if err != nil {
+		return ""
+	}
+	m, ok := cat.FindByID(cfg.Model)
+	if !ok {
+		return ""
+	}
+	return catalog.OriginOf(m).Label()
+}
+
 // liveModelFile resolves the on-disk GGUF filename for the config'd model through
 // the catalog (never as a path). It mirrors the install.go modelFile closure so
 // the lifecycle verbs render the same Exec= model path install wrote. A catalog load
