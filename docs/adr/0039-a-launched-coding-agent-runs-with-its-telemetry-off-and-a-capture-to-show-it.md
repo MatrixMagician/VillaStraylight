@@ -121,3 +121,31 @@ Evidence is in `docs/prototype/qwen-code/RESULTS.md`, section "Crush and Claude 
 
 The decision above stands, with its wording qualified by the disclosed Crush exception.
 Wording in `README.md` and `CLAUDE.md` is updated with this amendment.
+
+## Amendment (#389): an opt-in fail-closed launch, `villa code --offline`
+
+The #385 amendment left Crush's `api.github.com` release check open: no switch in the pinned
+binary removes it, and the fail-closed proxy environment that does was kept out of the contract.
+Decision (2026-11-14):
+
+- **Options considered.** Disclose only. Fail closed by default. Wait for the structural no-route
+  launch (#377). Fail closed only on request.
+- **Chosen: disclose by default, plus an opt-in `villa code --offline`.** The default launch and
+  its contract are unchanged, so the captures on record for them stay valid, and the disclosed
+  Crush exception stands as worded. `--offline` is for the user who wants no unlisted host at all
+  and accepts the cost.
+- **The contract.** For every target (`crush`, `--agent claude`, `--agent qwen`) the launch env
+  gains `HTTPS_PROXY`, `HTTP_PROXY` and their lowercase forms at `http://127.0.0.1:1` (a closed
+  loopback port), and `NO_PROXY` / `no_proxy` set to the model server host (`127.0.0.1`, the
+  host of the base URL each agent is given). An operator's own proxy variables are replaced, not
+  merged. One value in `internal/agent/offline.go` serves all three agents.
+- **The cost.** The agent's own shell inherits the variables, so `git clone` or `go mod download`
+  over HTTPS fails in that mode. `villa code --help` says so.
+- **Evidence.** The prototype in `docs/prototype/qwen-code/RESULTS.md` ("Crush and Claude Code",
+  #385) measured the same environment with `NO_PROXY` naming the model server by its container
+  hostname: 185 s full sessions of Crush and Claude Code showed only the model server's DNS.
+- **Not yet proven.** That was the prototype, not the shipped contract (a loopback IP in
+  `NO_PROXY`, the real launch path). A capture of the shipped `--offline` contract is still owed,
+  as this ADR requires for any launch-env change. Until it is pasted on #389, the wording in
+  `README.md` and `CLAUDE.md` does not claim `--offline` closes anything. The default contract is
+  unchanged and its captures stand; `--offline` is a separate contract with no capture yet.

@@ -308,7 +308,9 @@ capture (ADR-0039) proves one version, so `internal/agent/vetted.go` records whi
 `VettedClaudeVersion` and `VettedQwenVersion`. A launch of any other installed
 version, or one whose `--version` cannot be read, prints a warning and still
 launches. Crush is the pinned binary and its policy table governs it; it has no
-constant. Re-vet when the warning fires for a release you intend to support, and
+constant. The vetted versions were captured under the default contract; the opt-in
+`--offline` contract (ADR-0039, #389) is a separate one and has its own capture to
+record. Re-vet when the warning fires for a release you intend to support, and
 before changing either constant.
 
 1. Install the candidate version into a scratch prefix. Never your own `~/.claude`,
