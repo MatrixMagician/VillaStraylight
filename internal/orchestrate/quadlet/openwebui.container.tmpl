@@ -13,6 +13,7 @@ PublishPort={{.PublishPort}}
 Volume={{.Volume}}
 EnvironmentFile={{.InferenceSecretEnvFile}}
 {{if .SecretEnvFile}}EnvironmentFile={{.SecretEnvFile}}
+{{end}}{{if .ToolsEnvFile}}EnvironmentFile={{.ToolsEnvFile}}
 {{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
 {{end}}
 [Service]

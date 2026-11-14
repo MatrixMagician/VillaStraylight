@@ -55,6 +55,13 @@ type RenderInput struct {
 	// rendered stack is byte-identical to v1.4.
 	HostVillaPath string
 
+	// RecallScopeDir is the host directory villa-tools-recall bind-mounts read-only: the
+	// one directory holding the recall scope file (ADR-0042). A host path, never
+	// shell-interpolated, and unused unless subsystem.ToolRecallOn. Render does not refuse
+	// an empty one, like HostVillaPath: the status read-model renders for names and ports
+	// and has no mount to write.
+	RecallScopeDir string
+
 	// CodingMode is the OPTIONAL pre-translated coding-mode render descriptor
 	// nil ⇒ the off path: Render leaves spec.CodingMode nil and the
 	// rendered unit is byte-identical to v1.3. Non-nil ⇒ Render sets

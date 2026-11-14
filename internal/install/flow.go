@@ -166,6 +166,12 @@ type Deps struct {
 	WriteSearxngSettings    func(name, text string) error
 	WriteSearxngSecretEnv   func(name, text string) error
 	WriteInferenceSecretEnv func(name, text string) error
+	// WriteToolEnv writes one of the tool server's 0600 files (a unit's bearer or the chat
+	// unit's connection list), and WriteRecallScope rewrites the recall scope file the
+	// recall unit mounts from the saved recall state (ADR-0042). Both are called only
+	// while the tool server is on.
+	WriteToolEnv     func(name, text string) error
+	WriteRecallScope func() error
 
 	Endpoint  func() string
 	PollReady func(ctx context.Context, endpoint string) Proof
@@ -176,6 +182,9 @@ type Deps struct {
 	ProveSearch     func(context.Context) Proof
 	ProveAgent      func(context.Context) Proof
 	ProveVoice      func(context.Context) Proof
+	// ProveToolServer waits for each rendered tool unit to answer /healthz in its own
+	// network. A FAIL refuses and rolls back. The contract proof is `villa verify tools`.
+	ProveToolServer func(context.Context, config.VillaConfig) Proof
 	// ProveImage is the image offload proof mapped onto Proof verbatim: a FAIL (a CPU
 	// or partial-RAM placement) refuses and rolls back; a WARN is reported.
 	ProveImage func(context.Context, config.VillaConfig) Proof
@@ -216,9 +225,10 @@ func DefaultUnits() Units {
 	_, web := subsystem.WebSearch.EveryUnit()
 	_, voice := subsystem.Voice.EveryUnit()
 	_, img := subsystem.Image.EveryUnit()
+	_, tools := subsystem.ToolServer.EveryUnit()
 	return Units{
 		Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Extract: mem[3], Searxng: web[0], Websafe: web[1],
-		Stt: voice[0], Tts: voice[1], Image: img[0],
+		Stt: voice[0], Tts: voice[1], Image: img[0], ToolsWeb: tools[0], ToolsRecall: tools[1],
 	}
 }
 
@@ -260,6 +270,12 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	fit := ResourceFit(rec)
 	req := preflight.ResourceReq{MinDiskBytes: fit.MinDiskBytes, MinMemBytes: fit.MinMemBytes, DataDir: d.ModelsDir()}
 	gates := ResolveGates(cfg, opts, rec)
+
+	// A tool server with nothing to publish is refused here, before the wizard, the
+	// host-prep offers and every mutation: the gate would be a flag with no unit behind it.
+	if msg := ToolServerRefusal(gates); msg != "" {
+		return block("%s", msg)
+	}
 
 	checks := d.RunChecks(profile, req)
 	if gates.Memory && d.RunMemoryChecks != nil {
@@ -328,6 +344,21 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return block("install: generate inference secret: %v\n", serr)
 		}
 		cfg.InferenceSecret = secret
+	}
+	// The tool server's two bearers, the same way: generated in memory before the render,
+	// persisted by step (7)'s one SaveConfig, one per unit, and reused when present
+	// (ADR-0042). A gate-off install generates none.
+	if gates.ToolServer {
+		for _, field := range []*string{&cfg.ToolWebSecret, &cfg.ToolRecallSecret} {
+			if *field != "" {
+				continue
+			}
+			secret, serr := config.GenerateToolSecret()
+			if serr != nil {
+				return block("install: generate tool server secret: %v\n", serr)
+			}
+			*field = secret
+		}
 	}
 
 	// The assembled config is the whole render input (ADR-0013): with coding mode on
@@ -460,7 +491,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Extract, units.Searxng, units.Websafe, units.Stt, units.Tts, units.Image, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Extract, units.Searxng, units.Websafe, units.Stt, units.Tts, units.Image, units.ToolsWeb, units.ToolsRecall, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -532,6 +563,26 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	inferenceEnvName, inferenceEnvText := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
 	if err := d.WriteInferenceSecretEnv(inferenceEnvName, inferenceEnvText); err != nil {
 		return refuse("install: write inference secret env failed: %v\n", err)
+	}
+
+	// (7d) The tool server's three 0600 files and the recall scope, on BOTH paths for the
+	// same self-heal, and before any unit is started: the chat unit names openwebui.env,
+	// and a missing one would stop it from starting (ADR-0042).
+	if gates.ToolServer {
+		files, ferr := orchestrate.RenderToolEnvFiles(cfg)
+		if ferr != nil {
+			return refuse("install: render tool server env files failed: %v\n", ferr)
+		}
+		for _, f := range files {
+			if werr := d.WriteToolEnv(f.Name, f.Text); werr != nil {
+				return refuse("install: write tool server env %s failed: %v\n", f.Name, werr)
+			}
+		}
+		if gates.ToolRecall() {
+			if werr := d.WriteRecallScope(); werr != nil {
+				return refuse("install: write recall scope failed: %v\n", werr)
+			}
+		}
 	}
 
 	// (8) True no-op: reached only AFTER the weights, config and dashboard unit are
@@ -694,6 +745,32 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 	}
 
+	// (9d2) The tool units, after the voice units as they render and after the services
+	// they read, each gated on its unit being in the written plan. A unit absent from the
+	// plan is checked before either starts.
+	if gates.ToolServer {
+		tools := []struct {
+			on        bool
+			unit, svc string
+		}{
+			{gates.ToolWeb(), orchestrate.ToolsWebContainerUnitName(), units.ToolsWeb},
+			{gates.ToolRecall(), orchestrate.ToolsRecallContainerUnitName(), units.ToolsRecall},
+		}
+		for _, tool := range tools {
+			if tool.on && !UnitPresent(unitPlan, tool.unit) {
+				return refuse("install: INTERNAL ERROR: the tool server is enabled but its unit (%s) is absent from the rendered plan, so install refuses to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n", tool.unit)
+			}
+		}
+		for _, tool := range tools {
+			if !tool.on {
+				continue
+			}
+			if err := start(tool.svc); err != nil {
+				return refuse("install: start %s failed: %v\n", tool.svc, err)
+			}
+		}
+	}
+
 	// (9e) The image server, after the voice units and gated on its unit
 	// being in the written plan, never on the flag alone.
 	if gates.Image {
@@ -732,6 +809,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return refuse("install: voice not ready: %s\n", proof.Detail)
 		}
 		say("voice ready: %s\n", proof.Detail)
+	}
+	if gates.ToolServer {
+		proof := d.ProveToolServer(ctx, cfg)
+		if proof.Status == preflight.StatusFail {
+			return refuse("install: tool server not ready: %s\n", proof.Detail)
+		}
+		say("tool server ready: %s\n", proof.Detail)
 	}
 	if gates.Image {
 		proof := d.ProveImage(ctx, cfg)

@@ -150,6 +150,11 @@ type openWebUIView struct {
 	// the web-off unit is byte-identical to v1.4. The secret VALUE is NEVER an env line
 	// it reaches OWUI only via this 0600 file, never the 0644 unit.
 	SecretEnvFile string
+	// ToolsEnvFile is the EnvironmentFile= PATH of the 0600 file carrying
+	// TOOL_SERVER_CONNECTIONS, which holds both tool-server bearers (ADR-0042). EMPTY
+	// unless a tool unit renders, so the template guard renders nothing and every other
+	// unit is byte-identical. The value is never an Environment= line: it holds secrets.
+	ToolsEnvFile string
 }
 
 // openWebUIVolumeView is the data the openwebui.volume.tmpl renders: a plain

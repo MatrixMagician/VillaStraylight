@@ -8,13 +8,25 @@
 package recall
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/jsonstore"
 )
 
 // ScopeSchemaVersion is the scope document's own version. A reader that sees another value
 // fails closed.
 const ScopeSchemaVersion = 1
+
+const (
+	// scopeDirName is the directory under the villa data root the recall unit mounts,
+	// and ScopeFileName the one file in it. The unit mounts the directory, never the file:
+	// an atomic rename replaces the inode a file mount would hold.
+	scopeDirName = "recall-scope"
+	// ScopeFileName is the scope document's name inside that directory.
+	ScopeFileName = "scope.json"
+)
 
 // Scope is the recall scope document: the Knowledge collection's id and a map from each
 // indexed transcript's file id to the id of the user who owns the chat.
@@ -22,6 +34,33 @@ type Scope struct {
 	SchemaVersion int               `json:"schema_version"`
 	KnowledgeID   string            `json:"knowledge_id"`
 	Files         map[string]string `json:"files"`
+}
+
+// GetSchemaVersion and SetSchemaVersion let the shared store stamp the document's version.
+func (sc *Scope) GetSchemaVersion() int  { return sc.SchemaVersion }
+func (sc *Scope) SetSchemaVersion(v int) { sc.SchemaVersion = v }
+
+// scopeStore binds the shared persistence layer to the scope document.
+var scopeStore = jsonstore.New[Scope, *Scope]("recall scope", scopeDirName+"/"+ScopeFileName, ScopeSchemaVersion)
+
+// ScopePath is where the host writes the scope document: <data root>/recall-scope/scope.json.
+func ScopePath() string { return scopeStore.Path() }
+
+// ScopeDir is the directory villa-tools-recall bind-mounts read-only.
+func ScopeDir() string { return filepath.Dir(scopeStore.Path()) }
+
+// LoadScope reads the scope document through the seam and fails CLOSED: an absent, corrupt
+// or other-version document is the zero Scope, which names no collection, never a scope
+// that guessed. Only a real read error is returned.
+func LoadScope(d Deps) (Scope, error) { return scopeStore.Load(d) }
+
+// WriteScope writes the scope document atomically, directory 0700 and file 0600, under the
+// villa data root. It stamps the schema version itself, so a caller cannot write a document
+// the reader would fail closed on. It does no filtering: ScopeOf decides what a scope holds.
+func WriteScope(sc Scope) error {
+	return scopeStore.Save(jsonstore.Deps{WriteAll: func(data []byte) error {
+		return scopeStore.WriteFileAtomic(scopeStore.Path(), data)
+	}}, sc)
 }
 
 // ScopeOf projects the state onto a Scope. A chat with no file id or no owner is left out:

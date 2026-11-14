@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/toolserver"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
@@ -32,15 +34,15 @@ import (
 const (
 	// toolsKeyEnv carries the unit's bearer. Unlike websafe, an empty value is a refusal
 	// to start and the core has no accept-any path behind it.
-	toolsKeyEnv = "VILLA_TOOLS_KEY"
+	toolsKeyEnv = orchestrate.ToolsKeyEnv
 	// toolsQdrantCollection is the one Qdrant collection Open WebUI keeps knowledge in:
 	// <QDRANT_COLLECTION_PREFIX>_knowledge, with the prefix villa renders ("open-webui").
 	toolsQdrantCollection = "open-webui_knowledge"
 	// toolsDefaultPort is the web unit's port. The recall unit passes its own.
-	toolsDefaultPort = 8092
+	toolsDefaultPort = config.ToolsWebPort
 	// toolsDefaultScopeFile is where the recall unit finds the scope document, inside the
 	// directory the unit mounts read-only.
-	toolsDefaultScopeFile = "/villa/recall-scope/scope.json"
+	toolsDefaultScopeFile = orchestrate.ToolsScopeMountDir + "/" + recall.ScopeFileName
 	// toolsUpstreamTimeout is the client-level bound on a request to a fixed upstream. Each
 	// leg has its own, tighter, context deadline in the core.
 	toolsUpstreamTimeout = 10 * time.Second

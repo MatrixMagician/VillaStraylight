@@ -266,7 +266,10 @@ type Report struct {
 // Version 12 adds the villa-extract.service row when the extractor is rendered
 // (ADR-0033); no field changed shape, and an extractor-off report differs from
 // v11 only in schema_version.
-const reportSchemaVersion = 12
+// Version 13 adds the villa-tools-web.service and villa-tools-recall.service rows when
+// the tool server's units are rendered (ADR-0042); no field changed shape, and a
+// tool-server-off report differs from v12 only in schema_version.
+const reportSchemaVersion = 13
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather

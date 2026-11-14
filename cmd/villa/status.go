@@ -884,6 +884,19 @@ func liveStatusServices() []status.Service {
 			Probe: liveImageHealth,
 		},
 		{
+			// The tool server's two units each answer an unauthenticated /healthz on
+			// the network they join (ADR-0042). Whether a tool call works end to end
+			// is `villa verify tools`, not a status probe.
+			Unit:  unitServiceName(orchestrate.ToolsWebContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsWebHealth() },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.ToolsRecallContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsRecallHealth() },
+		},
+		{
 			// The dashboard is a native systemd --user service, not a Quadlet
 			// container, so it never appears in the rendered units and needs an
 			// explicit row. Its probe is a bounded GET to its own /api/healthz, which

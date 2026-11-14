@@ -64,7 +64,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
-  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`),
+  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--voice`, `--image`,
+  `--tool-server`),
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), tools-serve (hidden, the same shape:
@@ -141,7 +142,10 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   being documented. One process serves one set (`tools-serve --set web|recall`), every
   route is a bearer-gated GET, and every returned text goes through `websafe.Guard`.
   Recall needs the `X-Villa-User-Id` header Open WebUI fills and filters to the
-  caller's files through `recall.ScopeOf`.
+  caller's files through `recall.ScopeOf`. `subsystem.ToolServer` is the gate
+  (`tool_server`), with derived gates `ToolWebOn` (needs web search) and `ToolRecallOn`
+  (needs memory); the two bearers and the Open WebUI connection reach their containers
+  only through 0600 env files under `~/.config/villa/tools/`.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
@@ -463,7 +467,10 @@ Vulkan with its model pre-staged in the models volume, and Kokoro on the CPU; on
 gate, `voice_enabled`, one round-trip proof) — the web-search pair bind-mounts the `villa` binary into a
 distroless container, which is why the CGO-free build gate is load-bearing — and,
 when `subsystem.ImageOn`, `villa-image` (sd-server on Vulkan RADV, ADR-0032),
-rendered after the web-search block and before `villa-inferproxy`. The
+rendered after the web-search block and before `villa-inferproxy`. The tool server
+(ADR-0042) adds `villa-tools-web` on `villa.network` only and `villa-tools-recall` on
+`villa-closed.network` only, each under its derived gate, after the voice units; both
+bind-mount the `villa` binary on the websafe pin and publish no host port. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
 (`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
 `subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,
@@ -476,7 +483,7 @@ injecting the real `LLAMA_API_KEY` bearer on that leg — so a task's
 own request never needs a valid key of its own. `villa-closed.network`
 (`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-llama`, the
 resident slots, `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
-`villa-stt`, `villa-tts` and `villa-image` join it and nothing else, so they have no
+`villa-stt`, `villa-tts`, `villa-image` and `villa-tools-recall` join it and nothing else, so they have no
 route off-box; Open WebUI joins both it and `villa.network`. An in-network probe runs
 on its target's network (`probeCurl` takes it; inference and the proxy are probed on
 `villa-closed`, while `verify agent`'s egress control stays routed and uses Open

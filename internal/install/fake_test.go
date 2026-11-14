@@ -125,6 +125,13 @@ type fakeDeps struct {
 	agentChecksCalls     int
 	agentChecks          []preflight.CheckResult
 
+	toolServerEnabled bool
+	toolEnvNames      []string
+	scopeWrites       int
+	toolProofCalls    int
+	toolProofStatus   preflight.Status
+	toolProofDetail   string
+
 	voiceEnabled     bool
 	voicePresent     bool
 	voiceEnsureCalls int
@@ -152,6 +159,7 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		voicePresent:       true,
 		voiceProofStatus:   preflight.StatusPass,
 		imagePresent:       true,
+		toolProofStatus:    preflight.StatusPass,
 		imageProofStatus:   preflight.StatusPass,
 		chatProofStatus:    preflight.StatusPass,
 		imageProofDetail:   "params 8808.62 MiB on VRAM, 0 B in RAM",
@@ -298,6 +306,9 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		cfg.AgentEnabled = f.agentEnabled
 		cfg.VoiceEnabled = f.voiceEnabled
 		cfg.ImageEnabled = f.imageEnabled
+		if f.toolServerEnabled {
+			cfg.ToolServer = true
+		}
 		if f.imageModel != "" {
 			cfg.ImageModel = f.imageModel
 		}
@@ -372,6 +383,21 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.inferenceSecretEnvText = text
 		f.callOrder = append(f.callOrder, "writeInferenceSecretEnv")
 		return nil
+	}
+	d.WriteToolEnv = func(name, _ string) error {
+		f.toolEnvNames = append(f.toolEnvNames, name)
+		f.callOrder = append(f.callOrder, "writeToolEnv:"+name)
+		return nil
+	}
+	d.WriteRecallScope = func() error {
+		f.scopeWrites++
+		f.callOrder = append(f.callOrder, "writeRecallScope")
+		return nil
+	}
+	d.ProveToolServer = func(context.Context, config.VillaConfig) Proof {
+		f.toolProofCalls++
+		f.callOrder = append(f.callOrder, "toolProof")
+		return Proof{Status: f.toolProofStatus, Detail: f.toolProofDetail}
 	}
 	d.AgentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }
 	d.CoderModelPresent = func(string, catalog.Shard) bool {

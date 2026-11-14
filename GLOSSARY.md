@@ -384,8 +384,16 @@ _Avoid_: worker, daemon, scheduler
 
 **Tools mode**:
 The chat unit served with the model's own chat template so tool calls parse.
-One config flag; coding mode implies it.
+One config flag; coding mode implies it. A tool server needs it, and is not it.
 _Avoid_: jinja mode, agent mode, function calling
+
+**Tool server**:
+Villa's own two read-only OpenAPI services that publish web search and recall
+search to Open WebUI as model-callable tools: `villa-tools-web` on the routed
+network and `villa-tools-recall` on the closed one, registered from the rendered
+environment. A fixed set; there is no operator-named tool, image or URL. It
+publishes tools, where tools mode only lets the model call them.
+_Avoid_: MCP server, plugin, tool container, function server
 
 **Grounding audit**:
 The second pass villa runs after a task, one chat completion per document the
