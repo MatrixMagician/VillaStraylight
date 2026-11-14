@@ -272,3 +272,27 @@ IP-literal `NO_PROXY`.
 - Claude Code at the vetted 2.1.317, and any Claude Code run with a completed turn under the
   offline set.
 - The project-override modes under the offline set.
+
+## Crush v0.101.0 re-vet
+
+Run 2026-11-14 on the dev host (Fedora 45, Podman 6.1.3) with `agent_capture.py`, the
+v0.101.0 release binary (binary sha256 `47339786…42d4`) mounted as
+`~/.local/share/villa/bin/crush`, and villa's rendered `crush.json`. The model server was a
+throwaway llama-server (ROCm 10.0 image, the heretic Q6_K weights, `-c 32768`,
+`--api-key dummy-proto-key`) at 10.99.8.10 on the private network `proto-agent`. villa's real
+inference secret never entered an agent. Files are named with `CAPTURE_TAG=-v0.101.0`.
+
+| Run | Packets off the model server | Model turns |
+|---|---|---|
+| villa contract (`crush-contract-v0.101.0`) | 12 DNS (10 for `proto-llama`, 2 for `api.github.com`), **7 TLS to 20.26.156.210 (`api.github.com`)** | completed (`pong`, the `ls` tool call) |
+| contract + a workspace `crush.json` turning metrics and the provider refresh back on (`crush-project-override-v0.101.0`) | the same: DNS, and `api.github.com` only | completed |
+| contract + the offline set, `NO_PROXY=proto-llama` (`crush-contract+offline-v0.101.0`) | 8 DNS, all for `proto-llama`. **No other host.** | completed (`pong`, the `ls` tool call) |
+
+The result matches the v0.93.1 record: the release check to `api.github.com` is still the one
+host the contract cannot suppress (#389), the project-level file does not loosen the contract,
+and `--offline` removes the release check while the session still works. No Catwalk
+(`catwalk.charm.land`) or metrics (`data.charm.land`) traffic appeared in any run.
+
+One behaviour change surfaced on the live stack, not in the capture: Crush v0.99+ rewrites a
+`crush.json` written in the Catwalk v2 model schema into v3 in place on first load. villa now
+renders v3 and reads a v2 render as unchanged (ADR-0019, update of 2026-11-14).
