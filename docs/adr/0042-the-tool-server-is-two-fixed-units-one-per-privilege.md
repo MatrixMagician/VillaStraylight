@@ -570,6 +570,19 @@ verdict and its age, as `searchEgressFinding` does for `villa verify search`.
    web unit's journal shows it inside the proof window, and the completion text is
    printed for the reader. A model that makes no call is a REJECT.
 
+**As built (#363).** The legs are `internal/toolproof`'s, named `contract`, `refusals`,
+`registration`, `web`, `scope`, `closed-network` and `chat`, run in that order, and a FAIL in
+one never stops the others. They add to the list above: `refusals` also sends a wrong bearer,
+a POST (405), a malformed identity (403) and a well-formed one (200 or 503); `scope` queries
+as up to four users who own indexed chats and, when two do, shows that neither sees the
+other's; `closed-network` reads podman's networks against the rendered units and this ADR's
+fixed placement, asks its Qdrant control before the 1.1.1.1 probe, and probes the recall unit
+from `villa.network`; `chat` offers each rendered unit's tool in its own completion and reads
+the unit's request log (`Systemd.JournalSince`) before and after, so a call is evidenced on the
+unit's side and the unit's status line shows whether the identity header arrived. Search
+engines refusing is a REJECT of `web`, never a failure of the tool server. A unit that is not
+rendered skips its legs. The verdict is recorded in `verify-tools-state.json`.
+
 The #363 line "user A cannot read user B's recall through the tool" needs two accounts
 with indexed chats, which leg 5 does not have on a single-operator box. #363 runs it by
 hand under the live-stack protocol: a second admin account, one chat each holding a
@@ -605,8 +618,12 @@ table bounds.
   default is already fail-closed, a 403.
 - **That a user cannot choose their own id.** `{{USER_ID}}` is `user.id`
   (`utils/headers.py:137`). How Open WebUI assigns ids was not read.
-- **Qdrant's request and response shape.** The layout was read in Open WebUI's client.
-  #361 pins the HTTP shape with a fixture captured from the pinned Qdrant.
+- ~~**Qdrant's request and response shape.**~~ Measured on the dev host on 2026-11-14
+  against villa-qdrant 1.18.2 and pinned by `internal/toolserver/testdata/qdrant-query-response.captured.json`.
+  The answer has no top-level `usage` key, `metadata.embedding_config` is an object, and the
+  collection holds other tenants' points, some with no `metadata.name`. A filter on an unknown
+  file id returns no point. For the recall tenant `metadata.name` is `villa-recall-<chat id>.txt`
+  on every point.
 - **That a registered tool server is off in a new chat until the user turns it on.**
   The research note cites Open WebUI's documentation. The source shows only that the
   enabled set arrives in the request.

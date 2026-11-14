@@ -60,6 +60,9 @@ verifies it.
 Open WebUI, SearXNG, `villa-websafe` and `villa-tools-web` stay on the routed
 network because they fetch. `villa verify search` (`cmd/villa/verify_search.go`) is the on-command
 proof that bounds their outbound. It is a measurement, not a standing control.
+`villa verify tools` (`cmd/villa/verify_tools.go`) is the same kind of proof for the tool
+server: its contract, its refusals, the placement of each unit on its one network with a
+positive-controlled probe that the recall unit has no route off-box, and one real call.
 
 ## Known gaps and accepted residuals
 

@@ -733,6 +733,7 @@ failure, never a false green:
 ./villa verify search    # web-search outbound is BOUNDED to the sanctioned allowlist
 ./villa verify agent     # the coding agent runs with no silent cloud fallback
 ./villa verify voice     # text-to-speech then speech-to-text agree on a spoken sentence
+./villa verify tools     # villa's own tool server: contract, refusals, a real call, no route off-box
 ```
 
 `villa verify memory` and `villa verify search` are negative-control-first: they

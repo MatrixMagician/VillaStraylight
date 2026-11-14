@@ -569,7 +569,7 @@ func scopeLeg(ctx context.Context, in Input, d Deps) Leg {
 
 	pass := fmt.Sprintf("as %s every hit is the caller's own fenced chat and an identity that owns nothing gets the empty result", strings.Join(users, ", "))
 	if len(users) < 2 {
-		o.note("cross-user isolation was not shown: only one user owns indexed chats, so run the two-account check by hand (docs/DEVELOPMENT.md, tool server proof)")
+		o.note("cross-user isolation was not shown: only one user owns indexed chats, so run the two-account check by hand (docs/TESTING.md, the tool server two-account check)")
 	}
 	return o.done(pass)
 }
