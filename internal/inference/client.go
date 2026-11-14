@@ -161,6 +161,41 @@ func (c Client) Props(ctx context.Context) *PropsInfo {
 		DefaultParams struct {
 			NCtx int `json:"n_ctx"`
 		} `json:"default_generation_settings"`
+		NCtx       int `json:"n_ctx"`
+		Modalities struct {
+			Vision *bool `json:"vision"`
+		} `json:"modalities"`
+		TemplateCaps struct {
+			Tools     *bool `json:"supports_tools"`
+			ToolCalls *bool `json:"supports_tool_calls"`
+		} `json:"chat_template_caps"`
+	}
+	if json.Unmarshal(body, &raw) != nil {
+		// A wrongly typed capability field fails the whole decode; retry for the
+		// identity fields alone so the drift overlay keeps working.
+		return propsIdentityOnly(body)
+	}
+	nctx := raw.NCtx
+	if nctx == 0 {
+		nctx = raw.DefaultParams.NCtx
+	}
+	return &PropsInfo{
+		ModelPath:      raw.ModelPath,
+		NCtx:           nctx,
+		Vision:         optionalBool(raw.Modalities.Vision, "/props modalities.vision"),
+		ToolsSupported: toolsSupported(raw.TemplateCaps.Tools, raw.TemplateCaps.ToolCalls),
+	}
+}
+
+// propsIdentityOnly parses model_path and n_ctx from a body whose capability fields
+// did not decode, leaving both capabilities Unknown. A body that is not JSON at all
+// is still nil.
+func propsIdentityOnly(body []byte) *PropsInfo {
+	var raw struct {
+		ModelPath     string `json:"model_path"`
+		DefaultParams struct {
+			NCtx int `json:"n_ctx"`
+		} `json:"default_generation_settings"`
 		NCtx int `json:"n_ctx"`
 	}
 	if json.Unmarshal(body, &raw) != nil {
@@ -171,6 +206,27 @@ func (c Client) Props(ctx context.Context) *PropsInfo {
 		nctx = raw.DefaultParams.NCtx
 	}
 	return &PropsInfo{ModelPath: raw.ModelPath, NCtx: nctx}
+}
+
+func optionalBool(v *bool, src string) detect.Bool {
+	if v == nil {
+		return detect.Bool{Source: src + " absent"}
+	}
+	return detect.Bool{Value: *v, Known: true, Source: src}
+}
+
+// toolsSupported folds the two template capabilities a tool round-trip needs. A
+// single confident false decides, since either missing breaks tool calls; true needs
+// both keys present.
+func toolsSupported(tools, toolCalls *bool) detect.Bool {
+	const src = "/props chat_template_caps supports_tools+supports_tool_calls"
+	switch {
+	case tools != nil && !*tools, toolCalls != nil && !*toolCalls:
+		return detect.Bool{Known: true, Source: src}
+	case tools != nil && toolCalls != nil:
+		return detect.Bool{Value: true, Known: true, Source: src}
+	}
+	return detect.Bool{Source: src + " absent"}
 }
 
 // Perf reads the /metrics rate gauges. ok=false (a 404 when --metrics is off, a 401,
