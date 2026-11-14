@@ -41,6 +41,19 @@ type agentBudget struct {
 	Budget time.Duration
 	// Source names the measurement, or why there is none.
 	Source string
+	// measured is true when Source reports a rate the probe read.
+	measured bool
+}
+
+// underSpeculation qualifies a measured rate taken under draft speculation. The
+// probe's flat sampler makes the target reject almost every drafted token, so each
+// token pays for a wasted verification and the read is below the model's own rate
+// (ADR-0031, #353). The budget is left alone: a lower rate only lengthens it.
+func (b agentBudget) underSpeculation(mode string) agentBudget {
+	if b.measured && mode == config.SpeculationDraft {
+		b.Source += " under draft speculation, a lower bound"
+	}
+	return b
 }
 
 func (b agentBudget) String() string {
@@ -69,7 +82,7 @@ func agentBudgetFor(rate float64, err error, busy int) agentBudget {
 	case busy > 1:
 		source += fmt.Sprintf(" while %d other slots were generating", busy)
 	}
-	return agentBudget{Budget: budget, Source: source}
+	return agentBudget{Budget: budget, Source: source, measured: true}
 }
 
 // liveAgentBudget measures the served model's decode rate through the inference
@@ -80,7 +93,7 @@ func liveAgentBudget(ctx context.Context, cfg config.VillaConfig) agentBudget {
 	client := inferenceClient(cfg)
 	busy, _ := processingSlots(client.Perf(ctx))
 	rate, err := client.DecodeRate(ctx, cfg.Model)
-	return agentBudgetFor(rate, err, busy)
+	return agentBudgetFor(rate, err, busy).underSpeculation(cfg.Speculation)
 }
 
 // processingSlots is the number of slots generating, read from the /metrics
