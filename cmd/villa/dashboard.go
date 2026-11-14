@@ -127,6 +127,7 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 	return dashboard.Config{
 		Tasks:         tasks,
 		TasksOn:       liveTasksOn,
+		ResearchOn:    liveResearchOn,
 		StatusDeps:    *statusDeps,
 		ChatPort:      cfg.ChatPort,
 		DashboardAddr: config.DashboardAddr,
@@ -181,6 +182,13 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 func liveTasksOn() bool {
 	cfg, err := config.LoadVilla()
 	return err == nil && subsystem.SandboxOn(cfg)
+}
+
+// liveResearchOn is the dashboard's research gate, loaded per request like
+// liveTasksOn: research needs web search, not the workspace agent (ADR-0045).
+func liveResearchOn() bool {
+	cfg, err := config.LoadVilla()
+	return err == nil && subsystem.WebSearchOn(cfg)
 }
 
 // scrapeClientTTL is how long one config load serves the dashboard's inference reads.

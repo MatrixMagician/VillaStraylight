@@ -48,6 +48,10 @@ import (
 // EXTERNAL_WEB_LOADER_URL to end in this exact path — keep them in sync from here.
 const loadPath = "/load"
 
+// LoadPath is loadPath for callers that compose the loader URL themselves: Open
+// WebUI's unit and the research client.
+const LoadPath = loadPath
+
 // maxRequestBodyBytes bounds the inbound request body (the {urls:[...]} JSON), so a
 // hostile/oversize POST cannot OOM the loader. The URL list is small by construction
 // (count = WEB_SEARCH_RESULT_COUNT); 1 MiB is generous.

@@ -1,7 +1,7 @@
 package dashboard
 
 // api_tasks.go is the loopback task API (spec v1.11 §5): the route table the
-// mux is built from, and the seven task handlers over internal/taskrun. The
+// mux is built from, and the task handlers over internal/taskrun. The
 // handlers add no lifecycle logic; they decode, call the runner, and serialize
 // the record. When no runner is configured (Config.Tasks nil) every task route
 // answers 503, so a dashboard on a host without the workspace agent never
@@ -40,6 +40,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/api/journal", s.handleJournal},
 		{http.MethodGet, "/api/tasks", s.handleTaskList},
 		{http.MethodPost, "/api/tasks", s.handleTaskSubmit},
+		{http.MethodPost, "/api/research", s.handleResearchSubmit},
 		{http.MethodGet, "/api/tasks/{id}", s.handleTaskShow},
 		{http.MethodGet, "/api/tasks/{id}/events", s.handleTaskEvents},
 		{http.MethodPost, "/api/tasks/{id}/approve", s.handleTaskApprove},
@@ -87,10 +88,30 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, _ *http.Request) {
 // reports whether the handler may proceed.
 func (s *Server) tasksReady(w http.ResponseWriter) bool {
 	if s.tasks == nil || (s.tasksOn != nil && !s.tasksOn()) {
-		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "workspace agent is not enabled (set workspace_agent = true in config.toml and run `villa up`)"})
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: workspaceAgentOff})
 		return false
 	}
 	return true
+}
+
+const workspaceAgentOff = "workspace agent is not enabled (set workspace_agent = true in config.toml and run `villa up`)"
+
+// researchReady reports whether a research task may be submitted now: the runner
+// exists and web search is on. It does not consult the workspace-agent gate.
+func (s *Server) researchReady() bool {
+	return s.tasks != nil && (s.researchOn == nil || s.researchOn())
+}
+
+// recordsReady gates the routes both task kinds share (list, show, events, approve,
+// deny, cancel): they answer while either gate is on, because a research-only host
+// still has records to read. With both off they refuse like a submit does.
+func (s *Server) recordsReady(w http.ResponseWriter) bool {
+	workspaceOn := s.tasks != nil && (s.tasksOn == nil || s.tasksOn())
+	if workspaceOn || (s.researchOn != nil && s.researchReady()) {
+		return true
+	}
+	writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: workspaceAgentOff})
+	return false
 }
 
 // writeTaskError maps a runner error to its status: unknown id 404, a task not
@@ -107,7 +128,7 @@ func writeTaskError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) handleTaskList(w http.ResponseWriter, _ *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	tasks, err := s.tasks.List()
@@ -151,8 +172,38 @@ func (s *Server) handleTaskSubmit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, task)
 }
 
+type researchRequest struct {
+	Question string `json:"question"`
+	Rounds   int    `json:"rounds"`
+	Minutes  int    `json:"minutes"`
+}
+
+// handleResearchSubmit answers 202 with the record for a queued AND a refused
+// research task, exactly as handleTaskSubmit does. It needs the runner but not
+// the workspace agent: a host with web search on and tools mode off accepts it
+// (ADR-0045 §6). A malformed request or a budget over its cap is a 400.
+func (s *Server) handleResearchSubmit(w http.ResponseWriter, r *http.Request) {
+	if !s.researchReady() {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "research is not enabled: it needs web search (villa install --web-search)"})
+		return
+	}
+	var body researchRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request: " + err.Error()})
+		return
+	}
+	task, err := s.tasks.SubmitResearch(r.Context(), taskrun.ResearchRequest{Question: body.Question, Rounds: body.Rounds, Minutes: body.Minutes})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
 func (s *Server) handleTaskShow(w http.ResponseWriter, r *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	task, err := s.tasks.Load(r.PathValue("id"))
@@ -167,7 +218,7 @@ func (s *Server) handleTaskShow(w http.ResponseWriter, r *http.Request) {
 // `data: <Narration JSON>`, one flush per event, ending when the runner closes
 // the subscription at the terminal state or the client goes away.
 func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	id := r.PathValue("id")
@@ -216,7 +267,7 @@ type approveRequest struct {
 }
 
 func (s *Server) handleTaskApprove(w http.ResponseWriter, r *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	var body approveRequest
@@ -231,14 +282,14 @@ func (s *Server) handleTaskApprove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTaskDeny(w http.ResponseWriter, r *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	s.answerTask(w, r.PathValue("id"), s.tasks.Deny)
 }
 
 func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
-	if !s.tasksReady(w) {
+	if !s.recordsReady(w) {
 		return
 	}
 	s.answerTask(w, r.PathValue("id"), s.tasks.Cancel)

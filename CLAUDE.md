@@ -70,7 +70,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), tools-serve (hidden, the same shape:
   the tool-server process, ADR-0042), backend, speculation, coding-mode,
-  code (Crush, or Claude Code / Qwen Code via --agent claude / qwen; opt-in --offline), tools-mode, workspace, work, task,
+  code (Crush, or Claude Code / Qwen Code via --agent claude / qwen; opt-in --offline), tools-mode, workspace, work, research
+  (a bounded host-side research task, ADR-0045), task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),
@@ -132,6 +133,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `villa work` and `villa task` are its loopback HTTP clients; the dashboard answers the
   workspace-agent gate per request, `Config.TasksOn`, so turning `workspace_agent` on or
   off needs no dashboard restart).
+  `research` (ADR-0045) is `villa research`'s round loop, a pure core the same runner
+  hosts as a `kind: research` task: no sandbox, no file tool, no shell and no tool
+  call. It plans queries, searches through SearXNG, reads pages only inside the websafe
+  fence, taints the task `web` before the first fetch, and writes a plain-text report
+  whose source list sits behind a per-report token; grounding audits it. Its gate is
+  web search, per request.
 
   Image generation (#312, ADR-0032) is `subsystem.Image`: `catalog.Image(id)` over the
   compiled-in image table (`internal/catalog/images.json`, never `catalog_path`),

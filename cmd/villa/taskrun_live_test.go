@@ -31,6 +31,24 @@ func TestLiveTaskRunDepsIsFullyWired(t *testing.T) {
 			}
 		}
 	}
+	// The research task's web reach is a struct of funcs, which the loop above does
+	// not look inside.
+	web := reflect.ValueOf(d.Web)
+	for i := 0; i < web.NumField(); i++ {
+		if web.Field(i).IsNil() {
+			t.Errorf("Deps.Web.%s is nil", web.Type().Field(i).Name)
+		}
+	}
+}
+
+// TestLiveReportTokenIsFreshAndLongEnough guards the delimiter token of a research
+// report: 128 bits of hex, different every time.
+func TestLiveReportTokenIsFreshAndLongEnough(t *testing.T) {
+	a, errA := liveReportToken()
+	b, errB := liveReportToken()
+	if errA != nil || errB != nil || len(a) != 32 || a == b {
+		t.Errorf("tokens = %q %q, errors %v %v", a, b, errA, errB)
+	}
 }
 
 // TestLiveRenderSandboxArgsResolvesTheImageThroughThePinSeam asserts the

@@ -385,6 +385,28 @@ dashboard service drives rather than reads:
    cannot invent a terminal state. On service start `Runner.Recover` marks every
    non-terminal record `interrupted`, once and idempotently, and never re-queues.
 
+The **research task** (`villa research`, `cmd/villa/research.go`, ADR-0045) is the
+second kind of job the same runner hosts, with the same record, state machine and
+`taskstore.Exit`, and no sandbox:
+
+1. **Submit**: `villa research` refuses in the terminal what it can prove wrong (web
+   search off, a budget over its cap, the service not answering), then
+   `POST /api/research`. The runner's `SubmitResearch` refuses a host with web search
+   off as a `refused` record, otherwise queues a record with `kind: research`, its
+   budget and no workspace. The dashboard builds the runner when web search or the
+   workspace agent is on.
+2. **Loop**: `research.Run` (`internal/research`, pure, behind a `Deps` struct) plans
+   queries, searches, taints the record, fetches, and reads, for the budget's rounds.
+   The host binds `Deps.Web` in `cmd/villa/research_live.go`: SearXNG and `villa-websafe`
+   publish no host port, so each call is a fixed-arg `podman run` of the helper curl on
+   `villa.network` (`probeCurl`) with the search words, URLs and bearer in a curl config on
+   stdin. The model is the inference client's. Fetched text reaches it only inside the
+   websafe fence, in user-role messages labelled by source number.
+3. **Report**: the model writes the body; villa inspects it after NFKC normalisation,
+   defangs it, and writes `tasks/<id>.report.txt` with its own source list after a
+   per-report token delimiter. `grounding.Audit` and a citation check then decide
+   `done` or `flagged`; an unreachable search, loader or model on round one is `failed`.
+
 ## Key abstractions
 
 - **`detect.HostProfile`** + the typed `Bytes`/`Bool`/`Int`/`Str` optionals

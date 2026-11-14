@@ -53,6 +53,7 @@ verifies it.
 | Workspace | `villa workspace add` refuses the home directory, a path outside it, villa's config and data roots, a nested workspace, a sensitive directory and a folder that contains the running `villa` binary. | No ADR. [Workspace-agent spec] §3.1. GHSA-3q4q, GHSA-45r5. | `internal/workspace/workspace.go`; `TestRegisterRefusals`, `TestRegisterRefusesSensitiveDirectories`, `TestRegisterRefusesContainingTheRunningExecutable` |
 | Approval | A pure Action × Mode table answers each tool call of a task. An unknown action asks. Deletion asks in every mode. The deletion rule is a command pattern, not a proof. | No ADR. [Workspace-agent spec] §3.3. GHSA-fpjc, GHSA-mmp6. | `internal/approval/approval.go`; `TestDecideTable`, `TestDecideUnknownActionAsks`, `TestDecideAutoModeNeverBypassesDeletion`, `TestDeletionAsksInAutoMode`, `TestSessionAllowNeverAutoGrantsADeletion` |
 | Web guard | `villa-websafe` sanitizes, normalizes, classifies and fences fetched content. Its fetch refuses loopback, private and link-local addresses at connect time and again on each redirect. The guard reduces and flags. It never claims safe: a detection annotates the result, and the content still reaches the model. The tool server runs it on each search snippet and fetched page (sanitize, normalize, classify, fence) and, without the sanitize step, on each recall passage. | [ADR-0002], [ADR-0042] | `TestGuardSeamOrder`, `TestClassifyFlagNotBlock`, `TestSSRFRejectSet`, `TestRedirectRevalidation`, `TestNoInjectionSafeCopy` in `internal/websafe/` |
+| Research task | `villa research` runs in the dashboard's runner on the host with no sandbox, no file tool and no shell, so an injection in a page has nothing to act on except the report text. Web calls go through the in-network helper curl with the question, URLs and loader bearer on stdin, never argv. Page text reaches the model only inside the websafe fence, in user-role messages labelled by number; a page that is not exactly a fence is dropped, and the model is shown no URL, title or snippet. The task is tainted before the first fetch. The budget is fixed and capped (4 rounds, 30 minutes soft). The report is plain text, flagged and defanged, with villa's source list behind a per-report token. It cannot write a file, run a command or reach a workspace. Residuals are gaps 15 and 16. | [ADR-0045], [ADR-0040] | `TestRunFencedTextReachesTheModelOnlyAsUserData`, `TestRunDropsAPageThatIsNotOurFence`, `TestSearchSendsTheQueryOnStdinNotArgv`, `TestRunSetsTheTaintOnceBeforeTheFirstFetch`, `TestInspectFlagsEveryActiveShape`, `TestDefangBreaksEverythingTheDetectorFlags`, `TestRenderIsPlainTextWithAnUnforgeableList`, `TestBudgetResolve` |
 | Pins and the pin manifest | An image pin is a digest and a release-asset pin is a checksum. `pins.Table()` is the allowlist. A pin manifest is ed25519-signed and may change values only. villa refuses a bad signature, an unknown component, a redirected registry and a serial below the floor, and treats an expired manifest as absent. The signing key is kept offline. | No ADR. [Update spec] §4, [RELEASING.md]. | `TestEveryDigestPinnedImageInTheTreeIsInTheTable`, `TestLookupIsTheAllowlist`, `internal/manifestverify/verify_test.go`. The offline key is a procedure in [RELEASING.md]; no enforcing test found. |
 | Launched-agent environment | `villa code` appends a fixed set of telemetry and update switches for each agent. The environment is the control, because a project settings file can loosen a settings-only opt-out. The tests hold the variables. What an agent then sends is measured, by one network capture per vetted version. A different installed version is a WARN and the agent still launches. | [ADR-0039] | `lockdownEnv`, `claudeEnv` and `qwenEnv` in `internal/agent/`; `TestCodeLockdownEnv`, `TestRunClaudeReadyToLaunch`, `TestRunQwenReadyToLaunch`, `TestUnvettedVersionWarnsAndStillLaunches`; captures in `docs/prototype/qwen-code/RESULTS.md` |
 | Seam grep gate | Image literals, device-access flags and backend markers stay in `internal/inference`, `internal/detect/gpu_amd.go` and the `internal/orchestrate` files the gate allowlists. The pin test above scans that file list. | No ADR decides it. | `TestSeamGrepGate` in `internal/inference/seam_test.go` |
@@ -115,10 +116,14 @@ positive-controlled probe that the recall unit has no route off-box, and one rea
    one. The per-source taint decided on 2026-11-14 ([ADR-0040]) covers web
    content only, and files do not taint. The mechanism exists: a tainted task
    asks for every write and execute, under `--auto` too
-   (`TestTaintedWriteAndExecuteAsk`, `TestTaintMovesAutoWritesToAsk`). No source
-   sets it yet. The first would be `villa research` ([#408]), not built. The taint
-   is a pattern, not a proof, the way the deletion rule is. The sandbox bounds
-   the damage to one workspace.
+   (`TestTaintedWriteAndExecuteAsk`, `TestTaintMovesAutoWritesToAsk`). The first
+   source is `villa research` ([#408], built, [ADR-0045]): the research runner
+   taints the task before its first fetch (`TestRunSetsTheTaintOnceBeforeTheFirstFetch`,
+   `TestResearchTaintLandsBeforeAPageReachesTheModel`). A research task has no
+   write or execute action, so the taint gates nothing in it. It is on the record for
+   anything that later takes the report as input. The taint is a pattern, not a
+   proof, the way the deletion rule is. The sandbox bounds the damage to one
+   workspace.
 8. **Root inside the task VM** ([Workspace-agent spec] §3.4, §12). krun ignores
    `--user`, so the guest runs as uid 0. The VM is the boundary.
 9. **A resident set puts the inference key in a unit file** ([ADR-0011]). With
@@ -147,6 +152,25 @@ positive-controlled probe that the recall unit has no route off-box, and one rea
 14. **Native recall stays shared** ([ADR-0042]). On a box with two users that
     acknowledged shared recall, the tool is per user and the attached collection is
     not. The tool is narrower than the path it sits beside and does not narrow it.
+15. **A research report is model output over untrusted input** ([#408],
+    [ADR-0045]). `villa research` reads pages the operator did not choose and a
+    model writes the report from them. villa flags and defangs what it can see
+    in the body (a URL, `www.` address, `//host`, tag, link, image or definition,
+    after NFKC normalisation) and writes it as plain text, with its own source
+    list behind a per-report token the body cannot contain. It does not, and
+    does not claim to, make the report true or safe. Prose can still mislead in
+    the direction a page pushed it, a model can write a persuasive false claim
+    under a valid `[n]` marker, and a viewer that linkifies plain text can still
+    link a retyped address. The grounding audit checks claims against the
+    fetched text with the same blind spot as every audit here: the auditor is
+    the model that wrote the report. A Markdown sanitiser was tried first and
+    rejected after review found three bypasses; the reasoning is in the ADR.
+16. **A research task's queries leave the machine** ([ADR-0045]). Its queries go
+    through SearXNG to the engines in the rendered `settings.yml`, exactly as
+    chat web search's do, up to three queries a round and four rounds. The
+    model also writes the follow-up queries from page text, so a page can
+    steer what is searched; nothing but the question and public pages is
+    available to put in one.
 
 [ADR-0002]: adr/0002-the-web-guard-flags-injection-it-never-blocks.md
 [ADR-0011]: adr/0011-the-sandbox-reaches-inference-through-a-v1-proxy.md
@@ -156,6 +180,7 @@ positive-controlled probe that the recall unit has no route off-box, and one rea
 [ADR-0040]: adr/0040-web-content-in-a-task-taints-it-per-source.md
 [ADR-0042]: adr/0042-the-tool-server-is-two-fixed-units-one-per-privilege.md
 [ADR-0043]: adr/0043-inference-joins-the-closed-network.md
+[ADR-0045]: adr/0045-research-is-a-host-side-task-that-reads-the-web-through-websafe.md
 [Workspace-agent spec]: spec/v1.11-workspace-agent.md
 [Update spec]: spec/v1.8-villa-update.md
 [RELEASING.md]: RELEASING.md

@@ -19,13 +19,16 @@ import (
 
 // schemaVersion is the task record's own self-version. New fields append above
 // Schema, which stays last, and every append bumps it (2: observations,
-// ADR-0047; 3: taint, ADR-0040). Every write stamps it, because the bytes written are always the
-// current shape, a pre-upgrade record rewritten by Recover included.
-const schemaVersion = 3
+// ADR-0047; 3: taint, ADR-0040; 4: kind and research, ADR-0045). Every write
+// stamps it, because the bytes written are always the current shape, a
+// pre-upgrade record rewritten by Recover included.
+const schemaVersion = 4
 
 // listSchemaVersion is the list view's own version. It is separate from the
-// record's because the list shape did not change when the record grew.
-const listSchemaVersion = 1
+// record's because the list does not grow with every record field: it stayed 1
+// through observations and taint, and went to 2 when each entry gained kind
+// (ADR-0045).
+const listSchemaVersion = 2
 
 // Task is one task record (spec §3.2 table), the whole document at
 // tasks/<id>.json. Field order is the on-disk contract the show/list goldens
@@ -52,11 +55,55 @@ type Task struct {
 	// run, in first-reported order. Files is the harness's word; this is villa's.
 	Observations []Observation `json:"observations"`
 	// Taint is the source that tainted the task (ADR-0040), omitted while the
-	// task is clean: a record from before the field loads untainted and an
-	// untainted record keeps its bytes, so the field needs no schema bump. It is
+	// task is clean, so a record from before the field loads untainted. It is
 	// set once by SetTaint and never cleared.
-	Taint  approval.Taint `json:"taint,omitempty"`
-	Schema int            `json:"schema"`
+	Taint approval.Taint `json:"taint,omitempty"`
+	// Kind names what sort of task this is. Empty is a workspace task, so a
+	// record written before the field loads as one; the research task
+	// (ADR-0045) is the only other kind.
+	Kind Kind `json:"kind,omitempty"`
+	// Research is the research task's own data, nil for every other kind.
+	Research *Research `json:"research,omitempty"`
+	Schema   int       `json:"schema"`
+}
+
+// Kind is the sort of work a task is (ADR-0045). The zero value is the
+// workspace task of spec v1.11.
+type Kind string
+
+// KindResearch is a bounded, host-side research task: search, read through
+// websafe, report. It has no workspace, no sandbox and no approvals.
+const KindResearch Kind = "research"
+
+// IsResearch reports whether the record is a research task.
+func (t Task) IsResearch() bool { return t.Kind == KindResearch }
+
+// Research is what a research task carries beyond the common record: the
+// budget it was accepted under, the report artifact, and the numbered sources
+// the report cites.
+type Research struct {
+	Budget ResearchBudget `json:"budget"`
+	// Report is the report file relative to the villa data root, set once the
+	// report is written. Empty when the task ended without one.
+	Report  string           `json:"report,omitempty"`
+	Sources []ResearchSource `json:"sources"`
+}
+
+// ResearchBudget is the round and soft time budget a task was accepted with.
+type ResearchBudget struct {
+	Rounds  int `json:"rounds"`
+	Minutes int `json:"minutes"`
+}
+
+// ResearchSource is one fetched page: its number in the report, where it came
+// from, and websafe's verdict on it. Flagged never means blocked: the page was
+// still read (ADR-0002).
+type ResearchSource struct {
+	N       int      `json:"n"`
+	URL     string   `json:"url"`
+	Title   string   `json:"title,omitempty"`
+	Flagged bool     `json:"flagged,omitempty"`
+	Rules   []string `json:"rules,omitempty"`
 }
 
 // ObservationState is what villa saw at a reported path after the run.
@@ -142,6 +189,7 @@ type ListViewTask struct {
 	SubmittedAt string `json:"submitted_at"`
 	FinishedAt  string `json:"finished_at,omitempty"`
 	Exit        *int   `json:"exit,omitempty"`
+	Kind        Kind   `json:"kind,omitempty"`
 }
 
 // NewListView projects a []Task (as returned by List, already time-ordered)
@@ -156,6 +204,7 @@ func NewListView(tasks []Task) ListView {
 			SubmittedAt: t.SubmittedAt,
 			FinishedAt:  t.FinishedAt,
 			Exit:        t.Exit,
+			Kind:        t.Kind,
 		}
 	}
 	return v
@@ -391,6 +440,9 @@ func (s Store) SetTaint(id string, source approval.Taint, at time.Time) (Task, b
 }
 
 func (s Store) writeRecord(t Task) error {
+	if t.Research != nil && t.Research.Sources == nil {
+		t.Research.Sources = []ResearchSource{}
+	}
 	if t.Observations == nil {
 		t.Observations = []Observation{}
 	}

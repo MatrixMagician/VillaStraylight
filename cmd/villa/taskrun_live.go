@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,9 +70,22 @@ func liveTaskRunDeps(ctx context.Context, inf inference.Client) taskrun.Deps {
 		ServedProps:  liveServedProps(inf),
 		Audit:        liveGroundingAudit(inf),
 		ReadFile:     liveWorkspaceRead,
+		WebSearchOn:  subsystem.WebSearchOn,
+		Web:          liveWebDeps(inf),
+		Token:        liveReportToken,
 		Now:          time.Now,
 		Rand:         rand.Reader,
 	}
+}
+
+// liveReportToken is 128 bits from crypto/rand, hex: the per-report delimiter token
+// of a research report's source list (ADR-0045).
+func liveReportToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // liveSandboxImage resolves the effective sandbox image through the pin

@@ -535,6 +535,60 @@ terminal is the only way in.
   mode is on). `villa status` prints `mode  tools` on the inference line and, once
   a task has run, a `last task  <id> <state>` row.
 
+## Researching a question on the web
+
+`villa research` answers one question from the open web with a report that cites its
+sources. It needs web search on (`villa install --web-search`) and
+`villa-dashboard.service` running, and nothing else: no workspace, no tools mode, no
+sandbox. The loop runs in the dashboard service's task runner on the host (ADR-0045),
+one task at a time with `villa work` tasks.
+
+```bash
+./villa research "What changed in ROCm 7.2 for gfx1151?"
+```
+
+It plans up to three search queries from the question, searches through SearXNG, reads
+the result pages through `villa-websafe` and the served model, and for a second round
+searches again from what the first left missing. The model writes a report that ends each
+claim with a source number, and villa appends the numbered source list. The budget is
+printed first, from the record the runner accepted:
+
+```
+research: budget: 2 rounds, 10 minutes (soft). Queries go to the web through SearXNG, as chat web search's do.
+```
+
+`--rounds` and `--minutes` raise it, up to 4 rounds and 30 minutes. The time budget is
+soft: no new round starts after it, a call in flight finishes, and the report and its
+audit always run on what was read. Each round reads at most four pages, and a page is
+clipped to 8 KiB of text. A question of `-` reads stdin. `--detach` prints the task id
+(and the budget on stderr) and returns. `villa task show <id>` names the question, the
+sources with their websafe flags and the report's path; `villa task cancel <id>` stops it.
+
+Your queries leave the machine through SearXNG exactly as chat web search's do, to the
+engines in the rendered `settings.yml`. `villa verify search` still bounds that, and the
+privacy wording is unchanged.
+
+The report is a plain-text file at `<data root>/tasks/<id>.report.txt`, printed when the
+task ends. Model text comes first, then a delimiter line carrying a random token, then
+villa's source list: only the list after that line is villa's. It is plain text on
+purpose. The report is model output written after reading untrusted pages, so villa
+flags any URL, `www.` address, `//host`, tag, link or image in it (after Unicode
+normalisation, so a fullwidth or zero-width disguise is caught) and writes the body with
+those broken. It reduces and flags; it does not make the report safe.
+
+| Exit | State | Meaning |
+|------|-------|---------|
+| `0` | `done` | The audit and the citation check found nothing, and not every source was flagged. |
+| `2` | `flagged` | No search results, no readable page, every source flagged by websafe, a claim with no source, a citation to a source that was not fetched, an audit that could not run, or active content that villa defanged. The report, when there is one, is left as written. |
+| `1` | `failed`, `refused`, `cancelled`, `interrupted` | Search, the loader or the model could not be reached on the first round; web search was off; you cancelled; or the dashboard service restarted. A restart does not resume it: run the question again. |
+| `1` | (no record) | `villa research` refused before submitting: web search off, a budget over its cap, or the service not answering. |
+
+What it cannot do: it has no file tool and no shell, so a page that carries an
+injection has nothing to act on except the report text. The task is marked tainted from
+its first fetch (ADR-0040), which has nothing to gate here and is recorded for anything
+that later uses the report. The audit is the same model that wrote the report, with the
+same blind spot as `villa work`'s.
+
 ## The closed network
 
 Qdrant, the embedder, the reranker, the extractor, the voice pair and image
@@ -670,7 +724,7 @@ guided install deliberately does not prompt for subsystems either.
 | **Recall** | Indexes your past conversations so new chats retrieve what you discussed weeks ago, by meaning, with citations. | `villa recall index` / `villa recall status` |
 | **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. `villa code --agent claude` launches Claude Code against the same endpoint instead, if you already have `claude` on PATH — coding mode is a hard gate for that target, and villa never installs `claude` itself. Add `--offline` to any target to launch fail-closed (proxy variables at a closed port, only the model server exempt); the agent's own shell inherits them, so `git clone` or `go mod download` over HTTPS fail in that mode. | `villa install --coding-agent` to install it (persists the gate), then `villa code` |
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back. The cutover is transactional, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
-| **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
+| **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). `villa research "<question>"` runs a bounded multi-round search-and-read task on it and writes a cited report. | `villa install --web-search` (persists the gate). See [Researching a question on the web](#researching-a-question-on-the-web) |
 | **Voice** | Voice input and read-aloud in Open WebUI, served locally: whisper.cpp transcribes on the GPU and Kokoro speaks on the CPU. Both units are proven together by a round trip that speaks a sentence and transcribes it back, and the proof fails if whisper fell back to the CPU. | `villa install --voice` (persists the gate and pre-stages the whisper model), then `villa verify voice` |
 | **Your own model** | Adds a GGUF that is not in the catalog: villa pulls a commit-pinned Hugging Face URL, hashes it, reads its header for the KV-cache geometry and writes the entry, marked `operator-supplied`. It is never auto-selected and starts with speculation unqualified. | `villa catalog add <url>`, then `villa model swap <id>`. See [Adding a model of your own](CONFIGURATION.md#adding-a-model-of-your-own-villa-catalog-add). |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |

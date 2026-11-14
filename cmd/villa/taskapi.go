@@ -114,6 +114,22 @@ func (a taskAPIDeps) submit(ctx context.Context, workspace, instruction, mode st
 	return t, nil
 }
 
+// submitResearch posts one research question. Like submit, a refusal is a 202 with
+// state refused, and the exit code comes from the record alone.
+func (a taskAPIDeps) submitResearch(ctx context.Context, question string, rounds, minutes int) (taskstore.Task, error) {
+	data, err := a.do(ctx, http.MethodPost, "/api/research", map[string]any{
+		"question": question, "rounds": rounds, "minutes": minutes,
+	})
+	if err != nil {
+		return taskstore.Task{}, err
+	}
+	var t taskstore.Task
+	if err := json.Unmarshal(data, &t); err != nil {
+		return taskstore.Task{}, fmt.Errorf("dashboard API: unreadable task record: %w", err)
+	}
+	return t, nil
+}
+
 // show returns the record's bytes VERBATIM, which is what `--json` prints.
 func (a taskAPIDeps) show(ctx context.Context, id string) ([]byte, error) {
 	return a.do(ctx, http.MethodGet, "/api/tasks/"+id, nil)

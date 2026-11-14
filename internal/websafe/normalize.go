@@ -64,3 +64,9 @@ func normalize(s string) string {
 	}
 	return out
 }
+
+// Normalize is normalize for callers outside the package that must look at text the
+// way the guard does: NFKC-folded, with invisible and bidi-control runes removed.
+// The research report check uses it so a scheme cannot hide behind a fullwidth
+// letter or a zero-width character.
+func Normalize(s string) string { return normalize(s) }

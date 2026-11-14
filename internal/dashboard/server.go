@@ -136,6 +136,10 @@ type Config struct {
 	// per request) instead of trusting the answer startup got (#418). nil means
 	// the runner's presence is the whole gate.
 	TasksOn func() bool
+	// ResearchOn answers whether web search is enabled NOW, per request like
+	// TasksOn. A research task needs the runner and web search, not the workspace
+	// agent (ADR-0045). nil means research follows the runner's presence alone.
+	ResearchOn func() bool
 
 	// --- Update·Pins & Journal seams ------------------------------
 	// Both are injected func fields in the same collector-seam pattern as
@@ -197,6 +201,8 @@ type Server struct {
 	tasks *taskrun.Runner
 	// tasksOn is Config.TasksOn.
 	tasksOn func() bool
+	// researchOn is Config.ResearchOn.
+	researchOn func() bool
 
 	// pins and journal are the Update·Pins / Journal collector seams (Config.Pins,
 	// Config.Journal), defaulted below when Config leaves them nil.
@@ -268,6 +274,7 @@ func NewServer(cfg Config) (*Server, error) {
 		counterSample: cfg.CounterSample,
 		tasks:         cfg.Tasks,
 		tasksOn:       cfg.TasksOn,
+		researchOn:    cfg.ResearchOn,
 		pins:          cfg.Pins,
 		journal:       cfg.Journal,
 	}

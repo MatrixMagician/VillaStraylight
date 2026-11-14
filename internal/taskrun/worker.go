@@ -71,6 +71,10 @@ func (r *Runner) run(a *active) {
 	if err != nil || t.State != taskstore.Queued {
 		return
 	}
+	if t.IsResearch() {
+		r.runResearch(a, t)
+		return
+	}
 	j := &job{r: r, a: a, t: t, seen: map[string]bool{}, pending: -1}
 	// A per-job cancellable context, not context.Background(): Cancel and
 	// Close both cancel it (active.ctxCancel), so a cancel reaches the
@@ -458,6 +462,7 @@ func (j *job) transition(to taskstore.State, extra func(*taskstore.Task)) {
 		t.Approvals = j.t.Approvals
 		t.Grounding = j.t.Grounding
 		t.Observations = j.t.Observations
+		t.Research = j.t.Research
 		if extra != nil {
 			extra(t)
 		}
@@ -484,6 +489,7 @@ func (j *job) finish(to taskstore.State, text string) {
 		t.Approvals = j.t.Approvals
 		t.Grounding = j.t.Grounding
 		t.Observations = j.t.Observations
+		t.Research = j.t.Research
 		t.FinishedAt = finished
 	})
 	if err != nil {
