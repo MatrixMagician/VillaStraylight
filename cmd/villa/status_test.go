@@ -827,6 +827,8 @@ func resetMemoryHealthCache() {
 	webSearchHealthCache.Reset()
 	voiceHealthCache.Reset()
 	inferproxyHealthCache.Reset()
+	toolsWebHealthCache.Reset()
+	toolsRecallHealthCache.Reset()
 }
 
 // swapMemoryProbeExec installs a fake probe runner and restores it (plus a cold

@@ -402,8 +402,9 @@ func TestVoiceIsAnOptionalAddonAppendedBeforeImage(t *testing.T) {
 	if Voice.AlwaysOn() {
 		t.Error("Voice.AlwaysOn() = true; it is gated by voice_enabled")
 	}
-	if All[len(All)-2] != Voice || All[len(All)-1] != Image || Every[len(Every)-3] != Voice || Every[len(Every)-2] != Image || Every[len(Every)-1] != ToolServer {
-		t.Errorf("All %v must end voice, image generation and Every %v voice, image generation, tool server", All, Every)
+	if All[len(All)-3] != Voice || All[len(All)-2] != Image || All[len(All)-1] != ToolServer ||
+		Every[len(Every)-3] != Voice || Every[len(Every)-2] != Image || Every[len(Every)-1] != ToolServer {
+		t.Errorf("All %v and Every %v must end voice, image generation, tool server", All, Every)
 	}
 }
 

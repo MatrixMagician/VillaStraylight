@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -50,6 +51,27 @@ func liveToolServerProbes() toolServerProbes {
 			return statusProber(closedNetwork).Coded(toolsHealthURL(config.ToolsRecallAddr, config.ToolsRecallPort))
 		},
 	}
+}
+
+// The status rows' probes are TTL-bounded like every other in-network probe, because each
+// one starts a helper container.
+var (
+	toolsWebHealthCache    = &inprobe.Cache{TTL: memoryHealthTTL}
+	toolsRecallHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
+)
+
+// liveToolsWebHealth and liveToolsRecallHealth are the two status rows' probes: the
+// unit's own /healthz, asked on the network the unit joins.
+func liveToolsWebHealth() status.HealthState {
+	return toolsWebHealthCache.Get(func() status.HealthState {
+		return liveToolServerProbes().Web(context.Background())
+	})
+}
+
+func liveToolsRecallHealth() status.HealthState {
+	return toolsRecallHealthCache.Get(func() status.HealthState {
+		return liveToolServerProbes().Recall(context.Background())
+	})
 }
 
 // waitToolServer polls each unit cfg renders until it answers or the deadline passes. A unit

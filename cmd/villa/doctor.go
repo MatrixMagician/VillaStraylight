@@ -41,6 +41,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -315,6 +316,11 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		RenderCrushConfig: func(cfg config.VillaConfig) ([]byte, error) {
 			reference, _, err := agent.Render(cfg, liveLSPProbes())
 			return reference, err
+		},
+		// The scope file the recall tool unit mounts, read through the same fail-closed
+		// store the host writes it with.
+		ReadRecallScope: func() (recall.Scope, error) {
+			return recall.LoadScope(recall.Deps{ReadAll: storeReader(recall.ScopePath())})
 		},
 	}, nil
 }

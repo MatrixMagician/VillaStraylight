@@ -236,7 +236,7 @@ func Stateful() []Kind {
 // on?" — a question whose honest answer never includes inference. Widening it would
 // have made status, doctor and install each report two subsystems nobody enabled,
 // silently, with no compile error to catch it. Every is the all-subsystems list.
-var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
+var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image, ToolServer}
 
 // Every is every subsystem, optional and always-on alike, in stack order:
 // inference first because nothing runs without it, then chat, then the addons.

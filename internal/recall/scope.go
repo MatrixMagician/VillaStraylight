@@ -49,6 +49,11 @@ func ScopePath() string { return scopeStore.Path() }
 // ScopeDir is the directory villa-tools-recall bind-mounts read-only.
 func ScopeDir() string { return filepath.Dir(scopeStore.Path()) }
 
+// LoadScope reads the scope document through the seam and fails CLOSED: an absent, corrupt
+// or other-version document is the zero Scope, which names no collection, never a scope
+// that guessed. Only a real read error is returned.
+func LoadScope(d Deps) (Scope, error) { return scopeStore.Load(d) }
+
 // WriteScope writes the scope document atomically, directory 0700 and file 0600, under the
 // villa data root. It stamps the schema version itself, so a caller cannot write a document
 // the reader would fail closed on. It does no filtering: ScopeOf decides what a scope holds.

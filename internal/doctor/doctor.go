@@ -37,6 +37,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
@@ -121,7 +122,13 @@ const (
 //     types: the config's vision and tool-support claims against the served model's
 //     /props. Each is emitted only when the config claims its capability, so a
 //     config that claims neither is byte-identical except this bump.
-const reportSchemaVersion = 13
+//   - v14: the tool-server fold (#362, ADR-0042) — the villa-tools-web and
+//     villa-tools-recall health rows fold for free from the status rows like v9/v10,
+//     and `tool-server` is a NEW doctor-owned finding type, emitted only while the gate
+//     is on: neither web search nor memory is on, tools mode is off, or the recall
+//     scope names no collection. A tool-server-off config is byte-identical except
+//     this bump.
+const reportSchemaVersion = 14
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -292,6 +299,12 @@ type Deps struct {
 	// than PASS. Called at most once per run, and only when the config claims a
 	// capability.
 	Props func() *inference.PropsInfo
+
+	// ReadRecallScope reads the recall scope file the tool server's recall unit mounts
+	// (ADR-0042). It is read only while the recall unit renders. The reader fails closed:
+	// an absent or corrupt file is the zero Scope, which names no collection. nil is the
+	// same answer, so a caller that wires no reader never reads a PASS.
+	ReadRecallScope func() (recall.Scope, error)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -593,6 +606,14 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 		findings = append(findings, imageResidencyFinding(d.ImageResidency()))
 	}
 
+	// 2f. TOOL SERVER (#362, ADR-0042): the tool units' health rows fold for free through
+	// the healthFinding loop in step 2. What a row cannot say is whether the gate has
+	// anything to publish, whether the model can call a tool, and whether the recall unit
+	// has a collection to search, so that is one finding, emitted only while the gate is on.
+	if subsystem.ToolServerOn(cfg) {
+		findings = append(findings, d.toolServerFinding(cfg))
+	}
+
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
 	// fully-healthy stack on stale units is a WARN (Pitfall 4). A read
 	// error (absent/unreadable unit dir) degrades to a typed-Unknown WARN.
@@ -728,6 +749,52 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 		Findings:      findings,
 		Overall:       overall,
 		SchemaVersion: reportSchemaVersion,
+	}
+}
+
+// toolServerFinding builds the `tool-server` finding: a WARN for each condition the ADR
+// lists, or a PASS when none holds. Every WARN names the verb that fixes it.
+func (d Deps) toolServerFinding(cfg config.VillaConfig) Finding {
+	const (
+		id   = "tool-server"
+		name = "Tool server"
+	)
+	var details, remedies []string
+	if !subsystem.WebSearchOn(cfg) && !subsystem.MemoryOn(cfg) {
+		details = append(details, "tool_server is on but neither web search nor the memory stack is, so no tool unit renders")
+		remedies = append(remedies, "run `villa install --web-search --tool-server`, or set memory_enabled=true in config.toml and run `villa install --tool-server`, or set tool_server=false")
+	}
+	if !subsystem.ToolsOn(cfg) {
+		details = append(details, "tools mode is off, so the served model cannot call a tool")
+		remedies = append(remedies, "run `villa tools-mode enter`")
+	}
+	if subsystem.ToolRecallOn(cfg) {
+		var scope recall.Scope
+		var err error
+		if d.ReadRecallScope != nil {
+			scope, err = d.ReadRecallScope()
+		}
+		switch {
+		case err != nil:
+			details = append(details, "the recall scope file could not be read: "+err.Error())
+			remedies = append(remedies, "run `villa up` to rewrite it")
+		case scope.KnowledgeID == "":
+			details = append(details, "the recall scope names no collection, so every recall call is refused with a 503")
+			remedies = append(remedies, "run `villa recall index`")
+		}
+	}
+	if len(details) == 0 {
+		return Finding{
+			ID: id, Name: name, Tier: tierWarn, Status: statusPass,
+			Detail:     "the tool server has something to publish, tools mode is on and the recall scope names a collection or has no recall unit to serve",
+			Provenance: "subsystem.ToolWebOn / ToolRecallOn, subsystem.ToolsOn, recall scope file",
+		}
+	}
+	return Finding{
+		ID: id, Name: name, Tier: tierWarn, Status: statusWarn,
+		Detail:      strings.Join(details, "; "),
+		Remediation: strings.Join(remedies, "; "),
+		Provenance:  "subsystem.ToolWebOn / ToolRecallOn, subsystem.ToolsOn, recall scope file",
 	}
 }
 
