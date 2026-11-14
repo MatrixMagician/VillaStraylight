@@ -182,6 +182,6 @@ func renderCatalogAdd(out io.Writer, res catalogadd.Result) {
 	if res.Managed {
 		fmt.Fprintf(out, "note: %s is archived by `villa backup`.\n", filepath.Base(res.Path))
 	} else {
-		fmt.Fprintf(out, "note: %s is outside the villa config dir, so `villa backup` does not archive it; back it up yourself.\n", res.Path)
+		fmt.Fprintf(out, "note: %s is your own catalog file, not the catalog-local.json villa manages, so `villa backup` does not archive it; back it up yourself.\n", res.Path)
 	}
 }
