@@ -485,6 +485,33 @@ func TestLiveHealAgentConfigRewritesAStaleKey(t *testing.T) {
 	}
 }
 
+// TestLiveHealAgentConfigAddsTheRequestTimeout guards ADR-0044: a crush.json rendered
+// before villa wrote options.request_timeout (every host upgraded from v1.19 or
+// older, where Crush's 60 s default aborts a Gemma prefill, #351) differs from the
+// rendering only by that key, so the heal replaces it, keeps the old bytes as
+// crush.json.bak, and writes 0600.
+func TestLiveHealAgentConfigAddsTheRequestTimeout(t *testing.T) {
+	path := stageCrushHome(t)
+	current := renderCrush(t, agentOnCfg, crushTestKey)
+	old := bytes.Replace(current, []byte(",\n    \"request_timeout\": 164"), nil, 1)
+	if bytes.Equal(old, current) {
+		t.Fatal("the rendering carries no request_timeout line to strip")
+	}
+	writeCrushFile(t, path, old)
+
+	if err := liveHealAgentConfig(agentOnCfg); err != nil {
+		t.Fatalf("liveHealAgentConfig: %v", err)
+	}
+	got, mode := readMode(t, path)
+	if !bytes.Equal(got, current) || mode != 0o600 {
+		t.Errorf("crush.json = mode %o, %d bytes; want the current rendering at 0600", mode, len(got))
+	}
+	bak, bakMode := readMode(t, path+".bak")
+	if !bytes.Equal(bak, old) || bakMode != 0o600 {
+		t.Errorf("crush.json.bak = mode %o; want the previous bytes verbatim at 0600", bakMode)
+	}
+}
+
 // TestLiveHealAgentConfigWritesNothingElse: the heal is a no-op with the coding
 // agent off, with no crush.json (the first-run render is `villa code`'s), and on an
 // operator's edit, which villa never overwrites (AGENT-04). A read failure is an
@@ -515,6 +542,17 @@ func TestLiveHealAgentConfigWritesNothingElse(t *testing.T) {
 	t.Run("operator edit beside a stale key", func(t *testing.T) {
 		path := stageCrushHome(t)
 		edited := bytes.Replace(renderCrush(t, agentOnCfg, "local"), []byte(`"auto_lsp": false`), []byte(`"auto_lsp": true`), 1)
+		writeCrushFile(t, path, edited)
+		if err := liveHealAgentConfig(agentOnCfg); err != nil {
+			t.Fatalf("liveHealAgentConfig: %v", err)
+		}
+		assertCrushUntouched(t, path, edited)
+	})
+
+	t.Run("operator edit beside a missing timeout", func(t *testing.T) {
+		path := stageCrushHome(t)
+		edited := bytes.Replace(renderCrush(t, agentOnCfg, crushTestKey), []byte(`"auto_lsp": false`), []byte(`"auto_lsp": true`), 1)
+		edited = bytes.Replace(edited, []byte(",\n    \"request_timeout\": 164"), nil, 1)
 		writeCrushFile(t, path, edited)
 		if err := liveHealAgentConfig(agentOnCfg); err != nil {
 			t.Fatalf("liveHealAgentConfig: %v", err)

@@ -83,6 +83,11 @@ container — are unaffected by it either way.
 
 ## The sandbox reaches inference through a /v1 proxy
 
+> **Amended by [ADR-0043](0043-inference-joins-the-closed-network.md).**
+> `villa-llama` now joins `villa-closed.network` instead of `villa.network`, and the
+> proxy joins `villa-closed.network` and `villa-sandbox.network`. The proxy no longer
+> joins `villa.network`; the two-route allowlist and the key injection are unchanged.
+
 **A minimal, in-scope reverse proxy — a new hidden `villa` subcommand run in the
 existing distroless-plus-bind-mounted-binary shape `villa-websafe` already uses —
 joins BOTH `villa.network` and `villa-sandbox.network` and forwards ONLY

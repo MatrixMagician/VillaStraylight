@@ -111,6 +111,10 @@ type crushOptions struct {
 	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
 	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
 	DisabledTools []string `json:"disabled_tools"`
+	// RequestTimeout is Crush's idle bound on a request, in seconds (RequestTimeoutSeconds,
+	// ADR-0044). Never omitempty: an omitted key is Crush's 60 s default, which a slow
+	// prefill outlasts, and 0 would disable the bound.
+	RequestTimeout int `json:"request_timeout"`
 }
 
 // crushModelRef selects one provider+model for a Crush model role. Rendered only
@@ -207,6 +211,7 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 			DisableDefaultProviders:   true,          // Pitfall 2 — only the villa provider is usable
 			AutoLSP:                   false,         // Pitfall 5 — the lsp block is authoritative
 			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off
+			RequestTimeout:            RequestTimeoutSeconds(ctxWindow),
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {
@@ -325,6 +330,7 @@ func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
 			DisableDefaultProviders:   true,
 			AutoLSP:                   false,
 			DisabledTools:             sandboxDisabledTools,
+			RequestTimeout:            RequestTimeoutSeconds(ctxWindow),
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {

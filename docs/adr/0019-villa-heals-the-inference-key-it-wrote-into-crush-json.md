@@ -64,3 +64,11 @@ cannot be run to find out what is wrong.
   and the old file is in `crush.json.bak`.
 - A rotation of `inference_secret`, if one is ever added, propagates to Crush on the
   next apply with no extra code.
+
+## Amendment (ADR-0044)
+
+The set of values villa heals is now two: `providers.villa.api_key` and
+`options.request_timeout`. `agent.KeyOnlyDrift` became `agent.VillaOwnedDrift`, and
+the sole-difference rule is unchanged: both values substituted from the rendering
+must make the documents equal, and any other difference is still the operator's and
+is never written. See ADR-0044.

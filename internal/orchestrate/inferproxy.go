@@ -10,9 +10,9 @@ package orchestrate
 // literal and websafeBinaryPath mount point are shared verbatim, so this file
 // adds no new image and no new seam-gate surface. It IS a different category
 // from villa-websafe, though: villa-websafe joins villa.network alone,
-// villa-inferproxy joins BOTH villa.network (to reach villa-llama) and
-// villa-sandbox.network (Internal=true — the network the task VMs are on), which
-// is the whole point of it existing.
+// villa-inferproxy joins BOTH villa-closed.network (where villa-llama is, ADR-0043)
+// and villa-sandbox.network (the network the task VMs are on), which is the whole
+// point of it existing. Both are Internal=true, so the proxy has no route off-box.
 //
 // Like villa-websafe, it does NOT flow through parseContainerArgs (no GPU
 // device/group/exec args), so it needs no seam-gate allowlist entry of its own —
@@ -58,7 +58,7 @@ func buildInferproxyView(image, hostVillaPath string, port int) inferproxyView {
 	return inferproxyView{
 		ContainerName:  inferproxyContainerName,
 		Image:          image,
-		Network:        networkAttach,
+		Network:        closedNetworkAttach,
 		SandboxNetwork: sandboxNetworkAttach,
 		SecretEnvFile:  inferenceSecretEnvFilePath,
 		BinaryMount:    hostVillaPath + ":" + websafeBinaryPath + ":ro,z",

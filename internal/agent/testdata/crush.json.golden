@@ -10,7 +10,8 @@
       "agentic_fetch",
       "download",
       "sourcegraph"
-    ]
+    ],
+    "request_timeout": 328
   },
   "providers": {
     "villa": {
