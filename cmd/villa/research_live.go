@@ -86,6 +86,8 @@ func searxngSearch(ctx context.Context, curl webCurl, query string) ([]string, e
 		Results []struct {
 			URL string `json:"url"`
 		} `json:"results"`
+		// Each entry is [engine, reason].
+		Unresponsive [][]string `json:"unresponsive_engines"`
 	}
 	if err := json.Unmarshal(out, &reply); err != nil {
 		return nil, fmt.Errorf("SearXNG answered something that is not its JSON: %w", err)
@@ -96,7 +98,46 @@ func searxngSearch(ctx context.Context, curl webCurl, query string) ([]string, e
 			urls = append(urls, r.URL)
 		}
 	}
+	// No hits while engines refused is the search not answering, not an empty
+	// answer: a rate limit or a CAPTCHA at every engine looks the same as a
+	// question nobody wrote about unless the engines are named.
+	if len(urls) == 0 && len(reply.Unresponsive) > 0 {
+		return nil, fmt.Errorf("SearXNG's search engines refused: %s", refusedEngines(reply.Unresponsive))
+	}
 	return urls, nil
+}
+
+// refusedEngines renders SearXNG's unresponsive_engines for a terminal: at most
+// four engines, each name and reason stripped of control characters and cut short.
+func refusedEngines(entries [][]string) string {
+	const maxEngines, maxField = 4, 60
+	clean := func(v string) string {
+		v = strings.Map(func(r rune) rune {
+			if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+				return -1
+			}
+			return r
+		}, v)
+		if r := []rune(v); len(r) > maxField {
+			v = string(r[:maxField]) + "…"
+		}
+		return v
+	}
+	var parts []string
+	for _, e := range entries {
+		if len(parts) == maxEngines {
+			parts = append(parts, "…")
+			break
+		}
+		switch len(e) {
+		case 0:
+		case 1:
+			parts = append(parts, clean(e[0]))
+		default:
+			parts = append(parts, clean(e[0])+" ("+clean(e[1])+")")
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // websafeLoad posts the URLs to villa-websafe's /load as Open WebUI does, with the

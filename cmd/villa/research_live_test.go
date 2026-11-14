@@ -58,6 +58,39 @@ func TestSearchSendsTheQueryOnStdinNotArgv(t *testing.T) {
 	}
 }
 
+// TestSearchNamesEnginesThatRefused: SearXNG answers 200 with no results when every
+// engine behind it refuses (measured on the dev host: brave "Suspended: too many
+// requests", duckduckgo "CAPTCHA"). That is the search not answering, not a question
+// with no hits, so it is an error naming the engines. Empty results with no refusing
+// engine stay a plain empty result.
+func TestSearchNamesEnginesThatRefused(t *testing.T) {
+	refused := `{"results":[],"unresponsive_engines":[["brave","Suspended: too many requests"],["duckduckgo","CAPTCHA"]]}`
+	_, err := searxngSearch(context.Background(), fakeWebCurl(refused, 0, nil, new([]webCurlCall)), "q")
+	if err == nil || !strings.Contains(err.Error(), "brave (Suspended: too many requests)") || !strings.Contains(err.Error(), "duckduckgo (CAPTCHA)") {
+		t.Fatalf("err = %v, want it to name both refusing engines", err)
+	}
+
+	urls, err := searxngSearch(context.Background(), fakeWebCurl(`{"results":[],"unresponsive_engines":[]}`, 0, nil, new([]webCurlCall)), "q")
+	if err != nil || len(urls) != 0 {
+		t.Fatalf("no hits and no refusing engine: urls=%v err=%v, want empty and nil", urls, err)
+	}
+
+	// One engine refusing while another answers is a normal search.
+	partial := `{"results":[{"url":"https://example.org/a"}],"unresponsive_engines":[["brave","timeout"]]}`
+	urls, err = searxngSearch(context.Background(), fakeWebCurl(partial, 0, nil, new([]webCurlCall)), "q")
+	if err != nil || len(urls) != 1 {
+		t.Fatalf("partial refusal: urls=%v err=%v, want one URL and nil", urls, err)
+	}
+
+	// The engine text is SearXNG's, but it is still printed to a terminal: control
+	// characters are dropped and it is cut short.
+	noisy := `{"results":[],"unresponsive_engines":[["bra\u001b[31mve","` + strings.Repeat("x", 500) + `"]]}`
+	_, err = searxngSearch(context.Background(), fakeWebCurl(noisy, 0, nil, new([]webCurlCall)), "q")
+	if err == nil || strings.ContainsRune(err.Error(), 0x1b) || len(err.Error()) > 400 {
+		t.Fatalf("err = %q, want control characters dropped and the text bounded", err)
+	}
+}
+
 // TestSearchReportsAnUnreachableSearxng guards that a curl failure is an error
 // naming the exit code (the loop turns it into a failed task with remediation),
 // and an unreadable answer is an error too, never an empty result.
