@@ -37,8 +37,8 @@ type Scope struct {
 }
 
 // GetSchemaVersion and SetSchemaVersion let the shared store stamp the document's version.
-func (s *Scope) GetSchemaVersion() int  { return s.SchemaVersion }
-func (s *Scope) SetSchemaVersion(v int) { s.SchemaVersion = v }
+func (sc *Scope) GetSchemaVersion() int  { return sc.SchemaVersion }
+func (sc *Scope) SetSchemaVersion(v int) { sc.SchemaVersion = v }
 
 // scopeStore binds the shared persistence layer to the scope document.
 var scopeStore = jsonstore.New[Scope, *Scope]("recall scope", scopeDirName+"/"+ScopeFileName, ScopeSchemaVersion)
