@@ -36,8 +36,8 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md). The trust boundary, e
 ## Requirements
 
 - **Go 1.26+** to build the `villa` binary (see `go.mod`).
-- **Fedora Workstation 44+** on **AMD Strix Halo (gfx1151)**, the only supported host platform for v1. The architecture leaves room for a future macOS/Apple-Silicon backend, but it is not yet implemented.
-- **Podman v5 (rootless)** with the user socket enabled (`systemctl --user enable --now podman.socket`): `villa` drives the AI stack through rootless Podman Quadlet/systemd units, not Docker.
+- **Fedora Workstation 44 or 45** on **AMD Strix Halo (gfx1151)**, the only supported host platform for v1. Tested set: Fedora 44 and 45 (45 on kernel 7.3.3, Podman 6.1.3, crun 1.31; on 45 the preflight and doctor checks, `verify search/memory/agent`, the Vulkan backend flip, backup/restore and the krun task VM were run, while voice, image generation, the reranker and the extractor were not re-proven there). The architecture leaves room for a future macOS/Apple-Silicon backend, but it is not yet implemented.
+- **Podman v5 or v6 (rootless)** with the user socket enabled (`systemctl --user enable --now podman.socket`): `villa` drives the AI stack through rootless Podman Quadlet/systemd units, not Docker. `villa preflight` warns on a Podman major newer than 6.
 - A **ROCm/HIP** capable GPU stack for the default inference backend, with `HSA_OVERRIDE_GFX_VERSION=11.5.1` in the runtime environment: the ROCm preflight gate refuses bring-up if it is absent. ROCm also expects a kernel and `linux-firmware` at or above the pinned floors (`villa preflight --backend rocm` reports both).
 - A **Vulkan RADV** capable GPU stack (Mesa) for the fallback backend. Keep it installed even on ROCm: it is the safe landing spot `villa backend set vulkan` switches to, and `villa recommend` recommends it automatically when the host is confidently not ROCm-ready.
 
@@ -219,6 +219,9 @@ villa code --agent claude             # launch Claude Code against the same loop
                                       # mode on and `claude` already on PATH — villa never installs it)
 villa code --agent qwen               # launch Qwen Code the same way (villa-owned settings, telemetry opt-outs in the
                                       # environment; needs coding mode on and `qwen` already on PATH)
+villa code --offline                  # any agent, fail closed: proxy variables at a closed port, only the model server
+                                      # exempt. The agent's shell inherits them, so git clone / go mod download over
+                                      # HTTPS fail in this mode (ADR-0039, #389)
 villa verify agent                    # negative-control-first proof of zero outbound + no silent cloud fallback
 ```
 

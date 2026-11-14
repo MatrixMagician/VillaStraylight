@@ -68,7 +68,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
-  code (Crush, or Claude Code / Qwen Code via --agent claude / qwen), tools-mode, workspace, work, task,
+  code (Crush, or Claude Code / Qwen Code via --agent claude / qwen; opt-in --offline), tools-mode, workspace, work, task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
   eval (the capability suite against the served model's eval baseline, ADR-0018),
@@ -186,7 +186,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 **VillaStraylight**
 
-VillaStraylight is a self-hosted, local AI server stack for privacy-conscious power users who want a ChatGPT/Claude-class experience running entirely on their own hardware. A single Go CLI (`villa`) auto-detects the host hardware, recommends suitable models and configuration, generates Podman Quadlet units, and orchestrates a stack of OSS AI services (local inference, chat UI, and a control dashboard) — initially tuned for AMD Strix Halo on Fedora Workstation 44+, with macOS/Apple Silicon planned later.
+VillaStraylight is a self-hosted, local AI server stack for privacy-conscious power users who want a ChatGPT/Claude-class experience running entirely on their own hardware. A single Go CLI (`villa`) auto-detects the host hardware, recommends suitable models and configuration, generates Podman Quadlet units, and orchestrates a stack of OSS AI services (local inference, chat UI, and a control dashboard) — initially tuned for AMD Strix Halo on Fedora Workstation 44 and 45, with macOS/Apple Silicon planned later.
 
 **Core Value:** **Run a capable local AI workspace that "just works" after install** — hardware-aware setup that picks the right models and config so inference, chat, and the control dashboard come up healthy on the user's machine, with zero data leaving the box.
 
@@ -194,7 +194,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 - **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
-- **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
+- **Platform (v1)**: Fedora Workstation 44 and 45 (the tested set) on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
 - **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389).
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
@@ -204,15 +204,15 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.10 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
 
 ### Runtime
 
-- Go 1.26.10 (from `go.mod`). Compiles to a single static binary `villa`.
-- Target host OS: Fedora Workstation 44+ (Linux kernel >= 6.18.4) on AMD Strix Halo (gfx1151). The binary is the control plane; AI workloads run as rootless Podman containers under the user systemd manager.
+- Go 1.26.11 (from `go.mod`). Compiles to a single static binary `villa`.
+- Target host OS: Fedora Workstation 44 and 45 (Linux kernel >= 6.18.4) on AMD Strix Halo (gfx1151). The binary is the control plane; AI workloads run as rootless Podman containers under the user systemd manager.
 - Go modules (`go.mod` / `go.sum`).
 - Lockfile: present (`go.sum`).
 - Module path: `github.com/MatrixMagician/VillaStraylight`.
@@ -256,10 +256,10 @@ convenience.
 
 ### Platform Requirements
 
-- Go 1.26.10 toolchain.
+- Go 1.26.11 toolchain.
 - For end-to-end runtime testing: a Fedora host with rootless Podman, `systemctl --user`, and the AMD GPU stack (`/dev/dri`, optionally `/dev/kfd` for ROCm). Host probe tools used when present: `vulkaninfo`, `rocminfo`, `rpm`, `setsebool`, `loginctl`, `journalctl`.
-- Fedora Workstation 44+ on AMD Strix Halo (gfx1151), kernel >= 6.18.4, linux-firmware >= 20260110 (firmware 20251125 explicitly denied for ROCm).
-- Rootless Podman v5 with the user socket/manager; user lingering enabled (`loginctl enable-linger`) so Quadlet services survive logout/reboot.
+- Fedora Workstation 44 and 45 on AMD Strix Halo (gfx1151), kernel >= 6.18.4, linux-firmware >= 20260110 (firmware 20251125 explicitly denied for ROCm).
+- Rootless Podman v5 or v6 (the tested majors; PRE-02 warns on a newer one) with the user socket/manager; user lingering enabled (`loginctl enable-linger`) so Quadlet services survive logout/reboot.
 - Strictly local; no telemetry from first-party components.
 
 ### Container Images Standardized On

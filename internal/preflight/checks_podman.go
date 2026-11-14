@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -123,9 +124,41 @@ func checkPodmanRootless(d podmanDeps) CheckResult {
 			remediation, "systemctl --user", "")
 	}
 
+	// An unparseable version or an empty tested set skips the advisory: the
+	// host stays on the PASS it always had, never a false block or warning.
+	tested := Floors().PodmanTested
+	if major, ok := podmanMajor(verOut); ok && len(tested) > 0 {
+		if newest := slices.Max(tested); major > newest {
+			return warn(id, name, TierBlock,
+				fmt.Sprintf("Podman %d is newer than the tested %d (%s); rootless-ready, but not validated with villa", major, newest, firstLine(verOut)),
+				fmt.Sprintf("Tested Podman majors: %v. Expect surprises on newer releases and report what you see.", tested),
+				"podman --version", verOut)
+		}
+	}
+
 	return pass(id, name, TierBlock,
 		fmt.Sprintf("podman present (%s); subuid/subgid mapped for %q; systemd --user reachable", firstLine(verOut), d.username),
 		joinProvenance("podman --version", d.subuidPath, d.subgidPath, "systemctl --user"))
+}
+
+// podmanMajor extracts the major version from `podman --version` output
+// ("podman version 6.1.3"). It reports false when the first line has no
+// leading-digit version token, so an odd build string never produces a verdict.
+func podmanMajor(out string) (int, bool) {
+	fields := strings.Fields(firstLine(out))
+	if len(fields) == 0 {
+		return 0, false
+	}
+	tok := fields[len(fields)-1]
+	end := 0
+	for end < len(tok) && tok[end] >= '0' && tok[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	major, err := strconv.Atoi(tok[:end])
+	return major, err == nil
 }
 
 // subuidReady reports whether path (an /etc/subuid- or /etc/subgid-formatted file)

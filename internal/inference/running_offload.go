@@ -82,9 +82,18 @@ type RunningOffloadInput struct {
 // PropsInfo is the subset of llama.cpp /props the running-offload Verdict consults:
 // the loaded model path and the active context length. It is config-identity
 // corroboration ONLY (Pitfall 1) — never the residency proof.
+//
+// Vision and ToolsSupported are what the served model reports it can do, for
+// doctor's cross-check against the config's claims (#403). Both are typed optionals:
+// a field /props did not carry is Unknown, never a confident false.
 type PropsInfo struct {
 	ModelPath string
 	NCtx      int
+	// Vision is modalities.vision.
+	Vision detect.Bool
+	// ToolsSupported is chat_template_caps supports_tools AND supports_tool_calls:
+	// either one false is a confident false, both true is true, anything else Unknown.
+	ToolsSupported detect.Bool
 }
 
 // bufferLine is the grammar of a per-device weight-buffer line. It is

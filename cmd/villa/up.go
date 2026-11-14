@@ -35,7 +35,8 @@ func newUp() *cobra.Command {
 		Long: "Render Quadlet units from config.toml, write only what changed, daemon-reload, and start " +
 			"the stack — or just the named service. A running service whose unit changed is restarted, " +
 			"in place, so the change is applied; a running service whose unit did not change is left alone. " +
-			"A second run with unchanged config is a true no-op. " +
+			"A service that is not running is started even when its unit did not change; " +
+			"a second run with unchanged config and a running stack is a true no-op. " +
 			"--dry-run prints the rendered changes and writes nothing. Strictly local.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,8 +52,8 @@ func newUp() *cobra.Command {
 // runUp executes the up flow and RETURNS the exit code (0/2/1) — it never calls
 // os.Exit, so tests drive it. It renders the stack, validates an optional
 // [service] arg against the known service set BEFORE any seam fires,
-// reconciles against disk, and starts the targeted service(s). An empty Changed
-// plan is a true no-op.
+// reconciles against disk, and starts the targeted service(s) that are not running.
+// Unchanged units with every target running is a true no-op.
 func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -101,21 +102,13 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 		return exitBlocked
 	}
 
-	// Unchanged config is a TRUE no-op: no unit was written or reloaded, so nothing
-	// is (re)started — the running stack already matches. A removal alone changed no
-	// rendered unit, so it starts nothing either.
-	if applied.Empty() {
-		fmt.Fprintf(out, "no changes — stack already matches config\n")
-		return exitPass
-	}
-	if len(applied.Changed) == 0 {
-		return exitPass
-	}
-
 	changedUnits := map[string]bool{}
 	for _, u := range applied.Changed {
 		changedUnits[u.Name] = true
 	}
+	// Matching units say nothing about whether the services run, so the loop runs
+	// even when nothing was written: a stopped service is started (#399).
+	acted := false
 	for _, svc := range targets {
 		state, err := d.isActive(svc)
 		if err != nil {
@@ -131,6 +124,7 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 				return exitBlocked
 			}
 			fmt.Fprintf(out, "restarted %s\n", svc)
+			acted = true
 		case running:
 			// An unchanged unit under a running service: nothing to apply.
 		default:
@@ -139,7 +133,11 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 				return exitBlocked
 			}
 			fmt.Fprintf(out, "started %s\n", svc)
+			acted = true
 		}
+	}
+	if applied.Empty() && !acted {
+		fmt.Fprintf(out, "no changes — stack already matches config\n")
 	}
 	return exitPass
 }

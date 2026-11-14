@@ -22,7 +22,10 @@ import (
 // Below this, the iGPU has a documented stability bug (CLAUDE.md version table).
 const KernelFloor = "6.18.4"
 
-// KernelTested is the kernel baseline the project has actually validated against.
+// KernelTested is the OLDEST kernel the project has validated against, not the
+// newest: PRE-06 warns below it, so raising it to the newest tested kernel
+// (7.3.3 on Fedora 45) would newly warn Fedora 44 hosts on 6.18.x or 7.2.x.
+// Newer kernels pass. The project has actually validated against this baseline.
 // Between KernelFloor and KernelTested the host is "above the hard floor but below
 // the tested baseline" — exactly the WARN case describes.
 const KernelTested = "6.18.9"
@@ -48,6 +51,8 @@ type Floor struct {
 	Kernel string
 	// KernelTested is the validated kernel baseline.
 	KernelTested string
+	// PodmanTested is the set of validated Podman major versions.
+	PodmanTested []int
 	// Firmware is the minimum linux-firmware date stamp.
 	Firmware string
 	// FirmwareDeny is a specific known-bad linux-firmware build.
@@ -73,6 +78,9 @@ type ROCmPolicy struct {
 	KernelFloor string `json:"kernelFloor"`
 	// KernelTested is the validated kernel baseline (6.18.9).
 	KernelTested string `json:"kernelTested"`
+	// PodmanTested lists the Podman major versions validated on hardware ([5, 6]).
+	// PRE-02 advises when the installed major is newer than the largest entry.
+	PodmanTested []int `json:"podmanTested"`
 	// FirmwareFloor is the minimum linux-firmware date stamp (20260110).
 	FirmwareFloor string `json:"firmwareFloor"`
 	// FirmwareDeny lists specific known-bad linux-firmware builds (["20251125"]).
@@ -114,6 +122,7 @@ func Floors() Floor {
 	return Floor{
 		Kernel:       p.KernelFloor,
 		KernelTested: p.KernelTested,
+		PodmanTested: p.PodmanTested,
 		Firmware:     p.FirmwareFloor,
 		FirmwareDeny: deny,
 	}

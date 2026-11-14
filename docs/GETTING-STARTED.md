@@ -24,16 +24,21 @@ tells you exactly what is missing, so you do not have to verify them all by hand
 
 **To build the binary:**
 
-- **Go 1.26+** to compile `villa` from source (`go.mod` pins `go 1.26.10`).
+- **Go 1.26+** to compile `villa` from source (`go.mod` pins `go 1.26.11`).
 - **`make`**, which drives the build through the `Makefile`. You can also invoke
   `go` directly (see [Build without make](#build-without-make)).
 
 **To run the stack (the host `villa` manages):**
 
-- **Fedora Workstation 44+** on **AMD Strix Halo (gfx1151)**, the only supported
-  host platform for v1. The architecture leaves room for a future
-  macOS/Apple-Silicon backend, but it is not yet implemented.
-- **Podman v5 (rootless)** with the user socket enabled. Enable it once with:
+- **Fedora Workstation 44 or 45** on **AMD Strix Halo (gfx1151)**, the only supported
+  host platform for v1. Tested set: Fedora 44 and 45. On 45 (kernel 7.3.3, Podman
+  6.1.3, crun 1.31) the preflight and doctor checks, `verify search/memory/agent`,
+  the Vulkan backend flip, backup/restore and the krun task VM were run; voice,
+  image generation, the reranker and the extractor were not re-proven there. The
+  architecture leaves room for a future macOS/Apple-Silicon backend, but it is not
+  yet implemented.
+- **Podman v5 or v6 (rootless)** with the user socket enabled. `villa preflight`
+  warns on a Podman major newer than 6. Enable the socket once with:
   ```bash
   systemctl --user enable --now podman.socket
   ```
@@ -141,7 +146,18 @@ It is read-only by default. Useful flags:
 ```bash
 ./villa recommend --alternatives   # also list other fitting picks
 ./villa recommend --save           # persist the pick to config.toml
+./villa recommend --envelope 64GiB # what-if: the pick for a 64 GiB envelope
 ```
+
+`--envelope <size>` answers "what would villa pick on a box with this much
+memory?" without that hardware. The value **replaces** the detected usable envelope
+(it never adds to it) and the rest of the detected profile is unchanged, so the
+reservations of your enabled subsystems still come off it. The output says
+`SIMULATED` in the table and carries `"simulated_envelope": true` in `--json`
+(schema 10). Accepted sizes are a number with a unit (`64GiB`, `64G`, `1.5TiB`, `2048M`;
+every unit is binary, 1 GiB to 4 TiB); a bare number, zero or a negative value is
+refused. `--envelope` with `--save` is refused, so a simulated pick never reaches
+`config.toml`.
 
 If you want to inspect the raw hardware profile that drives the recommendation,
 run `./villa detect` (CPU/arch, iGPU, Vulkan/ROCm availability, total RAM, and the
@@ -648,7 +664,7 @@ guided install deliberately does not prompt for subsystems either.
 |-----------|--------------|------------|
 | **Memory & knowledge** | Cross-chat memory plus cited answers from your own documents. Embeddings are computed and held locally in Qdrant; no cloud embedding API. | Set `memory_enabled=true` in `config.toml`, then `villa install` (the one gate with no flag). See [MEMORY.md](MEMORY.md) |
 | **Recall** | Indexes your past conversations so new chats retrieve what you discussed weeks ago, by meaning, with citations. | `villa recall index` / `villa recall status` |
-| **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. `villa code --agent claude` launches Claude Code against the same endpoint instead, if you already have `claude` on PATH — coding mode is a hard gate for that target, and villa never installs `claude` itself. | `villa install --coding-agent` to install it (persists the gate), then `villa code` |
+| **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. `villa code --agent claude` launches Claude Code against the same endpoint instead, if you already have `claude` on PATH — coding mode is a hard gate for that target, and villa never installs `claude` itself. Add `--offline` to any target to launch fail-closed (proxy variables at a closed port, only the model server exempt); the agent's own shell inherits them, so `git clone` or `go mod download` over HTTPS fail in that mode. | `villa install --coding-agent` to install it (persists the gate), then `villa code` |
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back. The cutover is transactional, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
 | **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
 | **Voice** | Voice input and read-aloud in Open WebUI, served locally: whisper.cpp transcribes on the GPU and Kokoro speaks on the CPU. Both units are proven together by a round trip that speaks a sentence and transcribes it back, and the proof fails if whisper fell back to the CPU. | `villa install --voice` (persists the gate and pre-stages the whisper model), then `villa verify voice` |

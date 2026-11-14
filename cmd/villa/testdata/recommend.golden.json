@@ -33,5 +33,6 @@
   "draft_kv_bytes": 0,
   "prompt_cache_bytes": 8589934592,
   "reservations": [],
-  "schema_version": 9
+  "simulated_envelope": false,
+  "schema_version": 10
 }

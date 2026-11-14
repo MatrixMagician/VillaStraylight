@@ -100,7 +100,8 @@ const (
 // Bumped 7->8 when the append-only prompt_cache_bytes field landed (ADR-0021):
 // the llama-server prompt cache, counted in the fit as its own term.
 // Bumped 8->9 when the append-only reservations array landed (ADR-0027).
-const recommendSchemaVersion = 9
+// Bumped 9->10 when the append-only simulated_envelope field landed (#406).
+const recommendSchemaVersion = 10
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -239,6 +240,11 @@ type Recommendation struct {
 	// WebSearchReservationBytes and MemoryConsidered are derived from it.
 	Reservations []Reservation `json:"reservations"`
 
+	// SimulatedEnvelope is true when the usable envelope was supplied by the
+	// caller (--envelope) instead of detected: the pick is a what-if and must never
+	// be persisted. Always stamped, false for a normal run.
+	SimulatedEnvelope bool `json:"simulated_envelope"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
@@ -271,6 +277,9 @@ type Overrides struct {
 	// Speculation is the persisted or requested speculation mode. Empty lets the
 	// picked entry's qualification decide.
 	Speculation string
+	// Envelope, when non-zero, REPLACES the detected usable envelope (never adds
+	// to it) and marks the result simulated. Reservations still come off it.
+	Envelope uint64
 }
 
 // ResolveSpeculation answers what speculation mode a pick of m should run, and
@@ -406,6 +415,12 @@ type webSearchInputs struct {
 // headroom, OOM guard and UsableEnvelopeBytes all see the shrunken value. A nil
 // res sizes against the whole envelope.
 func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, res []Reservation) Recommendation {
+	rec := pick(p, c, ov, res)
+	rec.SimulatedEnvelope = ov.Envelope > 0
+	return rec
+}
+
+func pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, res []Reservation) Recommendation {
 	var total uint64
 	var notes []string
 	for _, r := range res {
@@ -414,6 +429,9 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, res []Reservati
 	}
 
 	envelope, degraded, ok := resolveEnvelope(p)
+	if ov.Envelope > 0 {
+		envelope, degraded, ok = ov.Envelope, false, true
+	}
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
 		// guess high. Empty Model signals the refusal. The refusal still

@@ -15,7 +15,7 @@ toolchain.
 ```bash
 git clone https://github.com/MatrixMagician/VillaStraylight.git
 cd VillaStraylight
-go version          # need Go 1.26+ (the module declares go 1.26.10 in go.mod)
+go version          # need Go 1.26+ (the module declares go 1.26.11 in go.mod)
 make build          # builds ./villa
 ```
 
@@ -33,7 +33,9 @@ Notes:
   file writes) is injected behind a function seam or an interface, so the full
   decision logic is exercised by `go test` on any machine. Running the live
   `install`/`up`/`status` paths against real hardware is only needed for UAT, not for
-  unit work.
+  unit work. The tested hardware set, for UAT, is Fedora Workstation 44 and 45 with
+  Podman 5 and 6; the tested Podman majors live in
+  `internal/preflight/rocm-policy.json` (`podmanTested`).
 
 ## Build commands
 
@@ -158,9 +160,11 @@ in it ships everywhere that mount reaches.
 A real run at the pinned version against this tree reports **0 reachable
 vulnerabilities**, so the gate is green and a failure is a regression rather
 than a known backlog. The bump that got it there has landed: `go.mod`'s `go`
-directive is `1.26.10` (which carries the `net/url`, `html/template`,
+directive is `1.26.11` (1.26.10 carried the `net/url`, `html/template`,
 `crypto/tls`, `net/http`, `encoding/asn1`, `net/textproto` and `crypto/x509`
-fixes, the last of these reachable through the dashboard server, #370), with
+fixes, the last of these reachable through the dashboard server, #370; 1.26.11
+adds the `net/http` fix for GO-2026-6859, reachable through every HTTP client
+and server villa runs, #409), with
 `golang.org/x/net` at `v0.55.0` and `golang.org/x/text` at `v0.39.0`.
 
 The scan still reports findings in packages this module imports and in modules
