@@ -688,7 +688,8 @@ corrected in this one file without reshaping any check.
 | Key | Value (current) | Meaning |
 |-----|-----------------|---------|
 | `kernelFloor` | `6.18.4` | Minimum kernel with the gfx1151 stability fix; below it, ROCm bring-up is **refused**. |
-| `kernelTested` | `6.18.9` | Validated kernel baseline (named in remediation text). |
+| `kernelTested` | `6.18.9` | The oldest tested kernel (PRE-06 warns below it). Newer kernels pass; 7.3.3 on Fedora 45 was proven on 2026-11-14. |
+| `podmanTested` | `[5, 6]` | The tested Podman majors. PRE-02 warns on a newer major and still passes 5 and 6. |
 | `firmwareFloor` | `20260110` | Minimum linux-firmware date stamp; below it (but not denied) is a WARN advisory. |
 | `firmwareDeny` | `["20251125"]` | linux-firmware builds documented to break ROCm on Strix Halo; a match is a hard **refusal**. |
 | `imageDeny` | `["rocm7-nightlies"]` | ROCm image tags that reintroduce the 64 GB allocation cap; a requested image matching one is **refused**. |

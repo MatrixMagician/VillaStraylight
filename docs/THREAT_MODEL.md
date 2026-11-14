@@ -66,8 +66,12 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    contacts `api.github.com` on each launch, and v0.93.1 has no switch for it.
    The request carries the client IP and the Crush version. That is inferred
    from the binary's symbol and the traffic shape, because the leg is TLS and
-   was not decoded. An opt-in `villa code --offline` was decided on 2026-11-14.
-   It is planned, not shipped.
+   was not decoded. The opt-in `villa code --offline` points the proxy variables
+   at a closed port and exempts only the model server (`internal/agent/offline.go`,
+   `TestOfflineContractEveryAgent`). Measured on 2026-11-14 with the pinned
+   Crush: the release check was sent to the proxy and the model turn completed.
+   That is a routing check for Crush, not a packet capture of all three agents,
+   which [#389] still tracks. The default launch is unchanged.
 2. **A host-launched agent has a route off-box** ([#377]). Crush, Claude Code
    and Qwen Code run on the host with the operator's network. The launch
    environment and the capture are evidence for the captured version only. An
