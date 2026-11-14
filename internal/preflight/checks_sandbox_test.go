@@ -191,6 +191,21 @@ func TestSandboxRuntimeProbeUnevaluable(t *testing.T) {
 	}
 }
 
+// TestSandboxRuntimeProbeFailureNamesTheMissingImage: by the time the probe runs
+// the packages are proven installed, so its failure must point at the sandbox
+// image, not tell the operator to install packages they already have.
+func TestSandboxRuntimeProbeFailureNamesTheMissingImage(t *testing.T) {
+	d := fakeSandboxDeps()
+	d.ProbeKrun = func() (string, bool) { return "", false }
+	r := checkSandboxRuntime(d)
+	if !strings.Contains(r.Remediation, "villa sandbox build") {
+		t.Fatalf("remediation = %q, want it to name `villa sandbox build`", r.Remediation)
+	}
+	if strings.Contains(r.Remediation, "Install the sandbox runtime packages") {
+		t.Fatalf("remediation = %q, must not ask for packages already verified installed", r.Remediation)
+	}
+}
+
 // TestRunSandboxReturnsOneCheck: RunSandbox wraps the single PRE-09 check.
 func TestRunSandboxReturnsOneCheck(t *testing.T) {
 	results := RunSandbox(fakeSandboxDeps())
