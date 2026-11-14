@@ -235,7 +235,7 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 	if req.Command != "" {
 		what += ": " + req.Command
 	}
-	decision := approval.Decide(approval.Mode(j.t.Mode), req)
+	decision := approval.Decide(approval.Mode(j.t.Mode), approval.Untainted, req)
 	if decision == approval.Ask && j.pending >= 0 {
 		// A second ask while one is already parked must never overwrite the
 		// pending slot: the operator's answer to what the screen shows would

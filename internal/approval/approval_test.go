@@ -28,7 +28,7 @@ func TestDecideTable(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		got := Decide(c.mode, Request{Action: c.action})
+		got := Decide(c.mode, Untainted, Request{Action: c.action})
 		if got != c.want {
 			t.Errorf("Decide(%s, %s) = %v, want %v", c.mode, c.action, got, c.want)
 		}
@@ -50,7 +50,7 @@ func TestDecideExecuteAutoAllowlist(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		got := Decide(ModeAuto, c.req)
+		got := Decide(ModeAuto, Untainted, c.req)
 		if got != c.want {
 			t.Errorf("%s: Decide(auto, %+v) = %v, want %v", c.name, c.req, got, c.want)
 		}
@@ -62,10 +62,10 @@ func TestDecideExecuteAutoAllowlist(t *testing.T) {
 // freely for allowlisted/safe commands.
 func TestDecideDeletionAsksInBothModes(t *testing.T) {
 	req := Request{Action: Execute, Command: "rm -rf /workspace/x", Workspace: "/workspace"}
-	if got := Decide(ModeAsk, req); got != Ask {
+	if got := Decide(ModeAsk, Untainted, req); got != Ask {
 		t.Errorf("Decide(ask, deletion) = %v, want Ask", got)
 	}
-	if got := Decide(ModeAuto, req); got != Ask {
+	if got := Decide(ModeAuto, Untainted, req); got != Ask {
 		t.Errorf("Decide(auto, deletion) = %v, want Ask", got)
 	}
 }
@@ -142,7 +142,7 @@ func TestDecideUnknownActionAsks(t *testing.T) {
 	unknownActions := []Action{"", "edit", "mcp", "Write"}
 	for _, mode := range []Mode{ModeAsk, ModeAuto} {
 		for _, action := range unknownActions {
-			got := Decide(mode, Request{Action: action})
+			got := Decide(mode, Untainted, Request{Action: action})
 			if got != Ask {
 				t.Errorf("Decide(%s, %q) = %v, want Ask", mode, action, got)
 			}
@@ -164,9 +164,92 @@ func TestDecideAutoModeNeverBypassesDeletion(t *testing.T) {
 		`python3 -c "import shutil;shutil.rmtree('src')"`,
 	}
 	for _, cmd := range commands {
-		got := Decide(ModeAuto, Request{Action: Execute, Command: cmd, Workspace: "/workspace"})
+		got := Decide(ModeAuto, Untainted, Request{Action: Execute, Command: cmd, Workspace: "/workspace"})
 		if got != Ask {
 			t.Errorf("Decide(auto, %q) = %v, want Ask", cmd, got)
 		}
+	}
+}
+
+// allCells is every request shape that reaches a distinct branch of Decide
+// (each Action, the allowlist, the safe list, a deletion).
+func allCells() []Request {
+	return []Request{
+		{Action: Read}, {Action: List}, {Action: Write}, {Action: Fetch}, {Action: Download},
+		{Action: Action("unknown")},
+		{Action: Execute, Command: "unlisted-tool"},
+		{Action: Execute, Command: "python3 script.py", Workspace: "/workspace"},
+		{Action: Execute, Command: "git status", Workspace: "/workspace"},
+		{Action: Execute, Command: "rm -rf /workspace/x", Workspace: "/workspace"},
+	}
+}
+
+// TestTaintedNeverMorePermissive guards the one-way property of the taint: for
+// every cell and every taint, the tainted answer is never more permissive than
+// the untainted one (Allow < Ask < Deny in restrictiveness).
+func TestTaintedNeverMorePermissive(t *testing.T) {
+	rank := map[Decision]int{Allow: 0, Ask: 1, Deny: 2}
+	for _, mode := range []Mode{ModeAsk, ModeAuto} {
+		for _, req := range allCells() {
+			base := Decide(mode, Untainted, req)
+			for _, taint := range []Taint{TaintWeb, Taint("unrecognised")} {
+				got := Decide(mode, taint, req)
+				if rank[got] < rank[base] {
+					t.Errorf("Decide(%s, %q, %+v) = %v, more permissive than untainted %v", mode, taint, req, got, base)
+				}
+			}
+		}
+	}
+}
+
+// TestTaintedWriteAndExecuteAsk guards the decision of ADR-0040: a tainted
+// task's write and execute actions ask, under --auto and for an allowlisted or
+// safe-listed command too; read and list stay allowed, and deny stays deny.
+func TestTaintedWriteAndExecuteAsk(t *testing.T) {
+	cases := []struct {
+		name string
+		mode Mode
+		req  Request
+		want Decision
+	}{
+		{"write under auto", ModeAuto, Request{Action: Write}, Ask},
+		{"write under ask", ModeAsk, Request{Action: Write}, Ask},
+		{"allowlisted execute under auto", ModeAuto, Request{Action: Execute, Command: "python3 script.py", Workspace: "/workspace"}, Ask},
+		{"safe-listed execute under auto", ModeAuto, Request{Action: Execute, Command: "git status", Workspace: "/workspace"}, Ask},
+		{"unlisted execute under auto", ModeAuto, Request{Action: Execute, Command: "unlisted-tool"}, Ask},
+		{"deletion", ModeAuto, Request{Action: Execute, Command: "rm x", Workspace: "/workspace"}, Ask},
+		{"read stays allowed", ModeAuto, Request{Action: Read}, Allow},
+		{"list stays allowed", ModeAsk, Request{Action: List}, Allow},
+		{"fetch stays denied", ModeAuto, Request{Action: Fetch}, Deny},
+		{"download stays denied", ModeAsk, Request{Action: Download}, Deny},
+	}
+	for _, c := range cases {
+		if got := Decide(c.mode, TaintWeb, c.req); got != c.want {
+			t.Errorf("%s: Decide(%s, web, %+v) = %v, want %v", c.name, c.mode, c.req, got, c.want)
+		}
+	}
+}
+
+// TestUnrecognisedTaintFailsClosed guards the stored-record case: a taint this
+// build does not know (a hand edit, a newer build) is treated as tainted.
+func TestUnrecognisedTaintFailsClosed(t *testing.T) {
+	if got := Decide(ModeAuto, Taint("email"), Request{Action: Write}); got != Ask {
+		t.Errorf("Decide(auto, unknown taint, write) = %v, want Ask", got)
+	}
+}
+
+// TestTaintValid guards the closed enumeration: web is the only source, and
+// the zero value is not a source a setter may record.
+func TestTaintValid(t *testing.T) {
+	if !TaintWeb.Valid() {
+		t.Error("TaintWeb must be valid")
+	}
+	for _, bad := range []Taint{Untainted, "email", "WEB", " web"} {
+		if bad.Valid() {
+			t.Errorf("Taint(%q).Valid() = true, want false", bad)
+		}
+	}
+	if Untainted.Tainted() || !TaintWeb.Tainted() || !Taint("x").Tainted() {
+		t.Error("Tainted must be false only for the zero value")
 	}
 }

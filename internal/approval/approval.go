@@ -67,11 +67,43 @@ var table = map[Action]map[Mode]Decision{
 	Download: {ModeAsk: Deny, ModeAuto: Deny},
 }
 
-// Decide answers one Request under one Mode. Execute carries the two named
-// exceptions from spec sec3.3: deletion asks in every mode regardless of
-// AutoAllowed, and auto mode allows execute only for the allowlist or
-// Crush's safe-command list.
-func Decide(mode Mode, req Request) Decision {
+// Taint names the source that made a task untrustworthy: the closed set of
+// places villa knows content can come from that the operator does not control
+// (ADR-0040). The zero value is no taint. Workspace files are deliberately not
+// a source: a task reads them in every run, so a taint on them would taint
+// every task and make the mode meaningless. A taint is a pattern, not a proof,
+// the way the deletion rule is: it covers the sources villa names.
+type Taint string
+
+const (
+	Untainted Taint = ""
+	// TaintWeb is content fetched from the web (the research task, #408).
+	TaintWeb Taint = "web"
+)
+
+// Valid reports whether t is a source a setter may record. Untainted is not:
+// recording "no taint" is not an event.
+func (t Taint) Valid() bool { return t == TaintWeb }
+
+// Tainted reports whether t restricts decisions. Any non-empty value counts,
+// including one this build does not recognise (a hand-edited record, a record
+// from a newer build): an unknown taint must fail closed, not read as clean.
+func (t Taint) Tainted() bool { return t != Untainted }
+
+// Decide answers one Request under one Mode and one Taint. Execute carries the
+// two named exceptions from spec sec3.3: deletion asks in every mode regardless
+// of AutoAllowed, and auto mode allows execute only for the allowlist or
+// Crush's safe-command list. A tainted task then moves every write and execute
+// Allow to Ask (ADR-0040); the taint never makes a cell more permissive.
+func Decide(mode Mode, taint Taint, req Request) Decision {
+	decision := decideUntainted(mode, req)
+	if decision == Allow && taint.Tainted() && (req.Action == Write || req.Action == Execute) {
+		return Ask
+	}
+	return decision
+}
+
+func decideUntainted(mode Mode, req Request) Decision {
 	if req.Action == Execute {
 		if IsDeletion(req.Command) {
 			return Ask
