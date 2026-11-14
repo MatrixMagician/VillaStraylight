@@ -86,8 +86,8 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, _ *http.Request) {
 // tasksReady answers the 503 when the workspace agent is not enabled and
 // reports whether the handler may proceed.
 func (s *Server) tasksReady(w http.ResponseWriter) bool {
-	if s.tasks == nil {
-		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "workspace agent is not enabled"})
+	if s.tasks == nil || (s.tasksOn != nil && !s.tasksOn()) {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "workspace agent is not enabled (set workspace_agent = true in config.toml and run `villa up`)"})
 		return false
 	}
 	return true

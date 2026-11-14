@@ -131,6 +131,11 @@ type Config struct {
 	// Tasks is the workspace agent's runner (api_tasks.go). nil means the
 	// workspace agent is not enabled and every task route answers 503.
 	Tasks *taskrun.Runner
+	// TasksOn answers whether the workspace agent is enabled NOW. The service
+	// outlives every config edit, so each task request asks it (one config load
+	// per request) instead of trusting the answer startup got (#418). nil means
+	// the runner's presence is the whole gate.
+	TasksOn func() bool
 
 	// --- Update·Pins & Journal seams ------------------------------
 	// Both are injected func fields in the same collector-seam pattern as
@@ -190,6 +195,8 @@ type Server struct {
 
 	// tasks is the workspace agent's runner; nil when not enabled (Config.Tasks).
 	tasks *taskrun.Runner
+	// tasksOn is Config.TasksOn.
+	tasksOn func() bool
 
 	// pins and journal are the Update·Pins / Journal collector seams (Config.Pins,
 	// Config.Journal), defaulted below when Config leaves them nil.
@@ -260,6 +267,7 @@ func NewServer(cfg Config) (*Server, error) {
 		modelID:       cfg.ModelID,
 		counterSample: cfg.CounterSample,
 		tasks:         cfg.Tasks,
+		tasksOn:       cfg.TasksOn,
 		pins:          cfg.Pins,
 		journal:       cfg.Journal,
 	}

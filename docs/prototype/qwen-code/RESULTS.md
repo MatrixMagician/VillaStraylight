@@ -231,3 +231,44 @@ the provider config can only have come from `QWEN_HOME`. Model requests per sess
 read from the villa-owned directory. Not covered, as for the other agents: extension and MCP fetches, the
 model's own web tools, and a session longer than 185 s. Settled-versus-fresh home was not varied here; the
 #373 results show the start-up fetches happen on a fresh home and the contract removes all three.
+
+## `villa code --offline` (#389)
+
+Run 2026-11-14 on the dev host (Fedora 45, Podman 6.1.3), same harness. The offline set is the
+one `internal/agent/offline.go` ships: `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` in both cases
+at `http://127.0.0.1:1`, plus `NO_PROXY`/`no_proxy` naming the model server. The harness takes it
+through `CAPTURE_EXTRA` (too long for a file name) and names the files with `CAPTURE_TAG=+offline`.
+Throwaway llama-server (ROCm 10.0 image, the heretic Q6_K weights, `--api-key dummy-proto-key`)
+on a private network; villa's real inference secret never entered an agent.
+
+| Run | Packets off the model server | Model turns |
+|---|---|---|
+| Crush v0.93.1, villa contract (positive control, `crush-contract+control-2026-11-14`) | 12 DNS, **7 TLS to 20.26.156.210 (`api.github.com`)** | completed |
+| Crush v0.93.1, contract + offline set, `NO_PROXY=proto-llama` (`crush-contract+offline`) | 8 DNS, all for `proto-llama`. **No other host.** | completed (`pong`, the `ls` tool call) |
+| Claude Code 2.1.325, contract + offline set, `ANTHROPIC_BASE_URL` and `NO_PROXY` as the IP literal `10.99.8.10` (`claude-contract+offline`) | **0** | **none completed**, see below |
+
+The control proves the capture sees egress and reproduces the recorded release check. Under the
+offline set that request is gone and the session still works.
+
+A routing check outside the harness, with the proxy variables pointed at a logging listener and
+`NO_PROXY=127.0.0.1` (the exact shipped form): Crush completed a model turn and the only request
+that reached the proxy was `CONNECT api.github.com:443`.
+
+### What the Claude Code row does and does not show
+
+Nothing left the box in 185 s. But no turn completed, so it is not evidence that Claude Code works
+under `--offline`. The cause is not the proxy set: in non-interactive mode
+(`claude -p`, retries off) every `NO_PROXY` form tried (`10.99.8.10`, `10.99.8.10:8080`,
+`proto-llama`, `10.99.8.0/24`, `*`) reached the server, which answered
+`Jinja Exception: System message must be at the beginning`. The same binary without any proxy
+variable also failed to complete a turn. So Claude Code 2.1.325 (the vetted version is 2.1.317)
+cannot talk to this model's chat template, with or without `--offline`. That the request reached
+llama-server through the exemption is the one thing this row adds: Claude Code honours an
+IP-literal `NO_PROXY`.
+
+### Not run
+
+- Qwen Code: not installed on the host.
+- Claude Code at the vetted 2.1.317, and any Claude Code run with a completed turn under the
+  offline set.
+- The project-override modes under the offline set.

@@ -261,7 +261,7 @@ func TestClassifyEgressProbe(t *testing.T) {
 // the `-run 'TestClassifyEgressProbe|TestEvalAgentVerify'` verify filter.
 func TestEvalAgentVerifyInfraErrorFails(t *testing.T) {
 	// An infra error as classifyEgressProbe would return it for a broken probe environment.
-	_, infraErr := classifyEgressProbe(errors.New("in-network sanity probe to villa-llama failed"), 0, nil)
+	_, infraErr := classifyEgressProbe(errors.New("in-network sanity probe to Open WebUI failed"), 0, nil)
 	if infraErr == nil {
 		t.Fatalf("a broken sanity probe must yield an infrastructure error")
 	}

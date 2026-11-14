@@ -196,10 +196,14 @@ file and re-run `villa install` to drop the inference unit's join to
 No config field moves it. Every service with no runtime need to reach off-box joins
 it and nothing else: `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
 `villa-stt`, `villa-tts` and `villa-image`. They have no route out, and a public
-hostname does not resolve inside them. Open WebUI joins both `villa.network` and
-`villa-closed.network`, so it reaches them by container DNS. `villa-llama`, SearXNG,
-the web loader and the inference proxy stay on `villa.network`. villa's in-network
-probes run on their target's network. `villa doctor` reports `networks`: every
+hostname does not resolve inside them. `villa-llama` and every resident slot join it
+and nothing else too (ADR-0043), and keep their loopback publish
+(`127.0.0.1:8080`, and one port per slot) for the host. The inference proxy joins it
+and `villa-sandbox.network`. Open WebUI joins both `villa.network` and
+`villa-closed.network`, so it reaches them by container DNS. SearXNG and the web
+loader stay on `villa.network`. villa's in-network probes run on their target's
+network. After an upgrade the first `villa up` restarts the inference units, and the
+model reloads. `villa doctor` reports `networks`: every
 running container must be on exactly the networks its unit joins, and
 `villa-closed` must be internal on the host. Quadlet creates a network with
 `podman network create --ignore`, so a `villa-closed` that existed before villa
@@ -435,9 +439,10 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 | `--cache-ram 8192` | Caps the RAM prompt cache at 8 GiB (ADR-0021). Rendered, not configurable: there is no `config.toml` key, and the fit counts exactly this value, once per chat unit, so each resident model adds one. `villa-embed` does not render it. |
 | `--ctx-checkpoints 1` | Caps the sliding-window context checkpoints each slot keeps in host memory (ADR-0034). Rendered only on a unit whose model has sliding-window layers (a catalog `swa` block, today `gemma-4-31b`), primary or resident, and the fit counts exactly this value. Not configurable. |
 
-The inference container also receives `--device /dev/dri`, `--group-add keep-groups`,
-`--security-opt seccomp=unconfined`, and a read-only model bind mount
-(`<models-dir>:/models:ro,z`). The container-internal server binds `0.0.0.0:8080`,
+The inference container also receives `--device /dev/dri`, `--group-add keep-groups`
+and a read-only model bind mount. A ROCm unit also receives `/dev/kfd` and
+`--security-opt seccomp=unconfined`; the Vulkan unit carries no security option
+since #343 (measured unnecessary). The mount is `<models-dir>:/models:ro,z`. The container-internal server binds `0.0.0.0:8080`,
 but only the loopback host publish `127.0.0.1:8080:8080` is reachable from the host.
 
 **Backend-specific image, devices, and env.** The image, device passthrough, and
@@ -467,7 +472,7 @@ load-bearing:
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa` network by container DNS, at its internal port 8080. |
+| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa-closed` network by container DNS, at its internal port 8080. |
 | `ENABLE_OPENAI_API` | `True` | Use the OpenAI-compatible llama-server endpoint. |
 | `ENABLE_OLLAMA_API` | `False` | Ollama is not the engine. |
 | `OPENAI_API_KEY` | the `inference_secret` bearer | Set via the SAME 0600 `EnvironmentFile=` (`internal/orchestrate.InferenceSecretEnvFilePath`) villa-llama itself references — never a literal in this 0644 unit — because llama-server now requires `Authorization: Bearer <inference_secret>` on every route but `/health` (GHSA-qxg9, ADR-0011). With a resident set the value is a literal `Environment=` line instead (the singular EnvironmentFile can't carry OWUI's per-slot connection list), still the same real secret, never the old `sk-no-key-required` sentinel. |
@@ -501,7 +506,7 @@ switch to a single-model server, and `AUTOMATIC1111_PARAMS` stays unset because
 **The image server (`villa-image`)** runs `stable-diffusion.cpp`'s `sd-server`
 (`ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:367ccc…`, a rolling
 tag pinned by digest, `internal/orchestrate/image.go`) with the entrypoint
-`/sd-server`, the same `/dev/dri`, `keep-groups` and `seccomp=unconfined` device
+`/sd-server`, the same `/dev/dri` and `keep-groups` device
 access the Vulkan chat unit reads from the seam, the read-only models mount, and no
 host port. Its flags come from `internal/inference/image_server.go`:
 

@@ -50,6 +50,30 @@ func TestAgentBudgetForScalesWithTheDecodeRate(t *testing.T) {
 	}
 }
 
+// TestAgentBudgetUnderDraftSaysLowerBound: under draft speculation the flat probe
+// pays for drafts the target almost never accepts, so it reads below the model's
+// own rate (#353: 8.65 tok/s against 11.21 with speculation off, 14 of 1110 drafts
+// accepted, on qwen3.8-27b). The budget only grows from that, but the source must
+// not present the read as the model's rate. No other speculation mode is relabelled.
+func TestAgentBudgetUnderDraftSaysLowerBound(t *testing.T) {
+	draft := agentBudgetFor(8.65, nil, 0).underSpeculation("draft")
+	if want := "measured 8.7 tok/s under draft speculation, a lower bound"; draft.Source != want {
+		t.Errorf("Source = %q, want %q", draft.Source, want)
+	}
+	if draft.Budget != 237*time.Second {
+		t.Errorf("Budget = %v, want 237s: the label must not change the bound", draft.Budget)
+	}
+	for _, mode := range []string{"", "off", "ngram"} {
+		if got := agentBudgetFor(50, nil, 0).underSpeculation(mode).Source; got != "measured 50.0 tok/s" {
+			t.Errorf("speculation %q: Source = %q, want it unchanged", mode, got)
+		}
+	}
+	unmeasured := agentBudgetFor(0, errors.New("boom"), 0).underSpeculation("draft")
+	if strings.Contains(unmeasured.Source, "lower bound") {
+		t.Errorf("an unmeasured rate is not a lower bound: %q", unmeasured.Source)
+	}
+}
+
 // TestAgentToolCallVerdictNamesTheBudget: every verdict the proof returns carries the
 // budget it ran under and where that budget came from, so an operator reading
 // `agent-tool-call ... signal: killed` can see the bound and the rate it was derived
@@ -110,7 +134,7 @@ func TestAgentToolCallVerdictNamesTheBudget(t *testing.T) {
 // TestAgentToolCallVerdictNamesThePrefillCause: a round the budget killed while
 // the server generated no token at all was never limited by the decode rate. On
 // gemma-4-31b (2026-10-09) Crush's 16988-token prompt prefilled at 240 tok/s, Crush
-// abandoned it at 60 s for sending nothing (its request_timeout), and the server
+// abandoned it at its 60 s default request_timeout, before villa rendered one (#351), and the server
 // generated nothing until the 3m14s budget killed the run. The verdict stays FAIL,
 // since the agent really cannot work on that model, but the detail and the
 // remediation name the prefill, not the budget.
@@ -119,6 +143,8 @@ func TestAgentToolCallVerdictNamesThePrefillCause(t *testing.T) {
 	prefilling := &killedRound{
 		Drain: slotDrain{Readable: true},
 		Work:  roundWork{PromptTokens: 14541, PromptSeconds: 60, PredictedTokens: 0, Known: true},
+		// The bound villa renders into crush.json for the agent's 32768 window.
+		RequestTimeout: 164,
 	}
 	v := agentToolCallVerdict(false, errors.New("crush run: signal: killed"), b, prefilling)
 	if v.Status != inference.StatusFail {
@@ -127,10 +153,15 @@ func TestAgentToolCallVerdictNamesThePrefillCause(t *testing.T) {
 	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m14s, measured 10.6 tok/s; the server prefilled 14541 prompt tokens at 242 tok/s and generated none, so no agent request reached its first token; the server's slots went idle 0s after the kill)"; v.Detail != want {
 		t.Errorf("Detail = %q, want %q", v.Detail, want)
 	}
-	for _, want := range []string{"prefill", "request_timeout", "60 s", "every Crush session"} {
+	for _, want := range []string{"prefill", "request_timeout", "164 s", "every Crush session", "villa up"} {
 		if !strings.Contains(v.Remediation, want) {
 			t.Errorf("Remediation = %q, want it to name %q", v.Remediation, want)
 		}
+	}
+	// Crush's own 60 s default is the failure villa now renders away (#351): naming it
+	// would blame a limit crush.json no longer carries.
+	if strings.Contains(v.Remediation, "sends nothing for 60 s") {
+		t.Errorf("Remediation = %q, want the rendered bound, not Crush's 60 s default", v.Remediation)
 	}
 	// With llama-server's default 32 context checkpoints in place, every agent request
 	// of both Gemma doctors logged "forcing full prompt re-processing": a new Crush

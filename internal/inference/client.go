@@ -51,7 +51,7 @@ const (
 
 // Client is the authenticated inference client. Build it once from a loaded config
 // (cmd/villa's inferenceClient, or inNetworkInferenceClient for a probe that runs on
-// villa.network) and pass the value around: callers hold a Client, never an endpoint
+// villa-closed) and pass the value around: callers hold a Client, never an endpoint
 // string plus a key. The zero value addresses nothing, and every read on it
 // degrades to the route's typed-Unknown.
 type Client struct {
@@ -278,7 +278,7 @@ func (c Client) Chat(timeout time.Duration) *llm.OpenAIClient {
 }
 
 // CurlRequest is one call to a llama-server route made by curl inside a helper
-// container on villa.network, rather than by this process. Args is curl's argv for
+// container on villa-closed, rather than by this process. Args is curl's argv for
 // the route; when the client holds a key, Args tells curl to read its headers from
 // stdin (`-H @-`) and Stdin carries the Authorization line, so the key never appears
 // on podman's or curl's command line, which any local user can read from /proc.
