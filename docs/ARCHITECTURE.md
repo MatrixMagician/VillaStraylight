@@ -85,7 +85,10 @@ graph TD
     CLI --> catalog["internal/catalog<br/>embedded model catalog + fit dims"]
     CLI --> recommend["internal/recommend<br/>Pick: memory-fitting model (pure)"]
     CLI --> preflight["internal/preflight<br/>host-readiness checks (pure)<br/>+ ROCm gate (rocm-policy.json)"]
-    CLI --> download["internal/download<br/>verified resumable GGUF pull"]
+    CLI --> download["internal/download<br/>verified resumable GGUF pull<br/>+ Fetch (checksum learned, ADR-0041)"]
+    CLI --> catalogadd["internal/catalogadd<br/>catalog add: pinned URL → entry (pure, ADR-0041)"]
+    catalogadd --> catalog
+    catalogadd --> gguf
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
     CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → stop + remove orphans → write changed → reload (ADR-0013, ADR-0035)<br/>+ swap transaction frame Transact (ADR-0015)"]
@@ -573,7 +576,10 @@ cmd/
 internal/
   detect/             Host probe → typed-Unknown HostProfile; AMD GPU seam in
                       gpu_amd.go; ROCm-viability summary in readiness_rocm.go.
-  catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions.
+  catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions;
+                      Origin (an entry's relation to the seed, derived, ADR-0041).
+  catalogadd/         Pure core of `villa catalog add` (ADR-0041): the pinned-URL
+                      grammar, entry builder, merge and re-add rules, Run over Deps.
   gguf/               GGUF header + KV-section reader (never the tensors): the
                       witness the catalog's fit dimensions are checked against.
   recommend/          Pure memory-fit model selector (Pick) over detect + catalog.

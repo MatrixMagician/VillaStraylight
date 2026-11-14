@@ -626,6 +626,10 @@ first: the table tells you which check failed and prints the fix.
   catalog's fit dimensions against the GGUF header of the file they describe; a
   FAIL there means villa's own catalog entry is wrong, not your install
   ([ADR-0007](adr/0007-the-catalog-is-the-truth-and-the-gguf-header-is-its-witness.md)).
+  With a catalog of your own (`catalog_path`) it also says `CAT-02` when the model you
+  run is one you supplied or edited, and a `CAT-03` WARN when your file lacks entries
+  this release's seed ships; see
+  [Adding a model of your own](CONFIGURATION.md#adding-a-model-of-your-own-villa-catalog-add).
 
 - **No fitting configuration / recommend refused.** If `villa install` reports the
   memory envelope is undeterminable, run `./villa detect` to confirm the GPU and
@@ -668,9 +672,10 @@ guided install deliberately does not prompt for subsystems either.
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back. The cutover is transactional, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
 | **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
 | **Voice** | Voice input and read-aloud in Open WebUI, served locally: whisper.cpp transcribes on the GPU and Kokoro speaks on the CPU. Both units are proven together by a round trip that speaks a sentence and transcribes it back, and the proof fails if whisper fell back to the CPU. | `villa install --voice` (persists the gate and pre-stages the whisper model), then `villa verify voice` |
+| **Your own model** | Adds a GGUF that is not in the catalog: villa pulls a commit-pinned Hugging Face URL, hashes it, reads its header for the KV-cache geometry and writes the entry, marked `operator-supplied`. It is never auto-selected and starts with speculation unqualified. | `villa catalog add <url>`, then `villa model swap <id>`. See [Adding a model of your own](CONFIGURATION.md#adding-a-model-of-your-own-villa-catalog-add). |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
 | **Workspace agent** | Runs one instruction against one folder you registered, inside a per-task microVM that reaches the served model and nothing else, asking before it writes. | `villa install --workspace-agent`, then `villa workspace add` and `villa work`. See [Running a task on your own files](#running-a-task-on-your-own-files) |
-| **Backup & restore** | The recreatable workspace to one local `.tar`, and back transactionally: config, the Open WebUI volume, the usage and bench stores and the eval baselines always; the Qdrant volume and the recall state with memory on, `crush.json` with the coding agent on, and the SearXNG settings with web search on. Model weights are excluded and their identities recorded. | `villa backup` / `villa restore <archive>` |
+| **Backup & restore** | The recreatable workspace to one local `.tar`, and back transactionally: config, the Open WebUI volume, the usage and bench stores, the eval baselines and the managed `catalog-local.json` always; the Qdrant volume and the recall state with memory on, `crush.json` with the coding agent on, and the SearXNG settings with web search on. Model weights are excluded and their identities recorded. | `villa backup` / `villa restore <archive>` |
 | **Capability check** | Asks whether the served model still answers well, not only that it answers: an embedded suite of cases, run greedily against the model, compared with a baseline you recorded. | `villa eval --record` once, then `villa eval`. See [Checking the model still answers well](#checking-the-model-still-answers-well) |
 
 ### Keeping it current

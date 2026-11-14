@@ -294,7 +294,8 @@ The marking is shown in four places, each append-only:
   `schema_version` 12 to 13 (the report's own rule: any additive change bumps it);
   the dashboard serves the same document;
 - `villa doctor`: CAT-02 for the configured model, PASS with the origin and what is
-  not vetted about it; CAT-03 the seed-drift WARN above. CAT-01's remediation, which
+  not vetted about it; CAT-03 the seed-drift WARN above; doctor's own `schema_version`
+  13 to 14, and both findings bind only for an external catalog. CAT-01's remediation, which
   tells the reader to fix `internal/catalog/seed.json`, names the operator's own file
   for an entry that is not from the seed.
 
