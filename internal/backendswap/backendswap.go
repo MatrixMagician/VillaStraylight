@@ -54,7 +54,7 @@ func Run(d Deps, target string) Result {
 		if cfg.Backend == target {
 			return cfg, &stackapply.Outcome{NoOp: true}
 		}
-		if reason := speculationRefusal(target, cfg.Speculation, "run `villa speculation set off` first, or pick another backend"); reason != "" {
+		if reason := speculationRefusal(target, cfg.Speculation, "pick another backend, or run `villa speculation set off` first if the served model loads on build 7690 (Qwen3.5 and Qwen3.6 models do not)"); reason != "" {
 			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
 		}
 		if ok, reason := d.FitsModel(cfg); !ok {

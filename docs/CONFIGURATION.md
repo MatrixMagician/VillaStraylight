@@ -604,6 +604,8 @@ values are honored by the inference resolver (`BackendFor`):
   `rocm-6.4.4-rocwmma` (llama.cpp build 7690) has no `--spec-type` and cannot serve
   speculation: `villa backend set rocm-6.4.4-rocwmma` and `villa speculation set
   ngram|draft` each refuse while the other is in effect, before anything is written.
+  The same build cannot load `qwen35moe` models (the Qwen3.5 and Qwen3.6 entries), so
+  on those it fails at the cutover proof and rolls back even with speculation off.
 - **`vulkan`** (Vulkan RADV) is the fallback. Stable and compatible across model
   sizes, with no ROCm host requirements; the only value `config set` will write.
 
