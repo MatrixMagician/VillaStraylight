@@ -33,6 +33,11 @@ var sandboxRequiredRPMs = []string{"libkrun", "libkrunfw", "crun-krun"}
 // drift apart.
 const sandboxPackageRemediation = "Install the sandbox runtime packages (libkrun, libkrunfw, crun-krun) so podman registers the krun OCI runtime, then re-run `villa preflight`."
 
+// sandboxProbeRemediation is the hint for a probe that could not run. The
+// packages and /dev/kvm are already proven by then, so the usual cause is that
+// the sandbox image is not on this host.
+const sandboxProbeRemediation = "Build the sandbox image with `villa sandbox build`, then re-run `villa preflight`. The runtime packages and /dev/kvm were already verified, so the probe most likely failed because the image is not on this host."
+
 // SandboxDeps is the injectable seam for PRE-09 so tests feed fixture podman/rpm/
 // kvm/probe results instead of touching a real host.
 type SandboxDeps struct {
@@ -121,10 +126,15 @@ func checkSandboxRuntime(d SandboxDeps) CheckResult {
 
 	hostKernel, hok := d.HostKernel()
 	probeKernel, pok := d.ProbeKrun()
-	if !hok || !pok {
+	if !pok {
 		return warn(id, name, TierBlock,
 			"could not run the krun functional probe — could not verify the sandbox runtime",
-			sandboxPackageRemediation, "podman run --runtime=krun <sandbox image> uname -r", "")
+			sandboxProbeRemediation, "podman run --runtime=krun <sandbox image> uname -r", "")
+	}
+	if !hok {
+		return warn(id, name, TierBlock,
+			"could not read the host kernel — could not compare it with the krun probe",
+			"Re-run `villa preflight`; if it persists, check that `uname -r` runs for this user.", "uname -r", "")
 	}
 	if probeKernel == hostKernel {
 		return fail(id, name,
