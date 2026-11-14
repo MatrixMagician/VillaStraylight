@@ -1318,12 +1318,12 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 // for the TMD-01 tools-mode drift finding (issue #173), 8→9 for the reranker
 // health row (ADR-0028), 9→10 for the extractor health row (ADR-0033) and 10→11
 // for the orphan-units finding (ADR-0035) and 11→12 for the networks finding
-// (ADR-0036). The const is the single source of truth — Aggregate stamps it on
+// (ADR-0036) and 12→13 for the CAP-01/CAP-02 capability findings (#403). The const is the single source of truth — Aggregate stamps it on
 // every Report. INDEPENDENT of status's reportSchemaVersion.
-func TestDoctorSchemaVersionIsTwelve(t *testing.T) {
+func TestDoctorSchemaVersionIsThirteen(t *testing.T) {
 	r := newDoctorDeps().aggregate()
-	if r.SchemaVersion != 12 {
-		t.Fatalf("Report.SchemaVersion = %d, want 12 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row, orphan-units and networks)", r.SchemaVersion)
+	if r.SchemaVersion != 13 {
+		t.Fatalf("Report.SchemaVersion = %d, want 13 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row, orphan-units, networks and the capability findings)", r.SchemaVersion)
 	}
 }
 

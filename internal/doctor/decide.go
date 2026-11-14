@@ -19,6 +19,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -169,6 +170,46 @@ func (d Deps) toolsDrift(cfg config.VillaConfig) (served, want, ok bool) {
 		return false, false, false
 	}
 	return unitCarriesToolsFlag(unit, token), subsystem.ToolsOn(cfg), true
+}
+
+// capabilityFindings is CAP-01 (vision) and CAP-02 (tool support): each claim the
+// loaded config makes, checked against the served model's /props. A claim the config
+// does not make yields no finding, and /props is not read at all when neither is made.
+// Vision has no subsystem gate, it is the persisted decision itself; tools goes
+// through subsystem.ToolsOn so it follows the gate TMD-01 answers.
+func (d Deps) capabilityFindings(cfg config.VillaConfig) []Finding {
+	wantVision, wantTools := cfg.Vision, subsystem.ToolsOn(cfg)
+	if !wantVision && !wantTools {
+		return nil
+	}
+	var props *inference.PropsInfo
+	if d.Props != nil {
+		props = d.Props()
+	}
+	var out []Finding
+	if wantVision {
+		var got detect.Bool
+		if props != nil {
+			got = props.Vision
+		}
+		out = append(out, capabilityFinding(capabilitySpec{
+			id: "CAP-01", name: "Vision capability", claim: "config enables vision",
+			missing: "the served model does not report vision support",
+			fix:     "run `villa model swap` to a vision-capable model, or set `vision = false` in config.toml",
+		}, props != nil, got))
+	}
+	if wantTools {
+		var got detect.Bool
+		if props != nil {
+			got = props.ToolsSupported
+		}
+		out = append(out, capabilityFinding(capabilitySpec{
+			id: "CAP-02", name: "Tool-call capability", claim: "tools mode is on",
+			missing: "the served model's chat template does not report tool support",
+			fix:     "run `villa model swap` to a model whose template supports tools, or `villa tools-mode exit`",
+		}, props != nil, got))
+	}
+	return out
 }
 
 // toolsFlagToken is the token the rendered inference unit carries when tool calling
