@@ -10,6 +10,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
@@ -67,6 +68,9 @@ func liveStackDeps() stackapply.Deps {
 		Stop:                    sys.Stop,
 		SaveConfig:              config.SaveVilla,
 		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
+		RecallScopeDir:          recall.ScopeDir,
+		WriteToolEnv:            orchestrate.WriteToolEnvFile,
+		WriteRecallScope:        liveHealRecallScope,
 		HealAgentConfig:         liveHealAgentConfig,
 	}
 }

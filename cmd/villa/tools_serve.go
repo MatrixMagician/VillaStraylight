@@ -13,6 +13,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/toolserver"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
@@ -41,7 +42,7 @@ const (
 	toolsDefaultPort = config.ToolsWebPort
 	// toolsDefaultScopeFile is where the recall unit finds the scope document, inside the
 	// directory the unit mounts read-only.
-	toolsDefaultScopeFile = orchestrate.ToolsScopeMountDir + "/scope.json"
+	toolsDefaultScopeFile = orchestrate.ToolsScopeMountDir + "/" + recall.ScopeFileName
 	// toolsUpstreamTimeout is the client-level bound on a request to a fixed upstream. Each
 	// leg has its own, tighter, context deadline in the core.
 	toolsUpstreamTimeout = 10 * time.Second
