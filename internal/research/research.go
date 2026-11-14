@@ -117,6 +117,9 @@ type Deps struct {
 	Complete func(ctx context.Context, req llm.ChatRequest) (string, error)
 	// Audit is grounding.Audit bound to the same model.
 	Audit func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
+	// Token returns a fresh unguessable string for one report's source-list
+	// delimiter (the websafe fence's nonce, for the same reason).
+	Token func() (string, error)
 	// Taint marks the task as having read the web (approval.TaintWeb). It is called
 	// once, before the first Fetch.
 	Taint func() error
@@ -320,10 +323,20 @@ func (r *session) finish(ctx context.Context) Result {
 	if body == "" {
 		return failed("the model returned an empty report. Try again; if it repeats, check the chat unit with `villa status`.")
 	}
-	// The body is model output over untrusted pages: what is audited and written is
-	// the neutralised text, and what had to be removed is a finding.
-	body, active := neutralize(body, r.sources)
-	report := render(r.req.Question, body, r.sources)
+	// The body is model output over untrusted pages. It is inspected after NFKC
+	// normalisation and written defanged into a plain-text file; whatever active
+	// content it carried is a finding and ends the task flagged (defang.go).
+	norm, kinds := inspect(body)
+	token, err := r.d.Token()
+	if err != nil {
+		return failed("could not make the report's delimiter, so no report was written: " + err.Error())
+	}
+	if strings.Contains(norm, token) || strings.Contains(body, token) {
+		kinds = append(kinds, "the report's own source-list delimiter")
+	}
+	// A token in the body is removed, so the delimiter line is the only one in the file.
+	body = strings.ReplaceAll(defang(norm), token, "(delimiter removed)")
+	report := render(r.req.Question, body, token, r.sources)
 
 	gsrc := make([]grounding.Source, len(r.sources))
 	allFlagged := true
@@ -335,8 +348,14 @@ func (r *session) finish(ctx context.Context) Result {
 	rep := r.d.Audit(actx, grounding.Document{Path: reportDocPath, Content: body}, gsrc)
 	cancel()
 	rep.Path = reportDocPath
-	rep.Unsupported = append(rep.Unsupported, citationFindings(body, len(r.sources))...)
-	rep.Unsupported = append(rep.Unsupported, active...)
+	rep.Unsupported = append(rep.Unsupported, citationFindings(norm, len(r.sources))...)
+	claims := len(rep.Unsupported)
+	for _, k := range kinds {
+		rep.Unsupported = append(rep.Unsupported, grounding.Unsupported{
+			Claim:  snippet(norm, k),
+			Reason: "the report carried " + k + "; villa defanged it",
+		})
+	}
 
 	res := Result{Outcome: Done, Report: report, Sources: r.sources, Grounding: rep}
 	var why []string
@@ -346,8 +365,11 @@ func (r *session) finish(ctx context.Context) Result {
 	case rep.Err != "":
 		why = append(why, "the grounding audit was cut short: "+rep.Err)
 	}
-	if n := len(rep.Unsupported); n > 0 {
-		why = append(why, fmt.Sprintf("%d claim(s) have no supporting source; the report is left as written", n))
+	if claims > 0 {
+		why = append(why, fmt.Sprintf("%d claim(s) have no supporting source; the report is left as written", claims))
+	}
+	if len(kinds) > 0 {
+		why = append(why, "the report carried "+strings.Join(kinds, ", ")+", which villa defanged")
 	}
 	if allFlagged {
 		why = append(why, "every source was flagged by websafe, so none can be trusted to read cleanly")

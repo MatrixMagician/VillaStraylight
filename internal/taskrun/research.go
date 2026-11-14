@@ -121,6 +121,7 @@ func (r *Runner) researchDeps(cfg config.VillaConfig, j *job) research.Deps {
 			return r.d.Web.Complete(ctx, cfg, req)
 		},
 		Audit:   r.d.Audit,
+		Token:   r.d.Token,
 		Taint:   func() error { return r.Taint(j.t.ID, approval.TaintWeb) },
 		Narrate: j.narrate,
 		Now:     r.d.Now,

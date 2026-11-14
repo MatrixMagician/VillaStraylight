@@ -71,6 +71,8 @@ func newWeb(t *testing.T) *web {
 	return w
 }
 
+func fixedToken() (string, error) { return "tok-9f8e7d6c", nil }
+
 func (w *web) deps() WebDeps {
 	return WebDeps{
 		Search: func(ctx context.Context, _ config.VillaConfig, q string) ([]string, error) { return w.search(ctx, q) },
@@ -94,6 +96,7 @@ func researchHarness(t *testing.T) (*harness, *web) {
 	w := newWeb(t)
 	h.deps.WebSearchOn = func(config.VillaConfig) bool { return true }
 	h.deps.Web = w.deps()
+	h.deps.Token = fixedToken
 	h.start()
 	return h, w
 }
@@ -134,7 +137,7 @@ func TestResearchTaskRunsToDone(t *testing.T) {
 		t.Errorf("grounding = %+v report = %q", done.Grounding, done.Research.Report)
 	}
 	report, err := h.store.ReadReport(done.ID)
-	if err != nil || !strings.Contains(string(report), "## Sources") || !strings.Contains(string(report), "https://a.example/x") {
+	if err != nil || !strings.Contains(string(report), "villa sources tok-9f8e7d6c") || !strings.Contains(string(report), "https://a.example/x") {
 		t.Errorf("report = %q, %v", report, err)
 	}
 	log := h.logText(done.ID)
@@ -231,6 +234,7 @@ func TestSubmitResearchRefusesWhenWebSearchIsOff(t *testing.T) {
 	h := newHarness(t)
 	h.deps.WebSearchOn = func(config.VillaConfig) bool { return false }
 	h.deps.Web = newWeb(t).deps()
+	h.deps.Token = fixedToken
 	h.start()
 	task := h.submitResearch(ResearchRequest{Question: "q"})
 	if task.State != taskstore.Refused || task.Exit == nil || *task.Exit != 1 {

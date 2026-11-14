@@ -1,7 +1,7 @@
 package taskstore
 
-// report.go is the research task's report artifact (ADR-0045): one Markdown
-// file per task beside its record and log, tasks/<id>.report.md. It is not a
+// report.go is the research task's report artifact (ADR-0045): one plain-text
+// file per task beside its record and log, tasks/<id>.report.txt. It is not a
 // record, so List and Recover (which read only <id>.json) never see it, and like
 // the record it is never deleted.
 
@@ -16,7 +16,7 @@ import (
 
 // reportRel is the report's path relative to the data root, which is what the
 // record stores.
-func reportRel(id string) string { return "tasks/" + id + ".report.md" }
+func reportRel(id string) string { return "tasks/" + id + ".report.txt" }
 
 // ReportPath resolves a record's relative report path against this store's
 // data root, for the terminal to print and read.

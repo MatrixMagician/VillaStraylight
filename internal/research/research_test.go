@@ -17,6 +17,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
 
+// testToken is the fixed per-report delimiter token the fake hands out.
+const testToken = "tok-1234abcd"
+
 // roundTripper serves one canned HTML body for every URL, so a Page's Content
 // is produced by the real websafe loader and carries its real fence.
 type roundTripper func(*http.Request) (*http.Response, error)
@@ -56,6 +59,7 @@ type fake struct {
 	report   func() (string, error)
 	audit    func(doc grounding.Document, src []grounding.Source) grounding.DocumentReport
 	taintErr error
+	tokenErr error
 
 	requests []llm.ChatRequest
 	reads    int
@@ -114,6 +118,12 @@ func (f *fake) deps() Deps {
 				return f.audit(doc, src)
 			}
 			return grounding.DocumentReport{Path: doc.Path, Checked: true, Claims: 3}
+		},
+		Token: func() (string, error) {
+			if f.tokenErr != nil {
+				return "", f.tokenErr
+			}
+			return testToken, nil
 		},
 		Taint:   func() error { f.log("taint"); return f.taintErr },
 		Narrate: func(s string) { f.narrated = append(f.narrated, s) },
@@ -197,7 +207,7 @@ func TestRunTwoRoundsIsDone(t *testing.T) {
 			t.Errorf("source %d numbered %d", i, s.N)
 		}
 	}
-	for _, want := range []string{"What changed in ROCm 7.2?", "gfx1151 support [1]", "## Sources", "1. ", "https://site1.example/a", "https://site2.example/a"} {
+	for _, want := range []string{"What changed in ROCm 7.2?", "gfx1151 support [1]", "villa sources " + testToken, "1. https://site1.example/a", "2. https://site2.example/a"} {
 		if !strings.Contains(res.Report, want) {
 			t.Errorf("report lacks %q:\n%s", want, res.Report)
 		}

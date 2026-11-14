@@ -46,7 +46,7 @@ the questions the build had to settle.
 - **Fetched text reaches the model only inside the websafe fence, in a user-role
   message.** Search results contribute URLs and nothing else: no snippet and no result
   title enters any prompt. The model never sees a URL either. It cites `[n]`, and the host
-  renders the number-to-source table from its own data.
+  renders the number-to-source list from its own data.
 - **Queries leave the box through SearXNG exactly as chat web search does.** The engine
   allowlist, the egress bound `villa verify search` proves, and the privacy wording do not
   change. A research task sends more queries than a chat turn, up to the budget below.
@@ -89,14 +89,14 @@ task, so every record written before it loads unchanged and serialises to the sa
 ```
 "kind":"research",
 "research":{"budget":{"rounds":2,"minutes":10},
-            "report":"tasks/<id>.report.md",
+            "report":"tasks/<id>.report.txt",
             "sources":[{"n":1,"url":"...","title":"...","flagged":true,"rules":["..."]}]}
 ```
 
 `workspace` is `""` and `mode` is `""`: a research task has no grant and no approval.
 `instruction` is the question. `harness` is `{"name":"research","version":"1"}`, where
 the version is the loop's prompt version, so a record says which prompts wrote it. The
-report is a file at `<data root>/tasks/<id>.report.md`, written through `pathsafe` by
+report is a file at `<data root>/tasks/<id>.report.txt`, written through `pathsafe` by
 `taskstore.Store.WriteReport`, never deleted with the record. `villa task show` prints the
 absolute path and `villa research` prints the report from it. There is no report route,
 for the reason the log has none: the report is a host-local file, and a client that wants
@@ -120,7 +120,7 @@ round then searches, fetches the new URLs, and reads: the question, then one use
 per page, each holding only the page's `[n]` label and the fenced content, and the model
 answers with notes ending in `[n]` and up to two `FOLLOWUP:` queries. Rounds 2 and on use
 the previous round's follow-ups; none ends the loop early. The report call gets the
-question and the notes, and cites `[n]`. The host appends the source table. A planning
+question and the notes, and cites `[n]`. The host appends the source list. A planning
 answer with no `QUERY:` line falls back to the question as the one query, narrated. The
 loop checks, before the model is asked to cite anything it was not shown, that each `[n]`
 in the report names a fetched source and that the report cites at least one. Those
@@ -131,42 +131,61 @@ could not be marked.
 
 The notes are the model's words about attacker text, so an injection can steer them, and
 through them the report. That is the residual: the report can be wrong in the direction a
-page pushed it, and the operator is shown the source table and the websafe flags to judge
+page pushed it, and the operator is shown the source list and the websafe flags to judge
 it. The audit checks the report's claims against the fenced page text, with the
 same blind spot the grounding spec states: the auditor is the model that wrote the report.
 
-**The report body is active-content-neutralised, and a body that needed it is flagged.**
-The report is model output produced after reading untrusted pages, and it is a file the
-operator opens in a Markdown viewer. That makes it a route for the markdown-image
-exfiltration residual of [ADR-0002] (an image whose URL carries data, fetched by the
-operator's viewer outside every container) and for a body that impersonates villa's own
-source list. `research.neutralize`, in the pure core and run before the audit and the
-write, does two things:
+**The report is plain text, its body is flagged and defanged, and villa's list sits behind a
+token the body cannot contain.** The report is model output produced after reading
+untrusted pages. That makes it a route for the markdown-image exfiltration residual of
+[ADR-0002] (an image whose URL carries data, fetched by whatever renders the file, outside
+every container) and for a body that impersonates villa's own source list. Three controls,
+all in the pure core (`research/defang.go`, `report.go`), none of which depends on how a
+viewer parses Markdown:
 
-- *Active content is made inert, and each kind found is a finding.* Markdown images and
-  inline links, reference-style links and their definitions, autolinks, raw HTML, bare
-  `scheme://` and `www.` URLs and the `javascript:`, `data:`, `vbscript:` and `mailto:`
-  schemes are removed (a URL becomes `(link removed)`, a `<` that opens a tag becomes
-  `&lt;`, every square bracket that is not a citation is backslash-escaped). Each kind is
-  reported through the audit's own shape, so a report that tried to carry any of them ends
-  `flagged` with the finding in the record. A fetched source's own URL is not left live in
-  the body either: it becomes that source's `[n]` marker, and is not a finding, because the
-  model is never shown a URL and a body that names one has only guessed it. The URLs in
-  villa's source table are code spans, never links. Citations `[n]` survive, adjacent ones
-  included, unless one is followed by `(` or `:` (a link destination or a definition), in
-  which case it is escaped too.
-- *The source list is unforgeable.* Control and format characters (zero-width, bidi
-  overrides) are stripped from the body first. A heading in the body that reads as a source
-  list (`source`, `sources`, `reference(s)`, `bibliography`), in ATX or setext style, and
-  any code-fence opener that could swallow the real list, are backslash-escaped. The
-  finished report has exactly one `## Sources` heading, villa's, and it is last.
+- *Flag first.* `inspect` normalises the body with the page guard's own NFKC and
+  invisible-character removal (`websafe.Normalize`), so a fullwidth `ｈｔｔｐｓ：／／` or a
+  zero-width character spliced into `https://` cannot hide a scheme. It then looks for substrings,
+  with no word boundary and no Markdown structure: `://`, `www.`, a `//host` token, `<`
+  followed by a letter, `/`, `!` or `?`, `](`, `![`, `]:`, and the `javascript:`,
+  `vbscript:` and `mailto:` schemes. Any hit ends the task `flagged`, names the kinds in the
+  reason, and puts one finding per kind (with a defanged snippet) in the record's grounding.
+  The check is conservative on purpose: a body that says `and//or` is flagged too.
+- *Plain text, defanged.* The report is `tasks/<id>.report.txt`. A text file is not
+  rendered, so nothing in it loads. The body is written from the normalised text with the
+  shapes above broken as a belt for a viewer that renders it anyway: in one pass every
+  backslash is doubled and then every escape villa adds is emitted (`://` becomes `:/\/`,
+  any other `//` becomes `/\/`, `www.` becomes `www\.`, a tag-opening `<` and every
+  non-citation square bracket are backslash-escaped). Backslashes go first, in the same
+  pass, so a backslash the model wrote cannot cancel one of villa's. The audit is shown
+  this defanged text, the text that was written.
+- *An unforgeable list.* villa's source list is the last thing in the file, after a delimiter
+  line, `----- villa sources <token> -----`, whose token is 128 bits from `crypto/rand`
+  made per report (`Deps.Token`; the page fence's nonce is the same idea, but it is not
+  exported). A body that contains the token is flagged and has it removed. No heading, list,
+  quote or fence in the body can stand in for a line it cannot spell, so forging the list
+  does not depend on any heading style or container marker.
 
-**Residual.** Neutralising removes what a viewer would act on; it does not make the report
-true. Prose can still mislead in the direction a page pushed it, a model can still
-write a persuasive false claim with a valid `[n]` marker, and a viewer with Markdown
-extensions this list does not know could treat other syntax as active. The report is model
-output over untrusted input. villa neutralises active content and flags what it removed,
-and never claims the report is safe.
+Citations stay `[n]`, including adjacent ones, unless one is followed by `(` or `:`, which
+is escaped. A `[n]` whose n is not a fetched source, or a report that cites nothing, is a
+grounding finding and flags the task.
+
+**Why not a Markdown sanitiser.** The first version of this guard rewrote the body as
+Markdown: removed links and images, escaped brackets, and demoted headings that read as a
+source list. Review found three bypasses of it, all the same fault, a regular expression
+racing a Markdown parser: a model-written backslash cancelled villa's bracket escape
+(`\[x\](//host/x)` stayed a live link, and a protocol-relative destination passed); a
+container marker hid a forged heading (`> ## Sources`, `- ## Sources`); and a `\b`-anchored
+URL pattern missed a scheme glued to emphasis (`_https://host_`) that autolinkers still
+link. Each patch would invite the next, because the set of things a viewer might act on is
+the viewer's, not ours. Flagging is decided on the text, before any viewer, and a plain-text
+file has no parser to race.
+
+**Residual.** None of this makes the report true. Prose can still mislead in the direction a
+page pushed it, a model can still write a persuasive false claim under a valid `[n]` marker,
+and a viewer that linkifies plain text, or a person who retypes a defanged URL, can still
+reach an address the body named. The report is model output over untrusted input. villa
+flags and defangs what it finds and never claims the report is safe.
 
 **4. Budgets and caps.** Printed at start, from the record.
 
@@ -194,7 +213,7 @@ dropped, never sent).
 | Ends | When | Exit |
 |---|---|---|
 | `done` | grounding checked and clean, every citation resolves | 0 |
-| `flagged` | the audit found unsupported claims or could not run; a citation names no source; the report cites nothing; the report carried a link, image, URL or HTML that villa removed; the search returned no results; no page survived the loader; every source was flagged by websafe | 2 |
+| `flagged` | the audit found unsupported claims or could not run; a citation names no source; the report cites nothing; the report carried a URL, link, image, tag or `//host` that villa defanged; the search returned no results; no page survived the loader; every source was flagged by websafe | 2 |
 | `failed` | no search, loader or model reachable on round 1; a model call returned nothing; the taint could not be written | 1 |
 | `refused` | at submit: web search is off, or the task is malformed | 1 |
 | `cancelled`, `interrupted` | the operator, or the service stopping | 1 |

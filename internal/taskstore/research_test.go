@@ -30,14 +30,14 @@ func researchTask() Task {
 		Files:       []FileEvent{},
 		Approvals:   []Approval{},
 		Grounding: Grounding{Checked: true, Documents: []GroundingDocument{{
-			Path: "tasks/" + researchID + ".report.md", Claims: 4,
+			Path: "tasks/" + researchID + ".report.txt", Claims: 4,
 			Unsupported: []Unsupported{{Claim: "ROCm 7.2 drops gfx1100", Reason: "no passage says so"}},
 		}}},
 		Taint: approval.TaintWeb,
 		Kind:  KindResearch,
 		Research: &Research{
 			Budget: ResearchBudget{Rounds: 2, Minutes: 10},
-			Report: "tasks/" + researchID + ".report.md",
+			Report: "tasks/" + researchID + ".report.txt",
 			Sources: []ResearchSource{
 				{N: 1, URL: "https://rocm.docs.amd.com/en/latest/release.html", Title: "ROCm release notes"},
 				{N: 2, URL: "https://example.org/post", Title: "A post", Flagged: true, Rules: []string{"ignore-previous"}},
@@ -140,7 +140,7 @@ func TestReportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rel != "tasks/"+researchID+".report.md" {
+	if rel != "tasks/"+researchID+".report.txt" {
 		t.Errorf("relative path = %q", rel)
 	}
 	if abs := s.ReportPath(rel); !strings.HasSuffix(abs, rel) || !filepath.IsAbs(abs) {

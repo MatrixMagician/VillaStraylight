@@ -69,9 +69,12 @@ type Deps struct {
 	// WebSearchOn answers the research task's gate (subsystem.WebSearchOn).
 	WebSearchOn func(cfg config.VillaConfig) bool
 	// Web is the host's reach for a research task; see WebDeps.
-	Web  WebDeps
-	Now  func() time.Time
-	Rand io.Reader
+	Web WebDeps
+	// Token returns a fresh unguessable string for one research report's
+	// source-list delimiter.
+	Token func() (string, error)
+	Now   func() time.Time
+	Rand  io.Reader
 }
 
 // WebDeps is what a research task reaches the world through. cmd/villa binds each
