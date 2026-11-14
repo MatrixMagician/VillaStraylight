@@ -1,7 +1,7 @@
 package dashboard
 
 // api_tasks.go is the loopback task API (spec v1.11 §5): the route table the
-// mux is built from, and the seven task handlers over internal/taskrun. The
+// mux is built from, and the task handlers over internal/taskrun. The
 // handlers add no lifecycle logic; they decode, call the runner, and serialize
 // the record. When no runner is configured (Config.Tasks nil) every task route
 // answers 503, so a dashboard on a host without the workspace agent never
@@ -40,6 +40,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/api/journal", s.handleJournal},
 		{http.MethodGet, "/api/tasks", s.handleTaskList},
 		{http.MethodPost, "/api/tasks", s.handleTaskSubmit},
+		{http.MethodPost, "/api/research", s.handleResearchSubmit},
 		{http.MethodGet, "/api/tasks/{id}", s.handleTaskShow},
 		{http.MethodGet, "/api/tasks/{id}/events", s.handleTaskEvents},
 		{http.MethodPost, "/api/tasks/{id}/approve", s.handleTaskApprove},
@@ -144,6 +145,36 @@ func (s *Server) handleTaskSubmit(w http.ResponseWriter, r *http.Request) {
 		Instruction: body.Instruction,
 		Mode:        approval.Mode(body.Mode),
 	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+type researchRequest struct {
+	Question string `json:"question"`
+	Rounds   int    `json:"rounds"`
+	Minutes  int    `json:"minutes"`
+}
+
+// handleResearchSubmit answers 202 with the record for a queued AND a refused
+// research task, exactly as handleTaskSubmit does. It needs the runner but not
+// the workspace agent: a host with web search on and tools mode off accepts it
+// (ADR-0045 §6). A malformed request or a budget over its cap is a 400.
+func (s *Server) handleResearchSubmit(w http.ResponseWriter, r *http.Request) {
+	if s.tasks == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "the task runner is not running; research needs web search: villa install --web-search"})
+		return
+	}
+	var body researchRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request: " + err.Error()})
+		return
+	}
+	task, err := s.tasks.SubmitResearch(r.Context(), taskrun.ResearchRequest{Question: body.Question, Rounds: body.Rounds, Minutes: body.Minutes})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return

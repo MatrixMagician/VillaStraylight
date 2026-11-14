@@ -15,12 +15,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
@@ -71,6 +73,7 @@ type taskFixture struct {
 	store   taskstore.Store
 	bridges chan *fakeBridge
 	toolsOn bool
+	webOn   atomic.Bool
 }
 
 func newTaskFixture(t *testing.T) *taskFixture {
@@ -80,7 +83,9 @@ func newTaskFixture(t *testing.T) *taskFixture {
 	if err := os.MkdirAll(ws, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &taskFixture{ws: ws, store: taskstore.New(filepath.Join(root, "data")), bridges: make(chan *fakeBridge, 4), toolsOn: true}
+	fx := &taskFixture{ws: ws, store: taskstore.New(filepath.Join(root, "data")), bridges: make(chan *fakeBridge, 4), toolsOn: true}
+	fx.webOn.Store(true)
+	return fx
 }
 
 // newTestRunner builds a runner over fx (a fresh fixture when nil). It is also
@@ -107,6 +112,17 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 		RenderArgs: func(_ config.VillaConfig, ws, id string) ([]string, error) { return []string{"run", ws, id}, nil },
 		Registered: func(_ config.VillaConfig, path string) (string, bool) { return path, path == fx.ws },
 		ToolsOn:    func(config.VillaConfig) bool { return fx.toolsOn },
+		// The research route tests submit and read the record; the scripted web
+		// is unreachable, so an accepted task ends failed without a network.
+		WebSearchOn: func(config.VillaConfig) bool { return fx.webOn.Load() },
+		Web: taskrun.WebDeps{
+			Complete: func(context.Context, config.VillaConfig, llm.ChatRequest) (string, error) {
+				return "QUERY: x", nil
+			},
+			Search: func(context.Context, config.VillaConfig, string) ([]string, error) {
+				return nil, errors.New("no scripted search")
+			},
+		},
 		SandboxReady: func() (bool, string) {
 			return true, ""
 		},
@@ -232,7 +248,7 @@ func TestTaskRoutesAnswer503WhenNotEnabled(t *testing.T) {
 // new routes: a bare POST is refused before any handler runs.
 func TestTaskMutationsSitBehindTheGuard(t *testing.T) {
 	h := taskServer(t, newTestRunner(t, nil))
-	for _, path := range []string{"/api/tasks", "/api/tasks/x/approve", "/api/tasks/x/deny", "/api/tasks/x/cancel"} {
+	for _, path := range []string{"/api/tasks", "/api/research", "/api/tasks/x/approve", "/api/tasks/x/deny", "/api/tasks/x/cancel"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -538,5 +554,48 @@ func TestCancelAfterTheRecordIsTerminalIs409(t *testing.T) {
 		if rec := do(h, http.MethodPost, "/api/tasks/"+id+"/cancel", ""); rec.Code != http.StatusConflict {
 			t.Fatalf("cancel %d after cancelled = %d, want 409; body=%s", i, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// TestResearchSubmitAnswers202ForQueuedAndRefused guards the research route's
+// contract, the same as the workspace one: queued and refused are both 202 with a
+// record, a malformed body or an over-cap budget is a 400, and the record is a
+// research task with no workspace.
+func TestResearchSubmitAnswers202ForQueuedAndRefused(t *testing.T) {
+	fx := newTaskFixture(t)
+	h := taskServer(t, newTestRunner(t, fx))
+
+	rec := do(h, http.MethodPost, "/api/research", `{"question":"What changed in ROCm 7.2?","rounds":3}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("code = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	task := decodeTask(t, rec)
+	if task.State != taskstore.Queued || !task.IsResearch() || task.Workspace != "" || task.Research == nil || task.Research.Budget.Rounds != 3 || task.Research.Budget.Minutes == 0 {
+		t.Errorf("record = %+v", task)
+	}
+
+	fx.webOn.Store(false)
+	rec = do(h, http.MethodPost, "/api/research", `{"question":"q"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("refusal code = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if task := decodeTask(t, rec); task.State != taskstore.Refused || task.Exit == nil || *task.Exit != 1 {
+		t.Errorf("refused record = %+v", task)
+	}
+	fx.webOn.Store(true)
+
+	for _, body := range []string{`{"question":`, `{"nope":1}`, `{"question":"  "}`, `{"question":"q","rounds":99}`, `{"question":"q","minutes":-1}`} {
+		if rec := do(h, http.MethodPost, "/api/research", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("body %q = %d, want 400", body, rec.Code)
+		}
+	}
+}
+
+// TestResearchRouteAnswers503WithoutARunner guards the nil-runner posture for the
+// new route, with the remediation a research-only host needs.
+func TestResearchRouteAnswers503WithoutARunner(t *testing.T) {
+	rec := do(taskServer(t, nil), http.MethodPost, "/api/research", `{"question":"q"}`)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "villa install --web-search") {
+		t.Errorf("code = %d body = %s", rec.Code, rec.Body.String())
 	}
 }
