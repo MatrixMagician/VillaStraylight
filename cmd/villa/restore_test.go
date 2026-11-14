@@ -473,7 +473,7 @@ func TestLiveRestoreAssemblesTheInput(t *testing.T) {
 	if code != exitPass {
 		t.Fatalf("liveRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
-	if want := []string{backup.EntryBenchReports, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
+	if want := []string{backup.EntryBenchReports, backup.EntryCatalogLocal, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
 		t.Fatalf("dests = %v, want %v", sortedKeys(in.Dests), want)
 	}
 	if !in.Bypass || !in.QdrantVolumeExists || in.QdrantVolumeUnknown {

@@ -49,6 +49,7 @@ var registry = []Row{
 	{Name: EntryCrushConfig, Label: "crush.json", Kind: KindFile},
 	{Name: EntrySearxngSettings, Label: "settings.yml", Kind: KindFile},
 	{Name: EntryEvalBaselines, Label: "eval-baselines.json", Kind: KindFile},
+	{Name: EntryCatalogLocal, Label: "catalog-local.json", Kind: KindFile},
 }
 
 // EntryNamesForTest lists the tar member name of every registry row in tar order, so

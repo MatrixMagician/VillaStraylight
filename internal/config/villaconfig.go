@@ -496,6 +496,21 @@ func Path() (string, error) {
 	return filepath.Join(dir, "config.toml"), nil
 }
 
+// LocalCatalogFile is the file name of the external catalog villa itself manages
+// (ADR-0041): `villa catalog add` creates it when no catalog_path names one.
+const LocalCatalogFile = "catalog-local.json"
+
+// LocalCatalogPath is the managed catalog's absolute path, beside config.toml. It is
+// the one external catalog villa backs up, because its location does not depend on
+// the config a restore has not read yet.
+func LocalCatalogPath() (string, error) {
+	dir, err := villaConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LocalCatalogFile), nil
+}
+
 // LoadVilla reads the TOML config, returning typed defaults when the file is
 // absent (read-only by default). A present-but-malformed file is a real
 // error the caller should surface.

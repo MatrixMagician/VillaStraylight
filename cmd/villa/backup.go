@@ -65,7 +65,9 @@ func newBackup() *cobra.Command {
 			"Archived when memory is on: the Qdrant volume (qdrant-volume.tar) and the recall state " +
 			"(recall-state.json). Archived when the coding agent is on: crush.json. Archived when web search is on: " +
 			"the SearXNG settings (searxng-settings.yml). Archived when the file exists: the eval baselines " +
-			"(eval-baselines.json). Alongside them goes a manifest of versions, image digests, store schema versions, " +
+			"(eval-baselines.json), and the catalog `villa catalog add` manages beside config.toml " +
+			"(catalog-local.json; a catalog_path naming a file elsewhere is yours to back up). " +
+			"Alongside them goes a manifest of versions, image digests, store schema versions, " +
 			"per-entry SHA-256 checksums, and the identities of the EXCLUDED model weights (re-pullable, recorded for " +
 			"re-pull). Model weights themselves are not backed up. Default output is villa-backup-<timestamp>.tar in " +
 			"the current directory; override with -o/--output. Strictly local — no data leaves the box.",
@@ -132,6 +134,12 @@ var fileEntrySites = []fileEntrySite{
 	// eval-baselines.json (ADR-0018, #275): ungated, since `villa eval` is always
 	// available, and it lives under the data root so the store-root writer restores it.
 	{entry: backup.EntryEvalBaselines, path: func() (string, error) { return evalstore.Path(), nil }},
+	// catalog-local.json (ADR-0041, #407): ungated like the eval baselines, an absent
+	// file skipped, and always the FIXED managed path beside config.toml. Restore must
+	// know its destination before it has read the archive's config.toml, so a
+	// catalog_path naming a file elsewhere is not archived. Restore writes it before the
+	// restart, which resolves the restored config's model through this file.
+	{entry: backup.EntryCatalogLocal, path: config.LocalCatalogPath},
 }
 
 // fileEntryPaths resolves the path of every file entry the verb's rule puts in
@@ -331,6 +339,12 @@ var (
 		absent:   "eval: baselines not included (no eval-baselines.json)",
 		included: "eval: baselines included (" + backup.EntryEvalBaselines + ")",
 	}
+	// The managed catalog is ungated, so this entry is never "off".
+	catalogBackupNarration = entryNarration{
+		entry:    backup.EntryCatalogLocal,
+		absent:   "catalog: not included (no catalog-local.json; no model was added with `villa catalog add`)",
+		included: "catalog: included (" + backup.EntryCatalogLocal + ")",
+	}
 )
 
 func fileExists(path string) bool {
@@ -366,6 +380,7 @@ func narrateBackup(out, errOut io.Writer, in backup.Input, res backup.Result) {
 	narrateBackupEntry(out, crushBackupNarration, in.Sources)
 	narrateBackupEntry(out, searxngBackupNarration, in.Sources)
 	narrateBackupEntry(out, evalBackupNarration, in.Sources)
+	narrateBackupEntry(out, catalogBackupNarration, in.Sources)
 	narrateExcludedAgent(out, in)
 }
 
