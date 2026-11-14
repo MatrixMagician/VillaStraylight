@@ -1,0 +1,1 @@
+[{"type":"openapi","url":"http://villa-tools-recall:8093","spec_type":"url","spec":"","path":"openapi.json","auth_type":"bearer","key":"<bearer>","config":{"enable":true},"info":{"id":"villa-recall","name":"villa recall","description":"Search of your own past conversations"}}]

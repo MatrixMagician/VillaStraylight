@@ -1,0 +1,20 @@
+[
+ {
+  "account": "A",
+  "email": "a@proto.invalid",
+  "id": "8110375a-52b1-4082-a29a-2a211073553b",
+  "role": "admin"
+ },
+ {
+  "account": "B",
+  "email": "b@proto.invalid",
+  "id": "1c9c7c0e-8e93-4fcb-9d52-fe8ca8c1fd17",
+  "role": "admin"
+ },
+ {
+  "account": "C",
+  "email": "c@proto.invalid",
+  "id": "475dbed4-3fc7-4258-ada0-8cbec383f33f",
+  "role": "user"
+ }
+]

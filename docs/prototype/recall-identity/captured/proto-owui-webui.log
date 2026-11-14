@@ -1,0 +1,280 @@
+Error: no container with name or ID "proto-owui-webui" found: no such container
+--- webui variant villa
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 7e5b5dc7342b
+INFO  [alembic.runtime.migration] Running upgrade 7e5b5dc7342b -> ca81bd47c050, Add config table.
+INFO  [alembic.runtime.migration] Running upgrade ca81bd47c050 -> c0fbf31ca0db, Update file table
+INFO  [alembic.runtime.migration] Running upgrade c0fbf31ca0db -> 6a39f3d8e55c, Add knowledge table
+Creating knowledge table
+Migrating data from document table to knowledge table
+INFO  [alembic.runtime.migration] Running upgrade 6a39f3d8e55c -> 242a2047eae0, Update chat table
+Converting 'chat' column to JSON
+Renaming 'chat' column to 'old_chat'
+Adding new 'chat' column of type JSON
+Dropping 'old_chat' column
+INFO  [alembic.runtime.migration] Running upgrade 242a2047eae0 -> 1af9b942657b, Migrate tags
+INFO  [alembic.runtime.migration] Running upgrade 1af9b942657b -> 3ab32c4b8f59, Update tags
+Primary Key: {'constrained_columns': ['id'], 'name': None}
+Unique Constraints: [{'name': 'uq_id_user_id', 'column_names': ['id', 'user_id']}]
+Indexes: []
+Creating new primary key with 'id' and 'user_id'.
+Dropping unique constraint: uq_id_user_id
+/usr/local/lib/python3.11/contextlib.py:144: SAWarning: Table '_alembic_tmp_tag' specifies columns 'id' as primary_key=True, not matching locally specified columns 'id', 'user_id'; setting the current primary key columns to 'id', 'user_id'. This warning may become an exception in a future release
+  next(self.gen)
+INFO  [alembic.runtime.migration] Running upgrade 3ab32c4b8f59 -> c69f45358db4, Add folder table
+INFO  [alembic.runtime.migration] Running upgrade c69f45358db4 -> c29facfe716b, Update file table path
+INFO  [alembic.runtime.migration] Running upgrade c29facfe716b -> af906e964978, Add feedback table
+INFO  [alembic.runtime.migration] Running upgrade af906e964978 -> 4ace53fd72c8, Update folder table and change DateTime to BigInteger for timestamp fields
+INFO  [alembic.runtime.migration] Running upgrade 4ace53fd72c8 -> 922e7a387820, Add group table
+INFO  [alembic.runtime.migration] Running upgrade 922e7a387820 -> 57c599a3cb57, Add channel table
+INFO  [alembic.runtime.migration] Running upgrade 57c599a3cb57 -> 7826ab40b532, Update file table
+INFO  [alembic.runtime.migration] Running upgrade 7826ab40b532 -> 3781e22d8b01, Update message & channel tables
+INFO  [alembic.runtime.migration] Running upgrade 3781e22d8b01 -> 9f0c9cd09105, Add note table
+INFO  [alembic.runtime.migration] Running upgrade 9f0c9cd09105 -> d31026856c01, Update folder table data
+INFO  [alembic.runtime.migration] Running upgrade d31026856c01 -> 018012973d35, Add indexes
+INFO  [alembic.runtime.migration] Running upgrade 018012973d35 -> 3af16a1c9fb6, update user table
+INFO  [alembic.runtime.migration] Running upgrade 3af16a1c9fb6 -> 38d63c18f30f, Add oauth_session table
+INFO  [alembic.runtime.migration] Running upgrade 38d63c18f30f -> a5c220713937, Add reply_to_id column to message
+INFO  [alembic.runtime.migration] Running upgrade a5c220713937 -> 37f288994c47, add_group_member_table
+[]
+INFO  [alembic.runtime.migration] Running upgrade 37f288994c47 -> 2f1211949ecc, Update messages and channel member table
+INFO  [alembic.runtime.migration] Running upgrade 2f1211949ecc -> b10670c03dd5, Update user table
+INFO  [alembic.runtime.migration] Running upgrade b10670c03dd5 -> 90ef40d4714e, Update channel and channel members table
+INFO  [alembic.runtime.migration] Running upgrade 90ef40d4714e -> 3e0e00844bb0, Add knowledge_file table
+INFO  [alembic.runtime.migration] Running upgrade 3e0e00844bb0 -> 6283dc0e4d8d, Add channel file table
+INFO  [alembic.runtime.migration] Running upgrade 6283dc0e4d8d -> 81cc2ce44d79, Update channel file and knowledge table
+INFO  [alembic.runtime.migration] Running upgrade 81cc2ce44d79 -> c440947495f3, Add chat_file table
+INFO  [alembic.runtime.migration] Running upgrade c440947495f3 -> 374d2f66af06, Add prompt history table
+INFO  [alembic.runtime.migration] Running upgrade 374d2f66af06 -> 8452d01d26d7, Add chat_message table
+INFO  [alembic.runtime.migration] Running upgrade 8452d01d26d7 -> f1e2d3c4b5a6, Add access_grant table
+INFO  [alembic.runtime.migration] Running upgrade f1e2d3c4b5a6 -> a1b2c3d4e5f6, Add skill table
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> b2c3d4e5f6a7, add scim column to user table
+INFO  [alembic.runtime.migration] Running upgrade b2c3d4e5f6a7 -> a3dd5bedd151, Add tasks and summary columns to chat table
+INFO  [alembic.runtime.migration] Running upgrade a3dd5bedd151 -> d4e5f6a7b8c9, add automation tables
+INFO  [alembic.runtime.migration] Running upgrade d4e5f6a7b8c9 -> b7c8d9e0f1a2, add last_read_at to chat
+INFO  [alembic.runtime.migration] Running upgrade b7c8d9e0f1a2 -> e1f2a3b4c5d6, Add is_pinned to note table
+INFO  [alembic.runtime.migration] Running upgrade e1f2a3b4c5d6 -> c1d2e3f4a5b6, Add shared_chat table and migrate existing shares
+INFO  [alembic.runtime.migration] Running upgrade c1d2e3f4a5b6 -> 56359461a091, add calendar tables
+INFO  [alembic.runtime.migration] Running upgrade 56359461a091 -> 4de81c2a3af1, add pinned_note table
+INFO  [alembic.runtime.migration] Running upgrade 4de81c2a3af1 -> a0b1c2d3e4f5, Add memory user_id index
+INFO  [alembic.runtime.migration] Running upgrade a0b1c2d3e4f5 -> 3c9b0ca343fd, add knowledge_directory table
+INFO  [alembic.runtime.migration] Running upgrade 3c9b0ca343fd -> 461111b60977, add missing primary keys to legacy peewee tables
+INFO  [alembic.runtime.migration] Running upgrade 461111b60977 -> 3ff2c63645b8, reshape config to per key rows
+INFO  [alembic.runtime.migration] Running upgrade 3ff2c63645b8 -> 4c5ce3d2f27f, add context summary to chat message
+INFO  [alembic.runtime.migration] Running upgrade 4c5ce3d2f27f -> 7b3f2a9c1d4e, add memory type
+INFO  [alembic.runtime.migration] Running upgrade 7b3f2a9c1d4e -> 42e2978c7933, add memory path and meta
+INFO  [alembic.runtime.migration] Running upgrade 42e2978c7933 -> 856c5b02fb54, add chat message meta
+INFO  [alembic.runtime.migration] Running upgrade 856c5b02fb54 -> 9a1b2c3d4e5f, add current_message_id to chat
+INFO  [alembic.runtime.migration] Running upgrade 9a1b2c3d4e5f -> c49178636c78, add chat variables
+INFO  [alembic.runtime.migration] Running upgrade c49178636c78 -> b0018471bbbe, add user variables
+INFO  [alembic.runtime.migration] Running upgrade b0018471bbbe -> 55f1302ac17c, Add memory (id, user_id) covering index
+INFO  [alembic.runtime.migration] Running upgrade 55f1302ac17c -> 959eaac8f909, add automation folder id
+INFO  [alembic.runtime.migration] Running upgrade 959eaac8f909 -> f0bd01a18a3d, add unique normalized user email index
+INFO  [alembic.runtime.migration] Running upgrade f0bd01a18a3d -> 1ce6ade7d93b, Add group_member user_id index
+INFO  [alembic.runtime.migration] Running upgrade 1ce6ade7d93b -> 6d09d1bf1f23, repair double encoded user oauth
+INFO  [alembic.runtime.migration] Running upgrade 6d09d1bf1f23 -> d4c1a8e37b62, add chat timer_at and chat list, unread and timer indexes
+WARNI [open_webui.env] 
+
+WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.
+
+WARNI [langchain_community.utils.user_agent] USER_AGENT environment variable not set, consider setting it to identify your requests.
+/usr/local/lib/python3.11/site-packages/google/auth/transport/grpc.py:44: FutureWarning: grpcio < 1.83.0 does not support Post-Quantum Cryptography (PQC). Support for non-PQC environments is deprecated. In October 2026, google-auth will raise its minimum requirements to enforce grpcio >= 1.83.0. For more details on Google Cloud's post-quantum security migration, visit: https://cloud.google.com/security/resources/post-quantum-cryptography
+  warnings.warn(
+/usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:254: FutureWarning: You are using a Python version (3.11.16) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+
+ ██████╗ ██████╗ ███████╗███╗   ██╗    ██╗    ██╗███████╗██████╗ ██╗   ██╗██╗
+██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██║    ██║██╔════╝██╔══██╗██║   ██║██║
+██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║ █╗ ██║█████╗  ██████╔╝██║   ██║██║
+██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║███╗██║██╔══╝  ██╔══██╗██║   ██║██║
+╚██████╔╝██║     ███████╗██║ ╚████║    ╚███╔███╔╝███████╗██████╔╝╚██████╔╝██║
+ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝
+
+
+v0.11.3 - building the best AI user interface.
+
+https://github.com/open-webui/open-webui
+
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-14 22:22:49.382 | INFO     | open_webui.utils.logger:start_logger:223 - GLOBAL_LOG_LEVEL: INFO
+2026-11-14 22:22:49.399 | INFO     | open_webui.main:lifespan:381 - Installing external dependencies of functions and tools...
+2026-11-14 22:22:49.402 | INFO     | open_webui.utils.plugin:install_frontmatter_requirements:429 - Offline mode enabled, skipping installation of requirements.
+2026-11-14 22:22:49.402 | INFO     | open_webui.main:lifespan:438 - Initializing tool servers...
+2026-11-14 22:22:49.402 | INFO     | open_webui.utils.automations:scheduler_worker_loop:221 - Scheduler worker started (timer poll interval: 1s, scheduler poll interval: 10s)
+2026-11-14 22:22:49.410 | INFO     | open_webui.main:lifespan:441 - Initialized 1 tool server(s)
+2026-11-14 22:22:49.410 | INFO     | open_webui.main:lifespan:447 - Initialized 0 terminal server(s)
+2026-11-14 22:22:49.838 | INFO     | open_webui.models.auths:insert_new_auth:116 - insert_new_auth
+2026-11-14 22:22:49.851 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50310 - "POST /api/v1/auths/signup HTTP/1.1" 200
+2026-11-14 22:22:50.045 | INFO     | open_webui.models.auths:insert_new_auth:116 - insert_new_auth
+2026-11-14 22:22:50.048 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50324 - "POST /api/v1/auths/add HTTP/1.1" 200
+2026-11-14 22:22:50.217 | INFO     | open_webui.models.auths:insert_new_auth:116 - insert_new_auth
+2026-11-14 22:22:50.219 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50330 - "POST /api/v1/auths/add HTTP/1.1" 200
+2026-11-14 22:22:50.223 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: a@proto.invalid
+2026-11-14 22:22:50.393 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50346 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:22:50.397 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50360 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:22:50.398 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: b@proto.invalid
+2026-11-14 22:22:50.568 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50372 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:22:50.571 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50374 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:22:50.573 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: c@proto.invalid
+2026-11-14 22:22:50.741 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50380 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:22:50.745 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.6:50390 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:22:50.915 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: a@proto.invalid
+2026-11-14 22:22:51.086 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60698 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:22:51.089 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60702 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:22:51.096 | INFO     | open_webui.routers.openai:get_all_models:799 - get_all_models()
+2026-11-14 22:22:51.113 | INFO     | open_webui.utils.session_pool:get_session:77 - Created shared aiohttp session pool (limit=unlimited, per_host=unlimited, dns_ttl=300)
+2026-11-14 22:22:51.116 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60710 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:22:53.133 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60724 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:22:55.180 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60730 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:22:57.194 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:60734 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:00.203 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56324 - "GET /api/v1/chats/37454348-9ce9-411c-be58-c7dc2a5ca157 HTTP/1.1" 200
+2026-11-14 22:23:00.204 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: b@proto.invalid
+2026-11-14 22:23:00.447 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56328 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:23:00.451 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56332 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:23:00.463 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56342 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:02.479 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56354 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:04.515 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56370 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:06.528 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:56386 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:09.535 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36432 - "GET /api/v1/chats/1f7ea912-d21c-4d6a-b491-a70f42accbf6 HTTP/1.1" 200
+2026-11-14 22:23:09.536 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: c@proto.invalid
+2026-11-14 22:23:09.782 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36438 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:23:09.787 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36454 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:23:09.796 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:23:09.799 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36458 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:11.811 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:23:11.816 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36460 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:13.835 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:23:13.846 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36464 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:45.874 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:36864 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:23:45.880 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:24:17.898 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.7:35178 - "GET /api/v1/chats/3515863c-8f0e-4f6d-b6ab-960ccd713610 HTTP/1.1" 200
+--- webui variant noheaders
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+WARNI [open_webui.env] 
+
+WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.
+
+WARNI [langchain_community.utils.user_agent] USER_AGENT environment variable not set, consider setting it to identify your requests.
+/usr/local/lib/python3.11/site-packages/google/auth/transport/grpc.py:44: FutureWarning: grpcio < 1.83.0 does not support Post-Quantum Cryptography (PQC). Support for non-PQC environments is deprecated. In October 2026, google-auth will raise its minimum requirements to enforce grpcio >= 1.83.0. For more details on Google Cloud's post-quantum security migration, visit: https://cloud.google.com/security/resources/post-quantum-cryptography
+  warnings.warn(
+/usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:254: FutureWarning: You are using a Python version (3.11.16) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+
+ ██████╗ ██████╗ ███████╗███╗   ██╗    ██╗    ██╗███████╗██████╗ ██╗   ██╗██╗
+██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██║    ██║██╔════╝██╔══██╗██║   ██║██║
+██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║ █╗ ██║█████╗  ██████╔╝██║   ██║██║
+██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║███╗██║██╔══╝  ██╔══██╗██║   ██║██║
+╚██████╔╝██║     ███████╗██║ ╚████║    ╚███╔███╔╝███████╗██████╔╝╚██████╔╝██║
+ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝
+
+
+v0.11.3 - building the best AI user interface.
+
+https://github.com/open-webui/open-webui
+
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-14 22:24:30.961 | INFO     | open_webui.utils.logger:start_logger:223 - GLOBAL_LOG_LEVEL: INFO
+2026-11-14 22:24:30.975 | INFO     | open_webui.main:lifespan:381 - Installing external dependencies of functions and tools...
+2026-11-14 22:24:30.978 | INFO     | open_webui.utils.plugin:install_frontmatter_requirements:429 - Offline mode enabled, skipping installation of requirements.
+2026-11-14 22:24:30.979 | INFO     | open_webui.main:lifespan:438 - Initializing tool servers...
+2026-11-14 22:24:30.979 | INFO     | open_webui.utils.automations:scheduler_worker_loop:221 - Scheduler worker started (timer poll interval: 1s, scheduler poll interval: 10s)
+2026-11-14 22:24:30.987 | INFO     | open_webui.main:lifespan:441 - Initialized 1 tool server(s)
+2026-11-14 22:24:30.987 | INFO     | open_webui.main:lifespan:447 - Initialized 0 terminal server(s)
+2026-11-14 22:24:31.505 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: a@proto.invalid
+2026-11-14 22:24:31.693 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39938 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:24:31.699 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39952 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:24:31.727 | INFO     | open_webui.routers.openai:get_all_models:799 - get_all_models()
+2026-11-14 22:24:31.742 | INFO     | open_webui.utils.session_pool:get_session:77 - Created shared aiohttp session pool (limit=unlimited, per_host=unlimited, dns_ttl=300)
+2026-11-14 22:24:31.745 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39954 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:33.762 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39958 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:35.799 | WARNING  | open_webui.utils.tools:execute_tool_server:1773 - API Request Error: HTTP error 403: {"error": "identity required"}
+2026-11-14 22:24:35.813 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39962 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:37.826 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:39968 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:37.879 | WARNING  | open_webui.utils.tools:execute_tool_server:1773 - API Request Error: HTTP error 403: {"error": "identity required"}
+2026-11-14 22:24:40.836 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:47992 - "GET /api/v1/chats/d39adb7f-5aef-416d-86d2-9323157bad6f HTTP/1.1" 200
+2026-11-14 22:24:40.838 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: b@proto.invalid
+2026-11-14 22:24:41.081 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48006 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:24:41.086 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48022 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:24:41.096 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48028 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:43.115 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48038 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:45.140 | WARNING  | open_webui.utils.tools:execute_tool_server:1773 - API Request Error: HTTP error 403: {"error": "identity required"}
+2026-11-14 22:24:45.149 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48040 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:47.162 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:48048 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:47.178 | WARNING  | open_webui.utils.tools:execute_tool_server:1773 - API Request Error: HTTP error 403: {"error": "identity required"}
+2026-11-14 22:24:50.170 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56014 - "GET /api/v1/chats/e50bdeb8-4c60-4e01-a85e-bdbd62dfb878 HTTP/1.1" 200
+2026-11-14 22:24:50.171 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: c@proto.invalid
+2026-11-14 22:24:50.415 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56026 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:24:50.419 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56030 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:24:50.427 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:24:50.429 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56032 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:52.441 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:24:52.445 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56042 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:24:54.464 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:24:54.476 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:56052 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:25:26.512 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:40208 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:25:26.518 | WARNING  | open_webui.utils.tools:get_tools:412 - Access denied to tool server villa-recall for user 475dbed4-3fc7-4258-ada0-8cbec383f33f
+2026-11-14 22:25:58.544 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.10:44374 - "GET /api/v1/chats/c6945c30-c798-40cc-b287-e540b97a8f5d HTTP/1.1" 200
+--- webui variant granted
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+WARNI [open_webui.env] 
+
+WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.
+
+WARNI [langchain_community.utils.user_agent] USER_AGENT environment variable not set, consider setting it to identify your requests.
+/usr/local/lib/python3.11/site-packages/google/auth/transport/grpc.py:44: FutureWarning: grpcio < 1.83.0 does not support Post-Quantum Cryptography (PQC). Support for non-PQC environments is deprecated. In October 2026, google-auth will raise its minimum requirements to enforce grpcio >= 1.83.0. For more details on Google Cloud's post-quantum security migration, visit: https://cloud.google.com/security/resources/post-quantum-cryptography
+  warnings.warn(
+/usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:254: FutureWarning: You are using a Python version (3.11.16) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+
+ ██████╗ ██████╗ ███████╗███╗   ██╗    ██╗    ██╗███████╗██████╗ ██╗   ██╗██╗
+██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██║    ██║██╔════╝██╔══██╗██║   ██║██║
+██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║ █╗ ██║█████╗  ██████╔╝██║   ██║██║
+██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║███╗██║██╔══╝  ██╔══██╗██║   ██║██║
+╚██████╔╝██║     ███████╗██║ ╚████║    ╚███╔███╔╝███████╗██████╔╝╚██████╔╝██║
+ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝
+
+
+v0.11.3 - building the best AI user interface.
+
+https://github.com/open-webui/open-webui
+
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-14 22:26:11.674 | INFO     | open_webui.utils.logger:start_logger:223 - GLOBAL_LOG_LEVEL: INFO
+2026-11-14 22:26:11.688 | INFO     | open_webui.main:lifespan:381 - Installing external dependencies of functions and tools...
+2026-11-14 22:26:11.692 | INFO     | open_webui.utils.plugin:install_frontmatter_requirements:429 - Offline mode enabled, skipping installation of requirements.
+2026-11-14 22:26:11.692 | INFO     | open_webui.main:lifespan:438 - Initializing tool servers...
+2026-11-14 22:26:11.692 | INFO     | open_webui.utils.automations:scheduler_worker_loop:221 - Scheduler worker started (timer poll interval: 1s, scheduler poll interval: 10s)
+2026-11-14 22:26:11.700 | INFO     | open_webui.main:lifespan:441 - Initialized 1 tool server(s)
+2026-11-14 22:26:11.700 | INFO     | open_webui.main:lifespan:447 - Initialized 0 terminal server(s)
+2026-11-14 22:26:12.133 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: a@proto.invalid
+2026-11-14 22:26:12.313 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:33994 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:26:12.319 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:34004 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:26:12.348 | INFO     | open_webui.routers.openai:get_all_models:799 - get_all_models()
+2026-11-14 22:26:12.364 | INFO     | open_webui.utils.session_pool:get_session:77 - Created shared aiohttp session pool (limit=unlimited, per_host=unlimited, dns_ttl=300)
+2026-11-14 22:26:12.366 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:34010 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:14.389 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:34018 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:16.437 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:34022 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:18.450 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60288 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:21.460 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60290 - "GET /api/v1/chats/872f6e0b-b8ff-43e3-940c-327e20ef9af9 HTTP/1.1" 200
+2026-11-14 22:26:21.462 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: b@proto.invalid
+2026-11-14 22:26:21.705 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60306 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:26:21.709 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60322 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:26:21.722 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60332 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:23.739 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60344 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:25.773 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60352 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:27.786 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:60354 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:30.795 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57112 - "GET /api/v1/chats/36fb7fa1-d5f3-48aa-87ea-73b94387fd9c HTTP/1.1" 200
+2026-11-14 22:26:30.797 | INFO     | open_webui.models.auths:authenticate_user:151 - authenticate_user: c@proto.invalid
+2026-11-14 22:26:31.043 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57128 - "POST /api/v1/auths/signin HTTP/1.1" 200
+2026-11-14 22:26:31.047 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57138 - "GET /api/v1/auths/ HTTP/1.1" 200
+2026-11-14 22:26:31.059 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57148 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:33.074 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57160 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:35.108 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57166 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:37.121 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:57174 - "POST /api/chat/completions HTTP/1.1" 200
+2026-11-14 22:26:40.130 | INFO     | uvicorn.protocols.http.httptools_impl:send:485 - 10.99.9.13:40510 - "GET /api/v1/chats/c0bf68cc-7cb5-4dbf-9920-64d8e1e088e1 HTTP/1.1" 200
