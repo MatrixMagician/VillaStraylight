@@ -153,6 +153,31 @@ construction.
   work either. A reasoning model opens every answer with the same preamble, and
   that preamble is already in the map.
 
+### Amended by #353 (2026-11-14): the flat probe under draft speculation
+
+The table above is `ngram-mod` only. With a draft sidecar (`speculation = "draft"`,
+`--spec-type ngram-mod,draft-mtp`, the `qwen3.8-27b` entry) a temperature-2 target
+rejects almost every drafted token, so each token pays for a wasted verification.
+Measured on the dev host (ROCm 10.0, ctx 16384, a second llama-server on port 8081,
+64 tokens, one discarded warm-up, five runs per cell, medians):
+
+| server | flat probe | greedy |
+|---|---|---|
+| draft sidecar | 8.65 tok/s, 14 of 1110 drafted tokens accepted | 68.18 tok/s, 269 of 377 accepted (23.1 on the first run) |
+| speculation off | 11.21 tok/s | 11.39 tok/s |
+
+Flat under draft is 0.77 of the speculation-off read, below the 0.8 the issue set as
+the line between documenting and changing. It errs toward a longer budget: 2048
+tokens at 8.65 tok/s is 237 s, inside the 300 s ceiling, where the agent's own greedy
+decoding runs several times faster. The pinned build has no per-request switch to
+turn speculation off, and a milder sampler would bring back the replay this ADR
+exists to avoid. So the read stays and its label changes: under draft speculation
+`agent-tool-call` reports `measured X tok/s under draft speculation, a lower bound`
+(`agentBudget.underSpeculation`). The budget is unchanged.
+
+The run shared the host's CPU with test suites, so the absolute rates may be a
+little low; both cells of each row ran under the same load.
+
 ## A kill that was never the budget's
 
 The first Gemma leg also failed `agent-tool-call` under the scaled budget, `crush

@@ -50,6 +50,30 @@ func TestAgentBudgetForScalesWithTheDecodeRate(t *testing.T) {
 	}
 }
 
+// TestAgentBudgetUnderDraftSaysLowerBound: under draft speculation the flat probe
+// pays for drafts the target almost never accepts, so it reads below the model's
+// own rate (#353: 8.65 tok/s against 11.21 with speculation off, 14 of 1110 drafts
+// accepted, on qwen3.8-27b). The budget only grows from that, but the source must
+// not present the read as the model's rate. No other speculation mode is relabelled.
+func TestAgentBudgetUnderDraftSaysLowerBound(t *testing.T) {
+	draft := agentBudgetFor(8.65, nil, 0).underSpeculation("draft")
+	if want := "measured 8.7 tok/s under draft speculation, a lower bound"; draft.Source != want {
+		t.Errorf("Source = %q, want %q", draft.Source, want)
+	}
+	if draft.Budget != 237*time.Second {
+		t.Errorf("Budget = %v, want 237s: the label must not change the bound", draft.Budget)
+	}
+	for _, mode := range []string{"", "off", "ngram"} {
+		if got := agentBudgetFor(50, nil, 0).underSpeculation(mode).Source; got != "measured 50.0 tok/s" {
+			t.Errorf("speculation %q: Source = %q, want it unchanged", mode, got)
+		}
+	}
+	unmeasured := agentBudgetFor(0, errors.New("boom"), 0).underSpeculation("draft")
+	if strings.Contains(unmeasured.Source, "lower bound") {
+		t.Errorf("an unmeasured rate is not a lower bound: %q", unmeasured.Source)
+	}
+}
+
 // TestAgentToolCallVerdictNamesTheBudget: every verdict the proof returns carries the
 // budget it ran under and where that budget came from, so an operator reading
 // `agent-tool-call ... signal: killed` can see the bound and the rate it was derived
