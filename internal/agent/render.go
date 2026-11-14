@@ -287,12 +287,16 @@ func canonicalize(b []byte) []byte {
 }
 
 // sandboxDisabledTools is the workspace-task denylist (spec v1.11 3.3): the four
-// the coding agent already disables, plus web_fetch and web_search. A task's
+// the coding agent already disables, plus web_fetch and web_search, plus the four
+// subagent tools Crush added in v0.100.0. A subagent runs in a child Crush session
+// that the bridge, the approval table and the grounding audit's filetracker do not
+// follow, so a task must not fork one (`villa code` keeps them). A task's
 // network reaches llama-server and nothing else, so this render is defense in
 // depth rather than the boundary — but a model that can SEE a web tool will try
 // it, and a tool call that fails is a wasted turn the operator pays for.
 var sandboxDisabledTools = []string{
 	"fetch", "agentic_fetch", "download", "sourcegraph", "web_fetch", "web_search",
+	"agent_dispatch", "agent_send", "agent_status", "agent_stop",
 }
 
 // RenderSandbox produces the crush.json a workspace task's in-sandbox Crush runs
@@ -302,7 +306,8 @@ var sandboxDisabledTools = []string{
 //   - The provider's base_url is baseURL, the sandbox-network address of the
 //     inference server, resolved by the caller. This package holds no host or
 //     port of its own.
-//   - The six web-class tools are disabled, and no lsp block is rendered
+//   - The six web-class tools and the four subagent tools are disabled
+//     (sandboxDisabledTools says why), and no lsp block is rendered
 //     (auto_lsp stays false): the office image ships no language servers, and
 //     probing for them inside a microVM buys nothing.
 //   - No permissions block. Render's allowed_tools exists so villa's own
