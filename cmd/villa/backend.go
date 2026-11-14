@@ -44,7 +44,17 @@ var acquireStackLock = func() (*stacklock.Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
-	return stacklock.Acquire(filepath.Join(filepath.Dir(cfgPath), stacklock.FileName))
+	return lockConfigDir(filepath.Dir(cfgPath))
+}
+
+// lockConfigDir takes the stack lock in dir, creating dir at SaveVilla's 0700 first:
+// before the first install it does not exist yet, and the lock is taken before the
+// config is ever written (#450).
+func lockConfigDir(dir string) (*stacklock.Lock, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create the villa config directory: %w", err)
+	}
+	return stacklock.Acquire(filepath.Join(dir, stacklock.FileName))
 }
 
 // liveTxDeps wires the swap transaction frame (ADR-0015) to the real host: the stack
