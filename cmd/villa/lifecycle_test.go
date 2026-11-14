@@ -226,24 +226,77 @@ func TestLifecycleUpModelFileErrorBlocks(t *testing.T) {
 	}
 }
 
-// TestLifecycleUpUnchangedIsNoOp: `up` with an empty Changed plan writes nothing,
-// reloads nothing, starts nothing, and exits 0 (true no-op).
+// TestLifecycleUpUnchangedIsNoOp: `up` with unchanged units and every targeted service
+// already running writes nothing, reloads nothing, starts nothing, and says so (true no-op).
 func TestLifecycleUpUnchangedIsNoOp(t *testing.T) {
 	units := twoUnitStack()
 	plan := orchestrate.Plan{Unchanged: units}
 	f := newFakeLifecycleDeps(t, units, plan)
+	f.active = map[string]bool{"villa-llama.service": true, orchestrate.DashboardServiceName: true}
 
 	cmd, out, _ := lifecycleTestCmd()
 	code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps)
 	if code != exitPass {
 		t.Fatalf("up no-op exit = %d, want 0", code)
 	}
-	if f.writeCalls != 0 || f.reloadCalls != 0 || len(f.startCalls) != 0 {
-		t.Errorf("up no-op must not write/reload/start: write=%d reload=%d start=%v", f.writeCalls, f.reloadCalls, f.startCalls)
+	if f.writeCalls != 0 || f.reloadCalls != 0 || len(f.startCalls) != 0 || len(f.restartCalls) != 0 {
+		t.Errorf("up no-op must not write/reload/start/restart: write=%d reload=%d start=%v restart=%v", f.writeCalls, f.reloadCalls, f.startCalls, f.restartCalls)
 	}
 	if !bytes.Contains(bytes.ToLower(out.Bytes()), []byte("no changes")) {
 		t.Errorf("up no-op should report no changes, got %q", out.String())
 	}
+}
+
+// TestLifecycleUpStartsAStoppedStackWithUnchangedUnits (#399): units that already match
+// config say nothing about whether the services run, so `up` still starts every targeted
+// service that is stopped, leaves a running one alone, and does not claim "no changes".
+func TestLifecycleUpStartsAStoppedStackWithUnchangedUnits(t *testing.T) {
+	units := twoUnitStack()
+	plan := orchestrate.Plan{Unchanged: units}
+
+	t.Run("whole stack", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+		f.active = map[string]bool{orchestrate.DashboardServiceName: true}
+
+		cmd, out, _ := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up exit = %d, want 0", code)
+		}
+		if want := []string{"villa-llama.service"}; !equalStrings(f.startCalls, want) {
+			t.Errorf("start calls = %v, want %v (only the stopped service)", f.startCalls, want)
+		}
+		if len(f.restartCalls) != 0 || f.writeCalls != 0 || f.reloadCalls != 0 {
+			t.Errorf("unchanged units: restart=%v write=%d reload=%d, want none", f.restartCalls, f.writeCalls, f.reloadCalls)
+		}
+		if got := out.String(); !strings.Contains(got, "started villa-llama.service") || strings.Contains(got, "no changes") {
+			t.Errorf("up output %q, want the start named and no no-change claim", got)
+		}
+	})
+
+	t.Run("named service", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+
+		cmd, _, _ := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, []string{"villa-llama"}, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up villa-llama exit = %d, want 0", code)
+		}
+		if want := []string{"villa-llama.service"}; !equalStrings(f.startCalls, want) {
+			t.Errorf("start calls = %v, want %v", f.startCalls, want)
+		}
+	})
+
+	t.Run("named service already running", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+		f.active = map[string]bool{"villa-llama.service": true}
+
+		cmd, out, _ := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, []string{"villa-llama"}, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up villa-llama exit = %d, want 0", code)
+		}
+		if len(f.startCalls) != 0 || !strings.Contains(out.String(), "no changes") {
+			t.Errorf("start=%v out=%q, want a true no-op", f.startCalls, out.String())
+		}
+	})
 }
 
 // TestLifecycleUpDryRunWritesNothing: `up --dry-run` prints the changed units and
@@ -523,7 +576,7 @@ func gatedOff() []orchestrate.Unit {
 func TestLifecycleUpStopsAndRemovesAGatedOffUnit(t *testing.T) {
 	units := twoUnitStack()
 	f := newFakeLifecycleDeps(t, units, orchestrate.Plan{Unchanged: units, Removed: gatedOff()})
-	f.active = map[string]bool{"villa-llama.service": true, "villa-searxng.service": true}
+	f.active = map[string]bool{"villa-llama.service": true, "villa-searxng.service": true, orchestrate.DashboardServiceName: true}
 
 	cmd, out, errOut := lifecycleTestCmd()
 	if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
@@ -540,6 +593,22 @@ func TestLifecycleUpStopsAndRemovesAGatedOffUnit(t *testing.T) {
 	}
 	if got := out.String(); !strings.Contains(got, "removed 2 unit(s) no longer rendered: villa-searxng.container, villa-websafe.container") || strings.Contains(got, "no changes") {
 		t.Errorf("up output %q, want the removal named and no no-change claim", got)
+	}
+}
+
+// TestLifecycleUpRemovalOnlyStillStartsAStoppedService (#399): a removal-only apply
+// changes no rendered unit, but a targeted service that is stopped is still started.
+func TestLifecycleUpRemovalOnlyStillStartsAStoppedService(t *testing.T) {
+	units := twoUnitStack()
+	f := newFakeLifecycleDeps(t, units, orchestrate.Plan{Unchanged: units, Removed: gatedOff()})
+	f.active = map[string]bool{"villa-searxng.service": true, orchestrate.DashboardServiceName: true}
+
+	cmd, _, errOut := lifecycleTestCmd()
+	if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+		t.Fatalf("up exit = %d, want 0 (stderr %q)", code, errOut.String())
+	}
+	if want := []string{"villa-llama.service"}; !equalStrings(f.startCalls, want) {
+		t.Errorf("start calls = %v, want %v", f.startCalls, want)
 	}
 }
 
