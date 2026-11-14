@@ -2,6 +2,7 @@ package taskstore
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +120,21 @@ func TestTransitionKeepsTheTaint(t *testing.T) {
 	}
 	if got.Taint != approval.TaintWeb {
 		t.Errorf("taint after Transition = %q, want web", got.Taint)
+	}
+}
+
+// TestTaintedRecordMatchesGolden freezes the tainted record's bytes: the taint
+// key sits above schema, and nothing else about the record moved.
+func TestTaintedRecordMatchesGolden(t *testing.T) {
+	task := fullTask("20260910-120115-4f2a")
+	task.Taint = approval.TaintWeb
+	task.Schema = schemaVersion
+	got, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := readGolden(t, "task-show-tainted.golden.json"); !bytes.Equal(got, want) {
+		t.Errorf("tainted record != golden\n got: %s\nwant: %s", got, want)
 	}
 }
 

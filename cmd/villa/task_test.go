@@ -98,6 +98,35 @@ func TestRunTaskShowTable(t *testing.T) {
 	}
 }
 
+// TestRunTaskShowTaint asserts a tainted record says so in both forms: the
+// human view names the source and what it changed, --json carries the record
+// verbatim, and an untainted record prints no taint row.
+func TestRunTaskShowTaint(t *testing.T) {
+	d, f := newTaskFixture(t)
+	golden := readTaskGolden(t, "task-show-tainted.golden.json")
+	f.showRaw = golden
+
+	cmd, out, _ := lifecycleTestCmd()
+	if code := runTaskShow(cmd, "20260910-120115-4f2a", true, d); code != exitPass || out.String() != string(golden) {
+		t.Fatalf("--json = %d %q, want the tainted record verbatim", code, out.String())
+	}
+
+	cmd, out, _ = lifecycleTestCmd()
+	if code := runTaskShow(cmd, "20260910-120115-4f2a", false, d); code != exitPass {
+		t.Fatalf("exit = %d", code)
+	}
+	if !strings.Contains(out.String(), "taint") || !strings.Contains(out.String(), "web: write and execute ask") {
+		t.Errorf("human view = %q, want a taint row naming web", out.String())
+	}
+
+	f.showRaw = readTaskGolden(t, "task-show.golden.json")
+	cmd, out, _ = lifecycleTestCmd()
+	runTaskShow(cmd, "20260910-120115-4f2a", false, d)
+	if strings.Contains(out.String(), "taint") {
+		t.Errorf("an untainted record must print no taint row: %q", out.String())
+	}
+}
+
 // TestRunTaskAnswerVerbs asserts each answer verb hits its own route with the
 // body the API expects.
 func TestRunTaskAnswerVerbs(t *testing.T) {

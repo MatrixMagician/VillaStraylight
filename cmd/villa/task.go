@@ -206,6 +206,9 @@ func runTaskShow(cmd *cobra.Command, id string, asJSON bool, d *taskDeps) int {
 	if t.FinishedAt != "" {
 		fmt.Fprintf(tw, "finished\t%s\n", t.FinishedAt)
 	}
+	if t.Taint.Tainted() {
+		fmt.Fprintf(tw, "taint\t%s: write and execute ask in every mode\n", t.Taint)
+	}
 	for _, f := range t.Files {
 		fmt.Fprintf(tw, "file\t%s %s\n", f.Action, f.Path)
 	}
