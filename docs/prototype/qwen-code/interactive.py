@@ -54,7 +54,8 @@ MODES = {
 CONTRACT = os.environ.get("CONTRACT_DIR")
 if MODE.startswith("villa-contract"):
     emitted = json.load(open(os.path.join(CONTRACT, "settings.out")))
-    emitted["modelProviders"]["openai"][0]["baseUrl"] = "http://proto-llama:8080/v1"
+    # CONTRACT_BASE_URL keeps an IP-literal base URL so it can match an IP-literal NO_PROXY (#389).
+    emitted["modelProviders"]["openai"][0]["baseUrl"] = os.environ.get("CONTRACT_BASE_URL", "http://proto-llama:8080/v1")
     settings = {"__villa_qwen_home__": emitted}
     env = {}
     for line in open(os.path.join(CONTRACT, "env.out")):

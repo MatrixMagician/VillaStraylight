@@ -370,9 +370,12 @@ dashboard service drives rather than reads:
    `bridge_ready` line. The instruction goes in with `grounding.CitationInstruction`
    appended. Every Crush permission request is answered by `approval.Decide` or
    parks the task in `awaiting_approval`; file events append to the record.
-4. **Audit**: after `run_complete`, one `grounding.Audit` call per file the task
-   created or modified, the sources being the files the session read. Any
-   unsupported claim, or an audit that could not run, makes the task `flagged`.
+4. **Observe and audit**: after `run_complete`, the runner reads each distinct
+   reported path once and records an observation (present with size and sha256,
+   absent, or unobserved; ADR-0047). Then one `grounding.Audit` call per present
+   document, over the bytes the observation hashed, the sources being the files
+   the session read. A reported file absent after the run, any unsupported
+   claim, or an audit that could not run makes the task `flagged`.
 5. **Finish**: the terminal state is written under a legal edge of
    `taskstore.CanTransition`, the container exits (`--rm`), and the terminal
    re-reads the record from the API before printing the summary, so a cut stream

@@ -98,6 +98,35 @@ func TestRunTaskShowTable(t *testing.T) {
 	}
 }
 
+// TestRunTaskShowPrintsTheObservationBesideEachFile guards that the operator
+// reads what villa saw on disk next to what the harness reported: present with
+// size and hash, or unobserved with the reason, on the file's own line.
+func TestRunTaskShowPrintsTheObservationBesideEachFile(t *testing.T) {
+	d, f := newTaskFixture(t)
+	f.showRaw = readTaskGolden(t, "task-show.golden.json")
+
+	cmd, out, errOut := lifecycleTestCmd()
+	if code := runTaskShow(cmd, "20260910-120115-4f2a", false, d); code != exitPass {
+		t.Fatalf("exit = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	lines := strings.Split(out.String(), "\n")
+	wantLines := map[string]string{
+		"created summary.md": "present, 412 bytes, sha256 9f2c4e0d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f10",
+		"modified notes.txt": "unobserved (permission denied)",
+	}
+	for event, observed := range wantLines {
+		found := false
+		for _, l := range lines {
+			if strings.Contains(l, event) && strings.Contains(l, observed) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no line carries %q with %q:\n%s", event, observed, out.String())
+		}
+	}
+}
+
 // TestRunTaskAnswerVerbs asserts each answer verb hits its own route with the
 // body the API expects.
 func TestRunTaskAnswerVerbs(t *testing.T) {

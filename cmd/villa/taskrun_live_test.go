@@ -76,6 +76,29 @@ func TestLiveRenderSandboxArgsRefusesASensitiveWorkspace(t *testing.T) {
 	}
 }
 
+// TestLiveRenderSandboxArgsRefusesAWorkspaceWithProjectSkills guards #438 at
+// the launch: a skill dir added after Submit still stops the task before the
+// VM boots, and the refusal names the path.
+func TestLiveRenderSandboxArgsRefusesAWorkspaceWithProjectSkills(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws := filepath.Join(home, "reports")
+	skills := filepath.Join(ws, ".claude", "skills", "x")
+	if err := os.MkdirAll(skills, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skills, "SKILL.md"), []byte("---\nname: x\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := liveRenderSandboxArgs(config.VillaConfig{}, ws, "20260910-120115-4f2a")
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(ws, ".claude", "skills")) {
+		t.Errorf("liveRenderSandboxArgs = %v, want a refusal naming the skills dir", err)
+	}
+}
+
 // TestReadBridgeEventsDecodesLinesAndSkipsNoise asserts the stdout reader
 // yields every event line in order, ignores non-event lines, and closes at EOF.
 func TestReadBridgeEventsDecodesLinesAndSkipsNoise(t *testing.T) {

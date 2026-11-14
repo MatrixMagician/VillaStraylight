@@ -15,10 +15,15 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
-// schemaVersion is the task record's own self-version (spec §3.2: schema: 1).
-// Bump only on an incompatible Task field change; new fields append above
-// Schema, which stays last (the append-only discipline every store here follows).
-const schemaVersion = 1
+// schemaVersion is the task record's own self-version. New fields append above
+// Schema, which stays last, and every append bumps it (2: observations,
+// ADR-0047). Every write stamps it, because the bytes written are always the
+// current shape, a pre-upgrade record rewritten by Recover included.
+const schemaVersion = 2
+
+// listSchemaVersion is the list view's own version. It is separate from the
+// record's because the list shape did not change when the record grew.
+const listSchemaVersion = 1
 
 // Task is one task record (spec §3.2 table), the whole document at
 // tasks/<id>.json. Field order is the on-disk contract the show/list goldens
@@ -41,7 +46,33 @@ type Task struct {
 	Files       []FileEvent `json:"files"`
 	Approvals   []Approval  `json:"approvals"`
 	Grounding   Grounding   `json:"grounding"`
-	Schema      int         `json:"schema"`
+	// Observations is what villa read at each distinct Files path after the
+	// run, in first-reported order. Files is the harness's word; this is villa's.
+	Observations []Observation `json:"observations"`
+	Schema       int           `json:"schema"`
+}
+
+// ObservationState is what villa saw at a reported path after the run.
+// Unobserved is the typed-Unknown: the read failed for a reason other than
+// absence, so the path is neither present nor absent.
+type ObservationState string
+
+const (
+	ObservedPresent ObservationState = "present"
+	ObservedAbsent  ObservationState = "absent"
+	Unobserved      ObservationState = "unobserved"
+)
+
+// Observation is one post-run read of a reported path (ADR-0047). Size and
+// SHA256 are set only when present; Error only when unobserved. ObservedAt is
+// when the read was made, whatever it found.
+type Observation struct {
+	Path       string           `json:"path"`
+	State      ObservationState `json:"state"`
+	Size       *int64           `json:"size,omitempty"`
+	SHA256     string           `json:"sha256,omitempty"`
+	ObservedAt string           `json:"observed_at"`
+	Error      string           `json:"error,omitempty"`
 }
 
 // Harness names the coding harness and the version the bridge asserted.
@@ -109,7 +140,7 @@ type ListViewTask struct {
 // NewListView projects a []Task (as returned by List, already time-ordered)
 // into the frozen list shape.
 func NewListView(tasks []Task) ListView {
-	v := ListView{Schema: schemaVersion, Tasks: make([]ListViewTask, len(tasks))}
+	v := ListView{Schema: listSchemaVersion, Tasks: make([]ListViewTask, len(tasks))}
 	for i, t := range tasks {
 		v.Tasks[i] = ListViewTask{
 			ID:          t.ID,
@@ -264,7 +295,6 @@ func (s Store) Create(t Task) error {
 		exit := Exit(t.State)
 		t.Exit = &exit
 	}
-	t.Schema = schemaVersion
 	return s.writeRecord(t)
 }
 
@@ -318,6 +348,10 @@ func (s Store) Transition(id string, to State, mutate func(*Task)) (Task, error)
 }
 
 func (s Store) writeRecord(t Task) error {
+	if t.Observations == nil {
+		t.Observations = []Observation{}
+	}
+	t.Schema = schemaVersion
 	data, err := json.Marshal(t)
 	if err != nil {
 		return fmt.Errorf("taskstore: marshal %s: %w", t.ID, err)

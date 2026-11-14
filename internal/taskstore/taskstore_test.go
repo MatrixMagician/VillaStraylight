@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+var update = flag.Bool("update", false, "rewrite the record golden from the on-disk bytes")
 
 // fullTask is a fully populated Task fixture: every field set, every nested
 // slice non-empty, used by the round-trip and golden tests.
@@ -45,8 +48,14 @@ func fullTask(id string) Task {
 				},
 			},
 		},
+		Observations: []Observation{
+			{Path: "summary.md", State: ObservedPresent, Size: ptr(int64(412)), SHA256: "9f2c4e0d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f10", ObservedAt: "2026-09-10T12:04:00Z"},
+			{Path: "notes.txt", State: Unobserved, ObservedAt: "2026-09-10T12:04:00Z", Error: "permission denied"},
+		},
 	}
 }
+
+func ptr[T any](v T) *T { return &v }
 
 func readGolden(t *testing.T, name string) []byte {
 	t.Helper()
@@ -102,6 +111,7 @@ func TestCreateLoadRoundTrip(t *testing.T) {
 		tk.Files = in.Files
 		tk.Approvals = in.Approvals
 		tk.Grounding = in.Grounding
+		tk.Observations = in.Observations
 	})
 	if err != nil {
 		t.Fatalf("Transition -> done: %v", err)
@@ -124,6 +134,11 @@ func TestCreateLoadRoundTrip(t *testing.T) {
 	onDisk, err := os.ReadFile(filepath.Join(root, "tasks", id+".json"))
 	if err != nil {
 		t.Fatalf("read on-disk record: %v", err)
+	}
+	if *update {
+		if err := os.WriteFile(filepath.Join("testdata", "task-show.golden.json"), onDisk, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	want := readGolden(t, "task-show.golden.json")
 	if !bytes.Equal(onDisk, want) {
@@ -469,5 +484,39 @@ func TestRecoverIdempotent(t *testing.T) {
 		if !bytes.Equal(data, after) {
 			t.Errorf("%s changed on disk after a no-op Recover", id)
 		}
+	}
+}
+
+// TestARewrittenSchema1RecordCarriesTheCurrentShape guards the upgrade edge: a
+// record written before observations existed and rewritten afterwards (Recover
+// after a restart is the common case) is stamped with the schema its bytes now
+// follow, and carries an observations array rather than a null.
+func TestARewrittenSchema1RecordCarriesTheCurrentShape(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	id := "20260910-120200-0002"
+	v1 := `{"id":"` + id + `","workspace":"/w","instruction":"i","mode":"ask","state":"running","submitted_at":"2026-09-10T12:00:00Z","harness":{"name":"","version":""},"files":[],"approvals":[],"grounding":{"checked":false,"documents":[]},"schema":1}`
+	if err := os.MkdirAll(filepath.Join(root, "tasks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tasks", id+".json"), []byte(v1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recover(); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(root, "tasks", id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(onDisk, &shape); err != nil {
+		t.Fatal(err)
+	}
+	if string(shape["observations"]) != "[]" {
+		t.Errorf("observations = %s, want []", shape["observations"])
+	}
+	if string(shape["schema"]) != "2" {
+		t.Errorf("schema = %s, want 2", shape["schema"])
 	}
 }

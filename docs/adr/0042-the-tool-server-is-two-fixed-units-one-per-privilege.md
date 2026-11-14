@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The tool server is two fixed units, one per privilege
@@ -673,3 +673,5 @@ The maintainer should look at these first.
   sits beside, and it does not narrow that path.
 - What the operator could choose instead: one unit with recall deferred, a
   `villa_web_fetch` tool, public access grants, or the signed identity token.
+
+Accepted on 2026-11-14 by operator approval.

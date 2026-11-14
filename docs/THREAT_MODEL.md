@@ -67,7 +67,7 @@ positive-controlled probe that the recall unit has no route off-box, and one rea
 ## Known gaps and accepted residuals
 
 1. **Crush checks for a release at every start** ([#389]). The pinned Crush
-   contacts `api.github.com` on each launch, and v0.93.1 has no switch for it.
+   contacts `api.github.com` on each launch, and v0.101.0 still has no switch for it.
    The request carries the client IP and the Crush version. That is inferred
    from the binary's symbol and the traffic shape, because the leg is TLS and
    was not decoded. The opt-in `villa code --offline` points the proxy variables

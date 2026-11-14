@@ -1,8 +1,8 @@
 # Security review: villa's own tool server
 
-Draft for the maintainer's sign-off (#360). It reviews the design in
-[ADR-0042](../adr/0042-the-tool-server-is-two-fixed-units-one-per-privilege.md). None of
-the design is built. The sign-off is the maintainer's, and an agent drafted this page.
+Signed off on 2026-11-14 by operator approval (#360). It reviews the design in
+[ADR-0042](../adr/0042-the-tool-server-is-two-fixed-units-one-per-privilege.md), and it
+was written before any of the design was built. An agent drafted this page.
 
 How to read the control tables:
 
