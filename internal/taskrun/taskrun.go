@@ -30,6 +30,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
@@ -61,7 +62,10 @@ type Deps struct {
 	ToolsOn    func(cfg config.VillaConfig) bool
 	// SandboxReady is PRE-09's verdict; the remediation is the refusal text.
 	SandboxReady func() (ok bool, remediation string)
-	Audit        func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
+	// ServedProps reads the served model's /props, nil when it cannot be read. The
+	// live binding bounds the read, so a hung server cannot hold Submit.
+	ServedProps func(ctx context.Context) *inference.PropsInfo
+	Audit       func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
 	// ReadFile reads one workspace-relative file for the audit.
 	ReadFile func(workspace, rel string) ([]byte, error)
 	Now      func() time.Time
@@ -210,7 +214,7 @@ func (r *Runner) Recover() error {
 // Submit refuses or queues one task. A refusal is a record in state refused
 // with the remediation in its log, so the caller's exit-code table works from
 // the record alone; only a malformed request or a store failure is an error.
-func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, error) {
+func (r *Runner) Submit(ctx context.Context, req SubmitRequest) (taskstore.Task, error) {
 	mode := req.Mode
 	if mode == "" {
 		mode = approval.ModeAsk
@@ -236,13 +240,17 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 		SubmittedAt: stamp(now),
 	}
 
-	refusal := ""
+	refusal, warn := "", ""
 	if ws, ok := r.d.Registered(cfg, req.Workspace); !ok {
 		refusal = fmt.Sprintf("refused: %s is not a registered workspace; run `villa workspace add %s`", req.Workspace, req.Workspace)
 	} else if t.Workspace = ws; !r.d.ToolsOn(cfg) {
 		refusal = "refused: tools mode is off; run `villa tools-mode enter`"
 	} else if ready, remediation := r.d.SandboxReady(); !ready {
 		refusal = "refused: the sandbox cannot start: " + remediation
+	} else if caps := r.d.ServedProps(ctx).ToolCapable(); caps.Known && !caps.Value {
+		refusal = "refused: " + inference.ToolsMissing + "; " + inference.ToolsFix
+	} else if !caps.Known {
+		warn = "warning: the served model's /props does not say whether it supports tool calls; the task may fail if it cannot make them"
 	}
 	if refusal != "" {
 		t.State = taskstore.Refused
@@ -263,6 +271,9 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 	r.queue = append(r.queue, t.ID)
 	r.mu.Unlock()
 	r.narrate(&t, KindNarration, "queued")
+	if warn != "" {
+		r.narrate(&t, KindNarration, warn)
+	}
 	select {
 	case r.wake <- struct{}{}:
 	default:
