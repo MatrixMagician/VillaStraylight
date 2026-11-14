@@ -41,6 +41,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -241,6 +242,21 @@ func liveCatalogGeometry(cfg config.VillaConfig) func() []preflight.CheckResult 
 	}
 }
 
+// liveCatalogOrigin binds the catalog-provenance seam (CAT-02, CAT-03; ADR-0041). It is
+// nil on the embedded seed, where there is nothing to compare it to, and when the
+// external catalog cannot be loaded, which is the core's no-finding case.
+func liveCatalogOrigin(cfg config.VillaConfig) func() []preflight.CheckResult {
+	path := cmp.Or(modelCatalogPath, cfg.CatalogPath)
+	if path == "" {
+		return nil
+	}
+	cat, _, err := catalog.Load(path)
+	if err != nil {
+		return nil
+	}
+	return func() []preflight.CheckResult { return preflight.RunCatalogOrigin(cat, cfg.Model, path) }
+}
+
 // liveDoctorDeps wires doctor.Deps to the real host for the config the run loaded. It
 // binds reads, the four proofs that drive real workloads, and the preflight bindings,
 // and nothing else: it decides nothing, so it binds every seam whatever the config
@@ -282,6 +298,7 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		RunMemoryChecks: preflight.RunMemory,
 		ReadVerifyState: sd.ReadVerifyState,
 		CatalogGeometry: liveCatalogGeometry(cfg),
+		CatalogOrigin:   liveCatalogOrigin(cfg),
 		// SBX-01 reuses the exact same preflight.SandboxDeps PRE-09 uses
 		// (liveSandboxDeps, preflight_sandbox.go) so `villa preflight` and `villa
 		// doctor` can never observe the host through a different probe. It is built
@@ -315,6 +332,12 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		RenderCrushConfig: func(cfg config.VillaConfig) ([]byte, error) {
 			reference, _, err := agent.Render(cfg, liveLSPProbes())
 			return reference, err
+		},
+		// The scope file the recall tool unit mounts, read through the same fail-closed
+		// store the host writes it with.
+		ReadToolsVerifyState: liveReadToolsVerifyState,
+		ReadRecallScope: func() (recall.Scope, error) {
+			return recall.LoadScope(recall.Deps{ReadAll: storeReader(recall.ScopePath())})
 		},
 	}, nil
 }

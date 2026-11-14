@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Web content in a task taints it, per source
@@ -53,9 +53,10 @@ Per-source taint.
 - **Nothing sets it yet.** The only call site that will, `taskrun.Runner.Taint`, has no
   caller until #408. The tool server (#360 to #363) stays read-only.
 - **Store skew.** A task record is not a `villa backup` entry (ADR-0020), so no skew rule
-  applies to it. The field is `omitempty` and added above `schema`, so a record written
-  before it loads as untainted and an untainted record serialises to the same bytes as
-  before. The schema version stays 1: nothing a v1 reader depends on changed.
+  applies to it. The field is `omitempty` and added after `observations` and above
+  `schema`, so a record written before it loads as untainted. ADR-0047 landed first and
+  made every append to the record bump its schema, so this one takes the record from
+  schema 2 to 3; an untainted record differs from a schema 2 record only in that number.
 
 ## Consequences
 
@@ -70,3 +71,5 @@ Per-source taint.
   allowlisted scripts. The sandbox and the workspace grant bound what that reaches.
 - The first source arrives with #408, which must set the taint before the first web
   content reaches the model, not after the response that used it.
+
+Accepted on 2026-11-14 by operator approval.

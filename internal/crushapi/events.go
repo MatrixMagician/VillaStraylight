@@ -122,7 +122,17 @@ type FileEvent struct {
 	SessionID string `json:"session_id,omitempty"`
 	Path      string `json:"path"`
 	Version   int64  `json:"version,omitempty"`
+	// Op is the pubsub verb the record arrived under. Crush's history service
+	// publishes created for every new version it records and deleted only when
+	// it drops a record (internal/history/file.go Delete), which is not a write.
+	Op string `json:"op,omitempty"`
 }
+
+// The pubsub verbs a file event arrives under (internal/pubsub/events.go).
+const (
+	FileOpCreated = "created"
+	FileOpDeleted = "deleted"
+)
 
 // RunComplete is the terminal event of one turn.
 type RunComplete struct {
@@ -141,9 +151,10 @@ type envelope struct {
 }
 
 // inner is pubsub.Event[T]: the created/updated/deleted verb plus the payload.
-// villa ignores the verb — a message arrives as created then repeatedly as
-// updated, and the runner narrates the latest either way.
+// villa reads the verb only for a file event: a message arrives as created then
+// repeatedly as updated, and the runner narrates the latest either way.
 type inner struct {
+	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 }
 
@@ -201,6 +212,7 @@ func decodeEvent(data []byte, now time.Time) (Event, error) {
 	case KindFile:
 		var f FileEvent
 		if err := json.Unmarshal(in.Payload, &f); err == nil {
+			f.Op = in.Type
 			ev.File = &f
 		}
 	case KindRunComplete:

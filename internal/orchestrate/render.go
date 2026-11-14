@@ -216,7 +216,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	if imageOn {
 		imageEnv = in.Image
 	}
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret, imageEnv))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", withToolServer(buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret, imageEnv), in.Cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +393,29 @@ func Render(in RenderInput) ([]Unit, error) {
 			Unit{Name: sttContainerUnitName, Text: sttText},
 			Unit{Name: ttsContainerUnitName, Text: ttsText},
 		)
+	}
+
+	// The tool server (ADR-0042) is appended after the voice units and before the
+	// sandbox network, web first, so no existing unit moves and a gate-off render is
+	// byte-identical. Each unit answers its own derived gate: the web unit needs web
+	// search, the recall unit needs memory. Both reuse villa-websafe's pin.
+	if subsystem.ToolWebOn(in.Cfg) {
+		webText, err := execTemplate(tmpl, "tools.container.tmpl", buildToolsWebView(in.pinOr(ComponentWebsafe, websafeImage), in.HostVillaPath))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: toolsWebContainerUnitName, Text: webText})
+	}
+	if subsystem.ToolRecallOn(in.Cfg) {
+		rv, err := buildToolsRecallView(in.pinOr(ComponentWebsafe, websafeImage), in.HostVillaPath, in.RecallScopeDir, mv.EmbeddingModel)
+		if err != nil {
+			return nil, err
+		}
+		recallText, err := execTemplate(tmpl, "tools.container.tmpl", rv)
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: toolsRecallContainerUnitName, Text: recallText})
 	}
 
 	// v1.11 workspace agent: the internal task network, appended LAST so every unit

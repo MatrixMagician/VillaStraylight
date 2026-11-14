@@ -71,6 +71,7 @@ func newInstall() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.WorkspaceAgent, "workspace-agent", false, "enable the workspace agent: persist the gate and serve the chat unit for tool calling, which is how the agent drives the endpoint (opt-in; default off)")
 	cmd.Flags().BoolVar(&opts.Voice, "voice", false, "install the voice addon: render whisper speech-to-text and Kokoro text-to-speech, wire Open WebUI's voice input and read-aloud, and prove a spoken round trip (opt-in; default off)")
 	cmd.Flags().BoolVar(&opts.Image, "image", false, "install local image generation: reserve the image model's footprint before the chat fit, pull its three weight files, render the villa-image sd-server unit on Vulkan RADV, wire Open WebUI's image generation to it, and prove offload with a real generation (opt-in; default off)")
+	cmd.Flags().BoolVar(&opts.ToolServer, "tool-server", false, "publish villa's own web search and recall search to Open WebUI as model-callable tools: persist the gate, serve the chat unit for tool calling, render villa-tools-web and villa-tools-recall on their own networks, wire their connections and wait for each to answer. Needs web search, memory or both (opt-in; default off)")
 	return cmd
 }
 
@@ -284,6 +285,8 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		WriteSearxngSettings:    orchestrate.WriteSearxngSettings,
 		WriteSearxngSecretEnv:   orchestrate.WriteSearxngSecretEnv,
 		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
+		WriteToolEnv:            orchestrate.WriteToolEnvFile,
+		WriteRecallScope:        liveHealRecallScope,
 
 		Endpoint:        func() string { return endpoint },
 		PollReady:       liveReadinessPoll,
@@ -315,6 +318,9 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		},
 		ProveVoice: func(ctx context.Context) install.Proof {
 			return voiceInstallProof(liveVoiceProof(ctx))
+		},
+		ProveToolServer: func(ctx context.Context, cfg config.VillaConfig) install.Proof {
+			return waitToolServer(ctx, cfg, liveToolServerProbes(), toolServerPollInterval, toolServerReadyTimeout)
 		},
 		ProveImage: func(ctx context.Context, cfg config.VillaConfig) install.Proof {
 			return proofFromVerdict(liveImageProof(ctx, cfg))

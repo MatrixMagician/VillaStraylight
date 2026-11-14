@@ -63,6 +63,15 @@ type Deps struct {
 	// SaveConfig and WriteInferenceSecretEnv back the inference-secret heal.
 	SaveConfig              func(config.VillaConfig) error
 	WriteInferenceSecretEnv func(name, text string) error
+	// RecallScopeDir is the host directory villa-tools-recall mounts read-only; nil
+	// leaves it empty, which no tool-server-off render reads.
+	RecallScopeDir func() string
+	// WriteToolEnv writes one 0600 file under the tool server's config dir, and
+	// WriteRecallScope rewrites the recall scope file from the saved recall state
+	// (ADR-0042). Both back the tool-server heal and are called only while the gate is
+	// on; nil is skipped, so a host with no tool server wires neither.
+	WriteToolEnv     func(name, text string) error
+	WriteRecallScope func() error
 	// HealAgentConfig rewrites crush.json when its only drift is villa's inference
 	// key (ADR-0019), handed the config after the secret heal. The live wiring is a
 	// no-op when the coding agent is off or crush.json is absent. nil skips the heal.
@@ -128,8 +137,8 @@ type Applied struct {
 // Empty reports whether the apply left every unit file as it found it.
 func (a Applied) Empty() bool { return len(a.Changed) == 0 && len(a.Removed) == 0 }
 
-// Apply makes the unit files match cfg: heal the inference secret, heal crush.json's
-// copy of it (ADR-0019), render, reconcile, stop the running services of the units
+// Apply makes the unit files match cfg: heal the inference secret and the tool-server
+// bearers and files (ADR-0042), heal crush.json's copy of the inference one (ADR-0019), render, reconcile, stop the running services of the units
 // cfg no longer renders, write the changed units, remove the removed ones and
 // daemon-reload once (ADR-0035). It reports what it did even when a later step
 // fails, so a caller's rollback knows what is on disk and what it stopped. Nothing
@@ -142,7 +151,7 @@ func (a Applied) Empty() bool { return len(a.Changed) == 0 && len(a.Removed) == 
 func Apply(d Deps, cfg config.VillaConfig) (Applied, error) {
 	cfg, err := heal(d, cfg)
 	if err != nil {
-		return Applied{}, fmt.Errorf("ensure inference secret: %w", err)
+		return Applied{}, fmt.Errorf("heal secrets: %w", err)
 	}
 	if err := healAgentConfig(d, cfg); err != nil {
 		return Applied{}, err
@@ -307,6 +316,9 @@ func input(d Deps, cfg config.VillaConfig) (in orchestrate.RenderInput, err erro
 		Resident:      resident,
 		SlidingWindow: m.SWA != nil,
 	}
+	if d.RecallScopeDir != nil {
+		in.RecallScopeDir = d.RecallScopeDir()
+	}
 	if subsystem.CodingModeOn(cfg) {
 		in.CodingMode = codingSpec(m)
 		in.AgentCtx = cfg.CoderAgentCtx
@@ -356,21 +368,82 @@ func codingSpec(m catalog.Model) *inference.CodingModeSpec {
 // heal makes cfg carry the inference bearer and (re)writes its 0600 env file. An
 // existing secret is reused verbatim, never rotated; a missing one is generated and
 // persisted with the target config. The env file is written on every apply, which
-// also restores one deleted by hand.
+// also restores one deleted by hand. While the tool server is on it does the same for
+// its two bearers, its env files and its scope file, in the same save, because the chat
+// unit names a tool file and a missing one would stop the chat from starting.
 func heal(d Deps, cfg config.VillaConfig) (config.VillaConfig, error) {
-	if cfg.InferenceSecret == "" {
+	missingInference := cfg.InferenceSecret == ""
+	if missingInference {
 		secret, err := config.GenerateInferenceSecret()
 		if err != nil {
 			return cfg, fmt.Errorf("generate inference secret: %w", err)
 		}
 		cfg.InferenceSecret = secret
+	}
+	cfg, generatedTool, err := healToolSecrets(cfg)
+	if err != nil {
+		return cfg, err
+	}
+	if missingInference || generatedTool {
 		if err := d.SaveConfig(cfg); err != nil {
-			return cfg, fmt.Errorf("persist inference secret: %w", err)
+			return cfg, fmt.Errorf("persist generated secrets: %w", err)
 		}
 	}
 	name, text := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
 	if err := d.WriteInferenceSecretEnv(name, text); err != nil {
 		return cfg, fmt.Errorf("write inference secret env: %w", err)
 	}
+	if err := healToolServer(d, cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
+}
+
+// healToolSecrets generates whichever tool bearer is missing while the gate is on. Each
+// unit has its own, so the unit that parses untrusted pages never holds the key to the
+// recall index. It reports whether it generated one, so the caller saves once.
+func healToolSecrets(cfg config.VillaConfig) (config.VillaConfig, bool, error) {
+	if !subsystem.ToolServerOn(cfg) {
+		return cfg, false, nil
+	}
+	generated := false
+	for _, field := range []*string{&cfg.ToolWebSecret, &cfg.ToolRecallSecret} {
+		if *field != "" {
+			continue
+		}
+		secret, err := config.GenerateToolSecret()
+		if err != nil {
+			return cfg, false, fmt.Errorf("generate tool secret: %w", err)
+		}
+		*field = secret
+		generated = true
+	}
+	return cfg, generated, nil
+}
+
+// healToolServer writes the 0600 files the rendered tool units and the chat unit read,
+// and the recall scope the recall unit mounts. Only the units that render get a file, and
+// the scope is rewritten only for the recall unit. It is a no-op with the gate off.
+func healToolServer(d Deps, cfg config.VillaConfig) error {
+	if !subsystem.ToolServerOn(cfg) {
+		return nil
+	}
+	files, err := orchestrate.RenderToolEnvFiles(cfg)
+	if err != nil {
+		return fmt.Errorf("render tool server env files: %w", err)
+	}
+	if len(files) > 0 && d.WriteToolEnv == nil {
+		return fmt.Errorf("the tool server is on but no tool env writer is wired")
+	}
+	for _, f := range files {
+		if err := d.WriteToolEnv(f.Name, f.Text); err != nil {
+			return fmt.Errorf("write tool server env %s: %w", f.Name, err)
+		}
+	}
+	if subsystem.ToolRecallOn(cfg) && d.WriteRecallScope != nil {
+		if err := d.WriteRecallScope(); err != nil {
+			return fmt.Errorf("write recall scope: %w", err)
+		}
+	}
+	return nil
 }

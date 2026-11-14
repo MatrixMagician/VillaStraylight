@@ -21,7 +21,9 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
@@ -125,6 +127,9 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 		},
 		SandboxReady: func() (bool, string) {
 			return true, ""
+		},
+		ServedProps: func(context.Context) *inference.PropsInfo {
+			return &inference.PropsInfo{ToolsSupported: detect.Bool{Known: true, Value: true}}
 		},
 		Audit: func(_ context.Context, doc grounding.Document, _ []grounding.Source) grounding.DocumentReport {
 			return grounding.DocumentReport{Path: doc.Path, Checked: true, Claims: 1}
@@ -306,7 +311,7 @@ func TestListAndShow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if view.Schema != 1 || len(view.Tasks) != 1 || view.Tasks[0].ID != id || view.Tasks[0].State != taskstore.Refused {
+	if view.Schema != 2 || len(view.Tasks) != 1 || view.Tasks[0].ID != id || view.Tasks[0].State != taskstore.Refused {
 		t.Errorf("list = %+v", view)
 	}
 

@@ -244,8 +244,16 @@ func runTaskShow(cmd *cobra.Command, id string, asJSON bool, d *taskDeps) int {
 			fmt.Fprintf(tw, "report\t%s\n", path)
 		}
 	}
+	observed := map[string]taskstore.Observation{}
+	for _, o := range t.Observations {
+		observed[o.Path] = o
+	}
 	for _, f := range t.Files {
-		fmt.Fprintf(tw, "file\t%s %s\n", f.Action, f.Path)
+		line := f.Action + " " + f.Path
+		if o, ok := observed[f.Path]; ok {
+			line += ": " + observationCell(o)
+		}
+		fmt.Fprintf(tw, "file\t%s\n", line)
 	}
 	for _, a := range t.Approvals {
 		fmt.Fprintf(tw, "approval #%d\t%s %s %s: %s\n", a.Seq, a.Tool, a.Action, approvalTarget(a), approvalAnswerCell(a))
@@ -261,6 +269,24 @@ func runTaskShow(cmd *cobra.Command, id string, asJSON bool, d *taskDeps) int {
 	}
 	_ = tw.Flush()
 	return exitPass
+}
+
+// observationCell renders what villa read at a path after the run. A record
+// with no observation for a path (one written before ADR-0047, or a task that
+// never completed) prints the file event alone.
+func observationCell(o taskstore.Observation) string {
+	switch o.State {
+	case taskstore.ObservedPresent:
+		size := int64(0)
+		if o.Size != nil {
+			size = *o.Size
+		}
+		return fmt.Sprintf("present, %d bytes, sha256 %s", size, o.SHA256)
+	case taskstore.Unobserved:
+		return "unobserved (" + o.Error + ")"
+	default:
+		return string(o.State) + " after the run"
+	}
 }
 
 // approvalAnswerCell renders an approval's answer, naming an unanswered one as

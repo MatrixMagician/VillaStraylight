@@ -10,6 +10,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
@@ -67,6 +68,9 @@ func liveStackDeps() stackapply.Deps {
 		Stop:                    sys.Stop,
 		SaveConfig:              config.SaveVilla,
 		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
+		RecallScopeDir:          recall.ScopeDir,
+		WriteToolEnv:            orchestrate.WriteToolEnvFile,
+		WriteRecallScope:        liveHealRecallScope,
 		HealAgentConfig:         liveHealAgentConfig,
 	}
 }
@@ -239,6 +243,22 @@ func followJournalLive(service string) error {
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()
+}
+
+// liveModelOrigin is status.Deps.ModelOrigin: who vouches for cfg.Model, as
+// catalog.OriginOf's label, resolved through the same catalog every verb reads. It is
+// empty for a seed model, an unknown model and an unreadable catalog, because a report
+// never reads an absent origin as a verdict (ADR-0041).
+func liveModelOrigin(cfg config.VillaConfig) string {
+	cat, _, err := loadCatalog()
+	if err != nil {
+		return ""
+	}
+	m, ok := cat.FindByID(cfg.Model)
+	if !ok {
+		return ""
+	}
+	return catalog.OriginOf(m).Label()
 }
 
 // liveModelFile resolves the on-disk GGUF filename for the config'd model through

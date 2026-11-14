@@ -33,8 +33,9 @@ func researchTask() Task {
 			Path: "tasks/" + researchID + ".report.txt", Claims: 4,
 			Unsupported: []Unsupported{{Claim: "ROCm 7.2 drops gfx1100", Reason: "no passage says so"}},
 		}}},
-		Taint: approval.TaintWeb,
-		Kind:  KindResearch,
+		Observations: []Observation{},
+		Taint:        approval.TaintWeb,
+		Kind:         KindResearch,
 		Research: &Research{
 			Budget: ResearchBudget{Rounds: 2, Minutes: 10},
 			Report: "tasks/" + researchID + ".report.txt",

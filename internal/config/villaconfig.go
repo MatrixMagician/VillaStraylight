@@ -107,6 +107,17 @@ const (
 	ImageAddr = "villa-image"
 	// ImagePort is the in-network sd-server port, its own --listen-port default.
 	ImagePort = 1234
+
+	// ToolsWebAddr is the container-DNS name of villa-tools-web, the tool server's web
+	// search unit (ADR-0042). It joins villa.network only.
+	ToolsWebAddr = "villa-tools-web"
+	// ToolsWebPort is the in-network port villa-tools-web listens on.
+	ToolsWebPort = 8092
+	// ToolsRecallAddr is the container-DNS name of villa-tools-recall, the tool
+	// server's recall search unit. It joins villa-closed.network only.
+	ToolsRecallAddr = "villa-tools-recall"
+	// ToolsRecallPort is the in-network port villa-tools-recall listens on.
+	ToolsRecallPort = 8093
 )
 
 // VillaConfig is the persisted recommend selection that later phases (Phase 3
@@ -335,6 +346,23 @@ type VillaConfig struct {
 	// generation is off, so an image-off install is byte-identical on disk (the
 	// EmbeddingModel precedent).
 	ImageModel string `toml:"image_model,omitempty"`
+
+	// --- Tool server fields (#313, ADR-0042) ---
+	// Tail-appended and append-only like every optional block above.
+
+	// ToolServer gates villa-tools-web and villa-tools-recall (subsystem.ToolServer).
+	// Default false, written by `villa install --tool-server`; a deliberate bool,
+	// never self-healed.
+	ToolServer bool `toml:"tool_server,omitempty"`
+	// ToolWebSecret is villa-tools-web's bearer, generated once via
+	// GenerateToolSecret. It reaches the unit and Open WebUI only through 0600
+	// env files, never a 0644 unit. Zeroed by marshalVilla while ToolServer is off,
+	// not self-healed, never logged.
+	ToolWebSecret string `toml:"tool_web_secret,omitempty"`
+	// ToolRecallSecret is villa-tools-recall's bearer. It is a separate value from
+	// ToolWebSecret so the unit that parses untrusted pages never holds the key to
+	// the recall index. Same handling as ToolWebSecret.
+	ToolRecallSecret string `toml:"tool_recall_secret,omitempty"`
 }
 
 // ResidentModel is one secondary model held resident alongside VillaConfig.Model.
@@ -496,6 +524,21 @@ func Path() (string, error) {
 	return filepath.Join(dir, "config.toml"), nil
 }
 
+// LocalCatalogFile is the file name of the external catalog villa itself manages
+// (ADR-0041): `villa catalog add` creates it when no catalog_path names one.
+const LocalCatalogFile = "catalog-local.json"
+
+// LocalCatalogPath is the managed catalog's absolute path, beside config.toml. It is
+// the one external catalog villa backs up, because its location does not depend on
+// the config a restore has not read yet.
+func LocalCatalogPath() (string, error) {
+	dir, err := villaConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LocalCatalogFile), nil
+}
+
 // LoadVilla reads the TOML config, returning typed defaults when the file is
 // absent (read-only by default). A present-but-malformed file is a real
 // error the caller should surface.
@@ -572,6 +615,12 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 	if !c.ImageEnabled {
 		c.ImageModel = ""
 	}
+	// Tool-server omit-when-off: the bearers are dropped with the gate so an off
+	// install is byte-identical on disk (ADR-0042).
+	if !c.ToolServer {
+		c.ToolWebSecret = ""
+		c.ToolRecallSecret = ""
+	}
 	return toml.Marshal(c)
 }
 
@@ -614,6 +663,18 @@ func GenerateInferenceSecret() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("config: generate inference secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// GenerateToolSecret returns a fresh, high-entropy bearer for one tool-server unit
+// (ADR-0042): 32 bytes from crypto/rand, hex-encoded, a clone of GenerateWebLoaderSecret.
+// Call it once per unit, so the web and recall units never share a key. NEVER log the
+// value; it reaches the containers only through a 0600 EnvironmentFile.
+func GenerateToolSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("config: generate tool secret: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
 }

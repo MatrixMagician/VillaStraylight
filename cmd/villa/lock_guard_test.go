@@ -262,6 +262,10 @@ var lockRules = map[string]lockRule{
 	"liveConfigDeps":       {lockers: []string{"runConfigSet"}}, // config show only reads
 	"liveWorkspaceCmdDeps": {lockers: []string{"runWorkspaceAdd", "runWorkspaceRemove"}},
 	"saveRecommendation":   {lockers: []string{"saveRecommendation"}},
+	// `catalog add` pulls WITHOUT the lock (a multi-gigabyte download must not block
+	// every swap) and takes it through the Lock seam catalogadd.Run calls, around the
+	// catalog read-extend-write and the catalog_path write only (ADR-0041).
+	"liveCatalogAddDeps": {lockers: []string{"liveCatalogAddDeps"}},
 
 	// backup stops Open WebUI and Qdrant for a clean export (#267).
 	"liveDeps": {lockers: []string{"runBackup"}},
@@ -295,6 +299,9 @@ var lockRules = map[string]lockRule{
 	"liveImageProof": {readOnly: true},
 	// The voice proof reads villa-stt's invocation journal (#332) the same way.
 	"liveVoiceProof": {readOnly: true},
+	// The tool server proof reads the two tool units' journals from an instant
+	// (Systemd.JournalSince) and nothing else of systemd's (#363).
+	"liveToolsProof": {readOnly: true},
 }
 
 // guardFile is one non-test source file the guard reads.

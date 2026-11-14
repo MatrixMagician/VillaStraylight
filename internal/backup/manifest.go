@@ -60,7 +60,16 @@ import (
 //     contract as the earlier bumps: v4 and older backups stay restorable (the
 //     gate is m.SchemaVersion <= backupSchemaVersion), and a backup of an install
 //     with no eval-baselines.json records no entry.
-const backupSchemaVersion = 5
+//   - v6 (#407, ADR-0041): adds the OPTIONAL catalog-local.json entry
+//     (EntryCatalogLocal, the catalog `villa catalog add` manages beside config.toml).
+//     No new manifest field: the file carries its own schema_version, which
+//     catalog.Load already checks. The bump is REQUIRED for the reason v5 gives: a v5
+//     villa verifies every member the manifest lists and then silently drops one it
+//     does not know, so a v6 archive restored by a v5 villa would report success
+//     without the catalog, and the restored config would name a model no catalog
+//     carries. v5 and older backups stay restorable, and a backup of a host with no
+//     catalog-local.json records no entry.
+const backupSchemaVersion = 6
 
 // Archive entry names (the deterministic outer-tar layout). manifest.json
 // is FIRST so a reader parses the manifest before validating the rest. The bench
@@ -100,6 +109,14 @@ const (
 	// catch, which is why it is a backup entry at all. Restore replaces the document
 	// verbatim and warns about every current baseline the archive lacks.
 	EntryEvalBaselines = "eval-baselines.json"
+	// EntryCatalogLocal is the OPTIONAL managed catalog (ADR-0041): catalog-local.json
+	// beside config.toml, the file `villa catalog add` creates when no catalog_path
+	// names one. Losing it leaves config.toml naming an operator model that no catalog
+	// carries, and every stack apply then fails closed. Only this fixed path is
+	// archived: restore has to know where to write before it has read the archive's
+	// config, so a catalog_path elsewhere on disk stays the operator's to back up.
+	// Restore replaces the file verbatim, before the stack is restarted.
+	EntryCatalogLocal = "catalog-local.json"
 )
 
 // EntryChecksum is one archive member's name and its lowercase-hex SHA-256

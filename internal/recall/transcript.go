@@ -137,5 +137,11 @@ func RenderTranscript(c ChatDoc) (string, bool) {
 // (villa-recall-<chat-id>.txt) the clean-replace flow keys on; chat ids are
 // API-returned values, never user input.
 func TranscriptFilename(chatID string) string {
-	return "villa-recall-" + chatID + ".txt"
+	return transcriptPrefix + chatID + transcriptSuffix
 }
+
+// The two halves of a transcript upload's filename; ChatIDOf strips them again.
+const (
+	transcriptPrefix = "villa-recall-"
+	transcriptSuffix = ".txt"
+)

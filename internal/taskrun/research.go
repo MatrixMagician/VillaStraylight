@@ -67,7 +67,7 @@ func (r *Runner) SubmitResearch(_ context.Context, req ResearchRequest) (tasksto
 	if !r.d.WebSearchOn(cfg) {
 		refusal = webSearchOffRemediation
 	}
-	return r.admit(t, refusal, now)
+	return r.admit(t, refusal, "", now)
 }
 
 // runResearch is the worker's whole job for a research task.

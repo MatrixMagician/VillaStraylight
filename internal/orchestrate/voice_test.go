@@ -119,6 +119,8 @@ func TestRenderVoiceUnitsAfterInferproxyBeforeSandboxNetwork(t *testing.T) {
 		"villa-inferproxy.container",
 		"villa-stt.container",
 		"villa-tts.container",
+		"villa-tools-web.container",
+		"villa-tools-recall.container",
 		"villa-sandbox.network",
 		"villa-closed.network",
 	}

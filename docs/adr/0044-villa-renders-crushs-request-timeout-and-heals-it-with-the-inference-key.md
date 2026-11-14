@@ -71,3 +71,11 @@ operator edited a generated file by hand.
   the key. It is an editor hint only, and the `crushSchema` const is unchanged.
 - Crush's default moved to 2 minutes on its main branch. villa renders the value
   itself, so the pinned version's default no longer matters to it.
+
+## Update 2026-11-14: Crush v0.101.0
+
+Since v0.96 Crush's default `request_timeout` is 2 minutes. For a streamed request
+it bounds the silence between tokens, and the wait for the first token is at least
+five minutes. A non-streaming call gets one deadline of `request_timeout`. The
+formula stays: it is still valid, and it still extends the first-token wait past
+five minutes for windows over 60k.

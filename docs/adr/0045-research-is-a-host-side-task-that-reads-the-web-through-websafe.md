@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Research is a host-side task that reads the web through websafe
@@ -100,10 +100,12 @@ report is a file at `<data root>/tasks/<id>.report.txt`, written through `pathsa
 `taskstore.Store.WriteReport`, never deleted with the record. `villa task show` prints the
 absolute path and `villa research` prints the report from it. There is no report route,
 for the reason the log has none: the report is a host-local file, and a client that wants
-it reads it (a route is a later decision, not a precondition). The schema version stays 1,
-as in [ADR-0040]: the fields are omitted for every existing record and no v1 reader's
-reading of a workspace task changed. The `--json` goldens for existing records are
-byte-identical; the research record and the list row get new goldens.
+it reads it (a route is a later decision, not a precondition). Both fields are omitted on
+every workspace record. ADR-0047 landed first and made every append to the record bump
+its schema, and ADR-0040's taint took 3, so these take the record from schema 3 to 4.
+The list row's `kind` takes the list view from schema 1 to 2. A workspace record differs
+from a schema 3 record only in that number; the research record and the list row get
+new goldens.
 
 **3. The round loop.** `research.Run(ctx, Deps, Request) Result`, pure.
 
@@ -262,6 +264,8 @@ probe helper container that outlives its caller is bounded by its own `--max-tim
   own ADR.
 - It is a pattern, not a proof, like the deletion rule and the taint: the fence and the
   flags reduce what an injection does, and the report remains text a person has to read.
+
+Accepted on 2026-11-14 by operator approval.
 
 [ADR-0002]: 0002-the-web-guard-flags-injection-it-never-blocks.md
 [ADR-0011]: 0011-the-sandbox-reaches-inference-through-a-v1-proxy.md

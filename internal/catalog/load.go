@@ -43,16 +43,7 @@ func Load(externalPath string) (Catalog, []string, error) {
 		} else if ext.SchemaVersion != SupportedSchema {
 			warnings = append(warnings, schemaMismatchWarning(externalPath, ext.SchemaVersion))
 			// fall through to embedded seed below
-		} else if verr := validateNgramEntries(ext); verr != nil {
-			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
-			// fall through to embedded seed below
-		} else if verr := validateSidecars(ext); verr != nil {
-			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
-			// fall through to embedded seed below
-		} else if verr := validateSlidingWindow(ext); verr != nil {
-			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
-			// fall through to embedded seed below
-		} else if verr := validateCoderEntries(ext); verr != nil {
+		} else if verr := Validate(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
 		} else {
@@ -67,6 +58,36 @@ func Load(externalPath string) (Catalog, []string, error) {
 		return Catalog{}, warnings, fmt.Errorf("catalog: embedded seed failed to decode: %w", err)
 	}
 	return seed, warnings, nil
+}
+
+// Validate runs every fail-closed check an external catalog must pass, in the
+// order Load applies them, and returns the first refusal. A writer calls it before
+// writing so it cannot produce a file Load would then discard for the seed.
+func Validate(c Catalog) error {
+	for _, check := range []func(Catalog) error{validateNgramEntries, validateSidecars, validateSlidingWindow, validateCoderEntries} {
+		if err := check(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFile is Load without the fallback: it returns the external file or the reason
+// it is unusable. Reading degrades to the seed with a warning; a writer that did the
+// same would replace the operator's file with an edit of the seed, so `catalog add`
+// reads through here (ADR-0041). It performs the same checks as Load, in the same order.
+func LoadFile(path string) (Catalog, error) {
+	ext, err := loadExternal(path)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if ext.SchemaVersion != SupportedSchema {
+		return Catalog{}, fmt.Errorf("schema_version %d, this binary supports %d", ext.SchemaVersion, SupportedSchema)
+	}
+	if err := Validate(ext); err != nil {
+		return Catalog{}, err
+	}
+	return ext, nil
 }
 
 // schemaMismatchWarning produces a clear, direction-aware warning for a

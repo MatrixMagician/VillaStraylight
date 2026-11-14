@@ -63,7 +63,8 @@ func newRestore() *cobra.Command {
 			"carries them: the Qdrant volume (qdrant-volume.tar) and the recall state (recall-state.json) when memory " +
 			"is on, crush.json when the coding agent is on, the SearXNG settings (searxng-settings.yml) when web " +
 			"search is on, and the eval baselines (eval-baselines.json) when present, replaced verbatim with a " +
-			"warning naming any current baseline the archive lacks. Any " +
+			"warning naming any current baseline the archive lacks, and the managed catalog (catalog-local.json) " +
+			"when present, replaced verbatim before the restart. Any " +
 			"mutate error or a non-pass proof rolls back verbatim — a failed restore leaves the running stack intact. " +
 			"Strictly local — no data leaves the box.",
 		Args: cobra.ExactArgs(1),
@@ -220,6 +221,14 @@ var (
 		skipped:  "eval: archive carried baselines but this install wired no destination — NOT applied",
 		absent:   "eval: no baselines in this backup — left untouched",
 	}
+	// catalog-local.json is replaced verbatim before the restart, so the restored
+	// config's model resolves through the catalog it was added to.
+	catalogRestoreNarration = restoreNarration{
+		entry:    backup.EntryCatalogLocal,
+		restored: "catalog: catalog-local.json restored",
+		skipped:  "catalog: archive carried catalog-local.json but this install wired no destination — NOT applied",
+		absent:   "catalog: no catalog-local.json in this backup — left untouched",
+	}
 )
 
 func narrateRestoredEntry(out io.Writer, n restoreNarration, res backup.Result) {
@@ -247,6 +256,7 @@ func narrateRestored(out io.Writer, archivePath string, res backup.Result) {
 	narrateRestoredEntry(out, searxngRestoreNarration, res)
 	narrateRestoredEntry(out, evalRestoreNarration, res)
 	narrateEvalDropped(out, res)
+	narrateRestoredEntry(out, catalogRestoreNarration, res)
 	narrateEvalUnreadable(out, res)
 }
 
