@@ -219,6 +219,14 @@ type Report struct {
 	// of the v10 bump.
 	LastTask *LastTaskInfo `json:"last_task,omitempty"`
 
+	// ModelOrigin says who vouches for the configured model when it is not the
+	// embedded seed's own entry: "operator-supplied" (the id is not in the seed) or
+	// "operator-edited" (it is, with different content), derived by catalog.OriginOf
+	// (ADR-0041). It is omitempty, so a seed model, an unresolvable model and an
+	// unwired seam all omit it: absent is never a verdict. Tail-appended above
+	// SchemaVersion (append-only; nothing above moved). Part of the v13 bump.
+	ModelOrigin string `json:"model_origin,omitempty"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -266,7 +274,10 @@ type Report struct {
 // Version 12 adds the villa-extract.service row when the extractor is rendered
 // (ADR-0033); no field changed shape, and an extractor-off report differs from
 // v11 only in schema_version.
-const reportSchemaVersion = 12
+// Version 13 (ADR-0041) tail-appends the origin of the configured model ABOVE
+// SchemaVersion; omitted for a seed model, so the v13 output differs from v12 only in
+// schema_version.
+const reportSchemaVersion = 13
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather
@@ -483,6 +494,11 @@ func foldROCmReadiness(r detect.ROCmReadiness) ROCmReadinessIndicator {
 type Deps struct {
 	LoadConfig func() (config.VillaConfig, error)
 	ModelFile  func(config.VillaConfig) (string, error)
+	// ModelOrigin names who vouches for cfg.Model when it is not the embedded seed's
+	// own entry ("operator-supplied", "operator-edited"), and is empty otherwise. A seam
+	// for the reason ModelFile is: internal/status must not import internal/catalog.
+	// Nil-safe: an unwired seam reports no origin.
+	ModelOrigin func(config.VillaConfig) string
 	// ResidentUnits resolves each configured resident slot's catalog model id to
 	// its GGUF filename. It is a seam for the same reason ModelFile is: internal/status
 	// must not import internal/catalog to turn a model id into a weight file. Run
@@ -703,6 +719,9 @@ func Run(d Deps) Report {
 	// on this. Sourced from the same cfg as Backend/Image; omitempty omits it when unset
 	// (typed-Unknown, never a fabricated identity).
 	report.Model = cfg.Model
+	if d.ModelOrigin != nil && cfg.Model != "" {
+		report.ModelOrigin = d.ModelOrigin(cfg)
+	}
 	report.Speculation = cmp.Or(cfg.Speculation, config.SpeculationOff)
 	report.Vision = cfg.Vision
 	report.Tools = subsystem.ToolsOn(cfg)
