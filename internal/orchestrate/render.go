@@ -568,9 +568,10 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	// Defensive: every imperative field must have been sourced from the seam. Device
 	// and group are slices (≥1 element required); Env is intentionally NOT checked
 	// the Vulkan backend legitimately emits zero env, and requiring it would break the
-	// Vulkan path (RESEARCH Pitfall 1).
+	// Vulkan path (RESEARCH Pitfall 1). PodmanArgs is not checked either: the Vulkan
+	// backend emits no security option since #343, and the template omits the line.
 	if len(cv.AddDevice) == 0 || len(cv.GroupAdd) == 0 || cv.PublishPort == "" ||
-		cv.Volume == "" || cv.PodmanArgs == "" || cv.Exec == "" {
+		cv.Volume == "" || cv.Exec == "" {
 		return containerView{}, fmt.Errorf("orchestrate: ContainerArgs missing a required mapped field: %+v", cv)
 	}
 	return cv, nil

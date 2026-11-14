@@ -10,7 +10,6 @@ Network=villa-closed.network
 AddDevice=/dev/dri
 GroupAdd=keep-groups
 Volume=villa-models:/models:ro,z
-PodmanArgs=--security-opt seccomp=unconfined
 Entrypoint=/sd-server
 Exec=--listen-ip 0.0.0.0 --listen-port 1234 --diffusion-model /models/z_image_turbo-Q8_0.gguf --llm /models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --vae /models/z-image-turbo-ae.safetensors --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa --cfg-scale 1 --steps 8 -W 1024 -H 1024
 
