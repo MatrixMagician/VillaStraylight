@@ -36,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 through v1.19 (v1.19: doctor `CAP-01`/`CAP-02` against `/props`, `recommend --envelope`, `villa code --offline`, Fedora 45 and Podman 6 tested, Go 1.26.11 for GO-2026-6859), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
+**Shipped:** v1.0 through v1.20 (v1.20: inference on `villa-closed` only (ADR-0043), Crush v0.101.0, task refusals for a model without tool calls and for project skills, the post-run file observation in the task record (ADR-0047), `update --check` refuses an older offer), each tagged on `main`, the v1.18.1 patch (every catalog-reading verb honors `catalog_path`; Go 1.26.10 for GO-2026-6809) the v1.18.2 patch (uninstall removes a gated-off state volume, install restarts a rewritten dashboard, the voice proof honors its deadline, update proofs wait for restarted services) and the v1.18.3 patch (opt-in `villa code --agent qwen`, ADR-0039 launched-agent telemetry captures, a vetted-version launch warning); the tags, their GitHub
 release notes and `docs/adr/` are the history. The compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`) and the first signed pin manifest is published (#207: serial 2, valid until 2027-09-11, first attached to the v1.11 release and carried forward by the release workflow), so `--check` returns a real verdict. The fetch URL names the *latest* release, so the release workflow carries `pins.json` and `pins.json.sig` forward to each new tag (`docs/RELEASING.md` § 2); a new manifest is signed offline and uploaded over that copy only when a pin moved. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
@@ -99,8 +99,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
   `codingmode` (the `villa code` delivery spine and the enter/exit swap
   change; crush.json drift is reported and never written over the operator's edits, AGENT-04,
-  except a drift that is only villa's inference key, which `villa code` and every stack apply
-  rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
+  except a drift that is only the values villa alone writes, its inference key and
+  `options.request_timeout` (sized from the served ctx, ADR-0044), which `villa code` and every
+  stack apply rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
   `doctor` (read-only runtime twin of preflight; it decides from the loaded config,
   ADR-0017, and its seams are raw reads), `backup` (the one ordered entry
@@ -118,7 +119,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
   "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
-  `villa work` and `villa task` are its loopback HTTP clients).
+  `villa work` and `villa task` are its loopback HTTP clients; the dashboard answers the
+  workspace-agent gate per request, `Config.TasksOn`, so turning `workspace_agent` on or
+  off needs no dashboard restart).
 
   Image generation (#312, ADR-0032) is `subsystem.Image`: `catalog.Image(id)` over the
   compiled-in image table (`internal/catalog/images.json`, never `catalog_path`),
@@ -192,11 +195,11 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: the `villa` binary is Go (CLI, detection, orchestration, dashboard server, and the bind-mounted `websafe-serve` / `inferproxy-serve` helpers): one static, CGO-free binary, easy self-hosted distribution. Other first-party code may be any language when it integrates through that binary: villa ships it (embedded or sha256-pinned), runs it, renders its config from `config.toml`, proves it, and runs it on a pinned runtime (ADR-0046).
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44 and 45 (the tested set) on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
 - **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
-- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389).
+- **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls; the coding agents villa launches run with their telemetry off, shown by a capture per vetted version (ADR-0039), with one disclosed exception: Crush's release check against `api.github.com` (#389), or none with `villa code --offline` (captured for all three agents).
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, Qdrant, SearXNG); build only the control plane.
 
@@ -204,7 +207,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.11 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. The binary stays Go and static; first-party code in another language is allowed only on ADR-0046's terms.
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
@@ -456,18 +459,23 @@ rendered after the web-search block and before `villa-inferproxy`. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
 (`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
 `subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,
-ADR-0011): `villa-llama` joins `villa.network` ONLY (never the sandbox network,
-so a compromised task VM has no route through it to the internet), and
-`villa-inferproxy` joins BOTH networks, forwarding ONLY `POST
+ADR-0011): `villa-llama` and every resident slot join `villa-closed.network` ONLY
+(ADR-0043), keeping their loopback publish, so inference has no route off-box and
+never joins the sandbox network; `villa-inferproxy` joins `villa-closed.network` and
+`villa-sandbox.network`, both `Internal=true`, forwarding ONLY `POST
 /v1/chat/completions` and `GET /v1/models` to `villa-llama`'s bare root and
-injecting the real `LLAMA_API_KEY` bearer on that outbound leg — so a task's
+injecting the real `LLAMA_API_KEY` bearer on that leg — so a task's
 own request never needs a valid key of its own. `villa-closed.network`
-(`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-qdrant`,
-`villa-embed`, `villa-rerank`, `villa-extract`, `villa-stt`, `villa-tts` and
-`villa-image` join it and nothing else, so they have no route off-box; Open WebUI
-joins both it and `villa.network`. An in-network probe runs on its target's
-network (`probeCurl` takes it), and doctor's `networks` finding compares the
-running containers and networks with the rendered units. No container unit for the task
+(`Internal=true`, ADR-0036) also renders unconditionally, last: `villa-llama`, the
+resident slots, `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
+`villa-stt`, `villa-tts` and `villa-image` join it and nothing else, so they have no
+route off-box; Open WebUI joins both it and `villa.network`. An in-network probe runs
+on its target's network (`probeCurl` takes it; inference and the proxy are probed on
+`villa-closed`, while `verify agent`'s egress control stays routed and uses Open
+WebUI's `/health` as its sanity target), and doctor's `networks` finding compares the
+running containers and networks with the rendered units. The Vulkan chat unit and
+`villa-image` carry no security option since #343; ROCm units keep
+`seccomp=unconfined`. No container unit for the task
 itself: each task is one `podman run --runtime=krun` named `villa-task-<id>`,
 rendered by `orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary
 the same way (the second reason the CGO-free gate is load-bearing).

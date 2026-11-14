@@ -305,9 +305,10 @@ func topScore(scores []float64) int {
 }
 
 // routedNetwork and closedNetwork are the two podman networks an in-network probe
-// runs on, and a probe runs on its target's: the services with no runtime egress
-// are reachable only on the closed one (ADR-0036), while inference, the fetchers
-// and every egress negative control stay on the routed one.
+// runs on, and a probe runs on its target's: the services with no runtime egress,
+// inference and the inference proxy are reachable only on the closed one (ADR-0036,
+// ADR-0043), while the fetchers and every egress negative control stay on the
+// routed one.
 var (
 	routedNetwork = orchestrate.RoutedNetworkName()
 	closedNetwork = orchestrate.ClosedNetworkName()
@@ -499,8 +500,8 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 // otherwise byte-identical, and a third in the status path that called the twin and
 // then re-derived the exit code the twin had discarded. runProbeCurl below is a thin
 // convenience for the callers that genuinely do not care about the code,
-// runProbeCurlIn the door for a request the inference client built, and
-// runClosedProbeCurlCode this door on the closed network.
+// runProbeCurlIn the door for a request the inference client built (on the closed
+// network), and runClosedProbeCurlCode this door on the closed network.
 func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
 	return probeCurl(ctx, routedNetwork, helperImage, nil, curlArgs)
 }
@@ -512,7 +513,7 @@ func runClosedProbeCurlCode(ctx context.Context, helperImage string, curlArgs ..
 }
 
 // runProbeCurlIn runs one llama-server request the inference client built
-// (ADR-0014), after the caller's own curl flags. The request's Stdin — the
+// (ADR-0014), after the caller's own curl flags, on villa-closed where villa-llama is. The request's Stdin — the
 // Authorization header curl reads through `-H @-` — reaches curl over a pipe
 // (`podman run -i`), so the api key never lands on podman's or curl's command line,
 // where any local user could read it from /proc (#252).
@@ -520,7 +521,7 @@ func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlR
 	if req.Err != nil {
 		return nil, req.Err
 	}
-	out, _, err := probeCurl(ctx, routedNetwork, helperImage, req.Stdin, slices.Concat(flags, req.Args))
+	out, _, err := probeCurl(ctx, closedNetwork, helperImage, req.Stdin, slices.Concat(flags, req.Args))
 	return out, err
 }
 

@@ -1,5 +1,5 @@
 // Package agent is the pure, Deps-injected core for VillaStraylight's strictly-
-// local terminal coding agent (Crush v0.76.0): the agent-delivery spine behind
+// local terminal coding agent (Crush v0.101.0): the agent-delivery spine behind
 // the `villa code` launcher verb. It owns four pure concerns:
 //
 //   - policy.go : the go:embed Crush pin policy (version + per-platform asset +
@@ -13,7 +13,8 @@
 //   - drift.go  : DetectDrift(in) → a report-only DriftReport (binary + config
 //     drift, plus the config-absent first-run signal). villa never overwrites the
 //     operator's edits (AGENT-04); the one config drift a caller heals is a stale
-//     inference key, villa's own value (KeyOnlyDrift, ADR-0019).
+//     inference key and request_timeout, villa's own values (VillaOwnedDrift,
+//     ADR-0019, ADR-0044).
 //
 // Seam discipline (CLAUDE.md / TestSeamGrepGate, which walks internal/):
 // internal/agent imports NEITHER internal/inference NOR internal/detect, and it
@@ -99,9 +100,9 @@ var KnownLSPServers = []struct{ Key, Command string }{
 //  5. BinaryAbsent → graceful remediation, return WITHOUT writing or launching.
 //     [resolveDrift, steps 5-7]
 //  6. Settle the config (settleConfig). ConfigAbsent (first-run) →
-//     WriteConfig(reference) then PROCEED to launch (NOT drift). ConfigKeyOnly →
+//     WriteConfig(reference) then PROCEED to launch (NOT drift). ConfigVillaOwned →
 //     BackupConfig(onDisk), WriteConfig(reference), a warning, then PROCEED
-//     (ADR-0019: the key is villa's own value, the operator edited nothing). These
+//     (ADR-0019, ADR-0044: the key and request_timeout are villa's own values, the operator edited nothing). These
 //     are the ONLY write paths.
 //  7. BinaryDrift || any other ConfigDrift (present-but-differs) → surface +
 //     remediation, return WITHOUT launching, WITHOUT writing: villa never overwrites
@@ -218,7 +219,7 @@ func resolveDrift(d Deps, report DriftReport, onDisk, reference []byte, res *Res
 		})
 	}
 
-	// (6/7b) Settle the on-disk config: refuse an operator's drift, heal a key-only
+	// (6/7b) Settle the on-disk config: refuse an operator's drift, heal a villa-owned
 	// drift, render a first-run config.
 	return settleConfig(d, report, onDisk, reference, res)
 }
@@ -246,12 +247,12 @@ func readyToLaunch(cfg config.VillaConfig, offline bool, res *Result) {
 }
 
 // settleConfig acts on the config half of the drift report and reports whether Run
-// must stop and return res as it stands. The key-only case is checked before the
+// must stop and return res as it stands. The villa-owned case is checked before the
 // general drift it is a subset of; an operator's drift is refused and never
 // written (AGENT-04, narrowed by ADR-0019).
 func settleConfig(d Deps, report DriftReport, onDisk, reference []byte, res *Result) (stop bool) {
 	switch {
-	case report.ConfigKeyOnly:
+	case report.ConfigVillaOwned:
 		return healConfig(d, onDisk, reference, res)
 	case report.ConfigDrift:
 		res.ConfigDrift = true
@@ -263,13 +264,13 @@ func settleConfig(d Deps, report DriftReport, onDisk, reference []byte, res *Res
 	return false
 }
 
-// healConfig rewrites a crush.json whose only drift is villa's inference key
-// (ADR-0019): the on-disk bytes go to the backup first, so a failed backup writes
+// healConfig rewrites a crush.json whose only drift is villa's own values, its
+// inference key and request_timeout (ADR-0019, ADR-0044): the on-disk bytes go to the backup first, so a failed backup writes
 // nothing over the file and a completed heal can be undone by hand.
 func healConfig(d Deps, onDisk, reference []byte, res *Result) (stop bool) {
 	if err := d.BackupConfig(onDisk); err != nil {
-		res.Err = fmt.Errorf("agent: back up crush.json before healing its key: %w", err)
-		res.Reason = "could not back up crush.json, so its stale inference key was left in place"
+		res.Err = fmt.Errorf("agent: back up crush.json before healing it: %w", err)
+		res.Reason = "could not back up crush.json, so its stale villa-written values were left in place"
 		return true
 	}
 	if err := d.WriteConfig(reference); err != nil {
@@ -279,7 +280,7 @@ func healConfig(d Deps, onDisk, reference []byte, res *Result) (stop bool) {
 	}
 	res.Warnings = append(res.Warnings, Warning{
 		Code: "config_key_healed",
-		Msg:  "rewrote the stale inference key in crush.json (nothing else differed); the previous file is kept as crush.json.bak beside it",
+		Msg:  "rewrote the stale inference key or request_timeout in crush.json (nothing else differed); the previous file is kept as crush.json.bak beside it",
 	})
 	return false
 }
@@ -348,10 +349,10 @@ type Deps struct {
 	// WriteConfig persists the freshly-rendered crush.json to
 	// ~/.config/crush/crush.json (MkdirAll 0700 + an atomic 0600 write in the live
 	// wiring). The render output, written on the first-run absent case and over a
-	// key-only drift (ADR-0019).
+	// villa-owned drift (ADR-0019, ADR-0044).
 	WriteConfig func(b []byte) error
 	// BackupConfig keeps the on-disk crush.json bytes as crush.json.bak beside it
-	// (0600) before a key-only heal overwrites the file (ADR-0019).
+	// (0600) before a villa-owned heal overwrites the file (ADR-0019).
 	BackupConfig func(onDisk []byte) error
 	// Launch execs the villa-owned crush binary with the belt-and-braces lockdown
 	// env — syscall.Exec in the live wiring (fixed-arg, no shell). It is
@@ -396,7 +397,7 @@ type Result struct {
 	ConfigAbsent bool
 	// ConfigDrift is true when an on-disk crush.json is PRESENT but differs
 	// semantically from the freshly-rendered reference (hand-edit / staleness,
-	// → surface + remediation, never written. A key-only drift is healed instead
+	// → surface + remediation, never written. A villa-owned drift is healed instead
 	// (ADR-0019) and leaves this false.
 	ConfigDrift bool
 	// ReadyToLaunch is true when the presence+drift check was clean (and any

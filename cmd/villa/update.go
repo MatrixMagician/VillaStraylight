@@ -475,6 +475,10 @@ func printReport(w io.Writer, r updatecheck.Report) {
 				state = "rebuilt"
 			case updatecheck.ChangeNewVersion:
 				state = "new version"
+			case updatecheck.ChangeManifestBehind:
+				state = "manifest behind the binary, not offered"
+			case updatecheck.ChangeUnorderable:
+				state = "offer cannot be ordered, not offered"
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", name, c.Name, shortRef(c.Effective), available, state)
 		}

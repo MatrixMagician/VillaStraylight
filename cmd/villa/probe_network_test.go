@@ -10,6 +10,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 )
 
 // stubAnsweringPodman puts a `podman` on PATH that records every argv and answers
@@ -46,10 +47,10 @@ func runNetworks(t *testing.T, dir string) []string {
 	return nets
 }
 
-// TestEachProbeRunsOnItsTargetsNetwork guards ADR-0036: the services with no
-// runtime egress are reachable only on villa-closed, so their probes run there;
-// inference, the fetchers, the inference proxy and the egress negative control
-// stay on the routed villa network.
+// TestEachProbeRunsOnItsTargetsNetwork guards ADR-0036 and ADR-0043: the services
+// with no runtime egress, inference and the inference proxy are reachable only on
+// villa-closed, so their probes run there; the fetchers and the egress negative
+// control stay on the routed villa network.
 func TestEachProbeRunsOnItsTargetsNetwork(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	closed := []struct {
@@ -63,6 +64,10 @@ func TestEachProbeRunsOnItsTargetsNetwork(t *testing.T) {
 		{"image health", func(context.Context) { liveImageHealth(config.VillaConfig{}) }},
 		{"eval rerank", func(ctx context.Context) { _, _ = liveEvalRerank(ctx, "q", []string{"a", "b"}) }},
 		{"eval extract", func(ctx context.Context) { _, _ = liveEvalExtract(ctx, "x.txt", "text/plain", []byte("x")) }},
+		{"inferproxy health", func(context.Context) { liveInferproxyHealth() }},
+		{"inference request", func(ctx context.Context) {
+			_, _ = runProbeCurlIn(ctx, "img", inference.CurlRequest{Args: []string{"http://villa-llama:8080/v1/models"}})
+		}},
 		{"voice proof", func(ctx context.Context) { _, _ = liveVoiceDriver(ctx).Speak() }},
 		{"image proof", func(ctx context.Context) { imageGenerate(catalog.ImageModel{})(ctx, "") }},
 		{"memory proof", func(ctx context.Context) {
@@ -74,10 +79,7 @@ func TestEachProbeRunsOnItsTargetsNetwork(t *testing.T) {
 		probe func(ctx context.Context)
 	}{
 		{"searxng and websafe health", func(context.Context) { liveSearxngHealth(config.SearxngAddr, config.SearxngPort) }},
-		{"inferproxy health", func(context.Context) { liveInferproxyHealth() }},
-		{"inference request", func(ctx context.Context) {
-			_, _ = runProbeCurlIn(ctx, "img", inference.CurlRequest{Args: []string{"http://villa-llama:8080/v1/models"}})
-		}},
+		{"egress negative control sanity", func(ctx context.Context) { _ = agentEgressSanity(ctx, "img") }},
 		{"egress negative control", func(ctx context.Context) { _, _ = runProbeCurl(ctx, "img", egressNegativeControlHost) }},
 	}
 	check := func(name string, probe func(context.Context), want string) {
@@ -103,5 +105,22 @@ func TestEachProbeRunsOnItsTargetsNetwork(t *testing.T) {
 	}
 	for _, c := range routed {
 		check(c.name, c.probe, "villa")
+	}
+}
+
+// TestAgentEgressSanityTargetsARoutedService: the egress negative control runs on
+// the routed network, so its positive sanity probe must reach something that is on
+// that network. villa-llama is on villa-closed only (ADR-0043); Open WebUI is on both.
+func TestAgentEgressSanityTargetsARoutedService(t *testing.T) {
+	dir := stubAnsweringPodman(t)
+	if err := agentEgressSanity(t.Context(), "img"); err != nil {
+		t.Fatalf("agentEgressSanity: %v", err)
+	}
+	calls := strings.Join(recordedCalls(t, dir), "\n")
+	if !strings.Contains(calls, orchestrate.OpenWebUIInNetworkHealthURL()) {
+		t.Errorf("sanity probe did not target Open WebUI's health route:\n%s", calls)
+	}
+	if strings.Contains(calls, "villa-llama") {
+		t.Errorf("sanity probe targets villa-llama, which is not on the routed network:\n%s", calls)
 	}
 }

@@ -15,12 +15,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
@@ -109,6 +112,9 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 		ToolsOn:    func(config.VillaConfig) bool { return fx.toolsOn },
 		SandboxReady: func() (bool, string) {
 			return true, ""
+		},
+		ServedProps: func(context.Context) *inference.PropsInfo {
+			return &inference.PropsInfo{ToolsSupported: detect.Bool{Known: true, Value: true}}
 		},
 		Audit: func(_ context.Context, doc grounding.Document, _ []grounding.Source) grounding.DocumentReport {
 			return grounding.DocumentReport{Path: doc.Path, Checked: true, Claims: 1}
@@ -221,7 +227,7 @@ func TestTaskRoutesAnswer503WhenNotEnabled(t *testing.T) {
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("code = %d, want 503; body=%s", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), `"error":"workspace agent is not enabled"`) {
+			if !strings.Contains(rec.Body.String(), `"error":"workspace agent is not enabled`) {
 				t.Errorf("body = %s", rec.Body.String())
 			}
 		})
@@ -537,6 +543,40 @@ func TestCancelAfterTheRecordIsTerminalIs409(t *testing.T) {
 	for i := range 5 {
 		if rec := do(h, http.MethodPost, "/api/tasks/"+id+"/cancel", ""); rec.Code != http.StatusConflict {
 			t.Fatalf("cancel %d after cancelled = %d, want 409; body=%s", i, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestTaskGateFollowsConfigAfterStart guards #418: the dashboard service lives
+// for days, so the workspace-agent gate is answered per request. A gate turned
+// on after the server started accepts a task, and one turned off refuses every
+// task route again, with the remedy in the 503.
+func TestTaskGateFollowsConfigAfterStart(t *testing.T) {
+	fx := newTaskFixture(t)
+	fx.bridges <- newFakeBridge()
+	var on atomic.Bool
+	h := mustNewServer(t, Config{
+		StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888,
+		Tasks: newTestRunner(t, fx), TasksOn: on.Load,
+	}).Handler()
+
+	rec := do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("gate off at start: code = %d, want 503", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "villa up") {
+		t.Errorf("503 does not name the remedy: %s", rec.Body.String())
+	}
+
+	on.Store(true)
+	if rec := do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws)); rec.Code != http.StatusAccepted {
+		t.Fatalf("gate turned on after start: code = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+
+	on.Store(false)
+	for _, rt := range taskRoutes {
+		if rec := do(h, rt.method, rt.path, "{}"); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("gate turned off after start: %s %s = %d, want 503", rt.method, rt.path, rec.Code)
 		}
 	}
 }

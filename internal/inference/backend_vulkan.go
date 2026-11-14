@@ -101,16 +101,16 @@ type GPUAccess struct {
 	Devices []string
 	// Groups are Quadlet GroupAdd= / podman --group-add values.
 	Groups []string
-	// SecurityOpts are podman --security-opt values: the kyuz0-documented
-	// seccomp=unconfined minimum, which the image server was measured under too.
+	// SecurityOpts are podman --security-opt values. The Vulkan set carries none:
+	// seccomp=unconfined was measured unnecessary for the chat and image units
+	// (#343). The field stays so a backend that does need one has a home for it.
 	SecurityOpts []string
 }
 
 // vulkanGPUAccess is the one home of the Vulkan device-access set.
 var vulkanGPUAccess = GPUAccess{
-	Devices:      []string{"/dev/dri"},
-	Groups:       []string{"keep-groups"},
-	SecurityOpts: []string{"seccomp=unconfined"},
+	Devices: []string{"/dev/dri"},
+	Groups:  []string{"keep-groups"},
 }
 
 // VulkanGPUAccess returns the Vulkan device access, copied so a caller cannot
@@ -154,6 +154,9 @@ func (backendVulkan) Name() string { return "vulkan" }
 
 // Image returns the digest-pinned container image.
 func (backendVulkan) Image() string { return vulkanImage }
+
+// ServesSpeculation is true: the Vulkan image's build carries --spec-type.
+func (backendVulkan) ServesSpeculation() bool { return true }
 
 // ContainerArgs renders the full `podman run` argument slice for one run. It is the
 // single assembly point for every backend literal: the /dev/dri device passthrough,

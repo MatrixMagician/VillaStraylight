@@ -21,13 +21,21 @@ import (
 // LlamaInNetworkEndpoint returns the in-network villa-llama OpenAI-compatible base URL
 // ("http://villa-llama:8080/v1") composed from the orchestrate containerName constant + the
 // inference server port. It is the in-network analogue of the host loopback endpoint
-// (inference's endpointURL): a helper container on villa.network reaches villa-llama by DNS
-// name at the container-internal port, NOT 127.0.0.1 (which inside a helper container is the
-// helper's OWN loopback). Sourcing both identifiers from their owning seams (containerName,
+// (inference's endpointURL): a helper container on villa-closed (the only network
+// villa-llama joins, ADR-0043) reaches villa-llama by DNS name at the container-internal
+// port, NOT 127.0.0.1 (which inside a helper container is the helper's OWN loopback). Sourcing both identifiers from their owning seams (containerName,
 // inference.ServerPort()) means a container rename or a port change updates this endpoint
 // automatically — no hand-typed host literal can drift from the rendered ContainerName=.
 func LlamaInNetworkEndpoint() string {
 	return inNetworkEndpoint(containerName)
+}
+
+// OpenWebUIInNetworkHealthURL returns Open WebUI's in-network health route. Open WebUI
+// is rendered unconditionally and is on the routed network, so it is the always-present
+// positive target for a probe that has to run there (`villa verify agent`'s egress
+// control, whose network villa-llama no longer joins, ADR-0043).
+func OpenWebUIInNetworkHealthURL() string {
+	return fmt.Sprintf("http://%s:%d/health", openWebUIContainerName, openWebUIServerPort)
 }
 
 // InferproxyInNetworkEndpoint returns the in-network villa-inferproxy base URL
@@ -50,7 +58,7 @@ func LlamaInNetworkRoot() string {
 }
 
 // inNetworkEndpoint composes the OpenAI-compatible base URL for ANY llama-server on
-// villa.network from its container DNS name. Resident slots share the primary's
+// villa-closed from its container DNS name. Resident slots share the primary's
 // container-internal port (each has its own netns), so they share this composition
 // too — which is what keeps every endpoint the Open WebUI env lists in port lockstep
 // with the inference seam.

@@ -64,3 +64,24 @@ cannot be run to find out what is wrong.
   and the old file is in `crush.json.bak`.
 - A rotation of `inference_secret`, if one is ever added, propagates to Crush on the
   next apply with no extra code.
+
+## Amendment (ADR-0044)
+
+The set of values villa heals is now two: `providers.villa.api_key` and
+`options.request_timeout`. `agent.KeyOnlyDrift` became `agent.VillaOwnedDrift`, and
+the sole-difference rule is unchanged: both values substituted from the rendering
+must make the documents equal, and any other difference is still the operator's and
+is never written. See ADR-0044.
+
+## Update 2026-11-14: Crush v0.101.0 migrates the model schema
+
+Crush v0.99+ rewrites a crush.json written in the Catwalk v2 model schema to v3 the
+first time it loads it, in place. After one `crush run` a file villa had rendered
+no longer matched villa's render, so the doctor reported drift and `villa code`
+refused. Villa now renders the Catwalk v3 model fields (`pricing`, `capabilities`,
+`reasoning`) in place of `cost_per_1m_*`, `supports_attachments` and `can_reason`.
+The drift comparison applies Crush's own v2-to-v3 mapping to the on-disk file
+first (`agent.migrateLegacyModels`, on the comparison path only, never on what
+villa writes), so a render from before the bump reads as unchanged, a render whose
+only other difference is a villa-owned value is still healed, and an operator edit
+in either schema still reads as drift. The decision above is unchanged.

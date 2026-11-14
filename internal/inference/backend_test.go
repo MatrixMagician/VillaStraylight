@@ -2,6 +2,24 @@ package inference
 
 import "testing"
 
+// TestServesSpeculationByBackend guards the capability table: only the rocwmma
+// image (llama.cpp build 7690, no --spec-type) cannot serve speculation.
+func TestServesSpeculationByBackend(t *testing.T) {
+	want := map[string]bool{
+		"": true, "rocm": true, "rocm-10.0": true, "rocm-7.2.4": true,
+		"rocm-6.4.4": true, "rocm-6.4.4-rocwmma": false, "vulkan": true,
+	}
+	for name, ok := range want {
+		b, err := BackendFor(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := b.ServesSpeculation(); got != ok {
+			t.Errorf("BackendFor(%q).ServesSpeculation() = %v, want %v", name, got, ok)
+		}
+	}
+}
+
 // backend_test.go covers the resolver-adjacent predicates in backend.go that do NOT
 // belong to a single backend impl. TestIsROCmFamily guards IsROCmFamily — the single
 // place the ROCm-family NAME set is enumerated. Every caller that used to compare

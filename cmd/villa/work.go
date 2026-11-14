@@ -204,8 +204,25 @@ func followTask(ctx context.Context, cmd *cobra.Command, api taskAPIDeps, task t
 	printTaskSummary(out, final)
 	if opts.verbose {
 		replayLog(out, errOut, final.ID, d)
+	} else if final.State == taskstore.Refused {
+		printRefusal(errOut, final.ID, d)
 	}
 	return taskstore.Exit(final.State)
+}
+
+// printRefusal prints the runner's refusal reason. Submit logs it before the event
+// stream attaches, so the stream carries only the refused state.
+func printRefusal(errOut io.Writer, id string, d *workDeps) {
+	events, err := d.readLog(id)
+	if err != nil {
+		fmt.Fprintf(errOut, "work: read log: %v\n", err)
+		return
+	}
+	for _, ev := range events {
+		if strings.HasPrefix(ev.Text, "refused:") {
+			fmt.Fprintf(errOut, "work: %s\n", ev.Text)
+		}
+	}
 }
 
 // answerApproval prompts for the record's pending approval and posts the

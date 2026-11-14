@@ -24,10 +24,12 @@ import (
 // these to the real host; tests wire fakes (or real os calls against a
 // t.TempDir(), which needs no faking at all).
 type Deps struct {
-	Home         func() (string, error)
-	ConfigRoot   func() string
-	DataRoot     func() string
-	Stat         func(string) (os.FileInfo, error)
+	Home       func() (string, error)
+	ConfigRoot func() string
+	DataRoot   func() string
+	Stat       func(string) (os.FileInfo, error)
+	// Lstat is ProjectSkillDirs' probe; nil means os.Lstat.
+	Lstat        func(string) (os.FileInfo, error)
 	EvalSymlinks func(string) (string, error)
 	// Executable locates the running villa binary (os.Executable in
 	// production). Optional: a nil value skips the executable-containment
@@ -164,6 +166,54 @@ func CheckGrant(resolved string, d Deps) error {
 			"this folder contains the running villa binary; register a different folder")
 	}
 	return nil
+}
+
+// projectSkillSubdirs are the directories Crush v0.101.0 reads project skills
+// from under its working directory (internal/config/load.go projectSkillSubdirs).
+var projectSkillSubdirs = []string{".agents/skills", ".crush/skills", ".claude/skills", ".cursor/skills"}
+
+// ProjectSkillDirs returns one finding per project skill path resolved holds,
+// each naming the absolute path. Crush adds these to every task's skill catalog
+// and no option turns them off, so a task refuses a workspace with any (#438).
+// Inside the sandbox the workspace mount is both the working directory and the
+// repository root, so the mount root is the only place Crush looks.
+//
+// Crush resolves the paths in the guest, where the mount sits elsewhere, so a
+// symlink that dangles on the host can resolve there. The check therefore uses
+// Lstat, treats an entry of any type as a finding, treats a symlinked parent
+// (.claude and the like) as a finding, and fails closed: an error other than
+// not-exist is a finding that names the error.
+func ProjectSkillDirs(resolved string, d Deps) []string {
+	lstat := d.Lstat
+	if lstat == nil {
+		lstat = os.Lstat
+	}
+	var found []string
+	for _, sub := range projectSkillSubdirs {
+		parent := filepath.Join(resolved, filepath.Dir(sub))
+		pinfo, err := lstat(parent)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			found = append(found, fmt.Sprintf("%s (%v)", parent, err))
+			continue
+		}
+		if pinfo.Mode()&os.ModeSymlink != 0 {
+			found = append(found, parent+" (a symlink)")
+			continue
+		}
+		if !pinfo.IsDir() {
+			continue
+		}
+		p := filepath.Join(resolved, sub)
+		if _, err := lstat(p); err == nil {
+			found = append(found, p)
+		} else if !os.IsNotExist(err) {
+			found = append(found, fmt.Sprintf("%s (%v)", p, err))
+		}
+	}
+	return found
 }
 
 // Register validates path against every spec §3.1 refusal and, on success,
