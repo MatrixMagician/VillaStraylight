@@ -69,6 +69,10 @@ type Backend interface {
 	// (running_offload.go) are both parameterized by it, so a ROCm backend slots in
 	// without re-rolling the offload math or leaking its tokens to callers.
 	ResidencyProof() ResidencyMarkers
+	// ServesSpeculation reports whether this image's llama.cpp build accepts the
+	// speculative-decoding flags. False means a rendered --spec-type crash-loops
+	// the unit, so a swap that would render one must refuse first.
+	ServesSpeculation() bool
 }
 
 // ResidencyMarkers is the backend-owned, log-shape-only descriptor that drives BOTH
