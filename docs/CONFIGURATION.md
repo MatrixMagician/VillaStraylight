@@ -196,10 +196,14 @@ file and re-run `villa install` to drop the inference unit's join to
 No config field moves it. Every service with no runtime need to reach off-box joins
 it and nothing else: `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
 `villa-stt`, `villa-tts` and `villa-image`. They have no route out, and a public
-hostname does not resolve inside them. Open WebUI joins both `villa.network` and
-`villa-closed.network`, so it reaches them by container DNS. `villa-llama`, SearXNG,
-the web loader and the inference proxy stay on `villa.network`. villa's in-network
-probes run on their target's network. `villa doctor` reports `networks`: every
+hostname does not resolve inside them. `villa-llama` and every resident slot join it
+and nothing else too (ADR-0043), and keep their loopback publish
+(`127.0.0.1:8080`, and one port per slot) for the host. The inference proxy joins it
+and `villa-sandbox.network`. Open WebUI joins both `villa.network` and
+`villa-closed.network`, so it reaches them by container DNS. SearXNG and the web
+loader stay on `villa.network`. villa's in-network probes run on their target's
+network. After an upgrade the first `villa up` restarts the inference units, and the
+model reloads. `villa doctor` reports `networks`: every
 running container must be on exactly the networks its unit joins, and
 `villa-closed` must be internal on the host. Quadlet creates a network with
 `podman network create --ignore`, so a `villa-closed` that existed before villa
@@ -467,7 +471,7 @@ load-bearing:
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa` network by container DNS, at its internal port 8080. |
+| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa-closed` network by container DNS, at its internal port 8080. |
 | `ENABLE_OPENAI_API` | `True` | Use the OpenAI-compatible llama-server endpoint. |
 | `ENABLE_OLLAMA_API` | `False` | Ollama is not the engine. |
 | `OPENAI_API_KEY` | the `inference_secret` bearer | Set via the SAME 0600 `EnvironmentFile=` (`internal/orchestrate.InferenceSecretEnvFilePath`) villa-llama itself references — never a literal in this 0644 unit — because llama-server now requires `Authorization: Bearer <inference_secret>` on every route but `/health` (GHSA-qxg9, ADR-0011). With a resident set the value is a literal `Environment=` line instead (the singular EnvironmentFile can't carry OWUI's per-slot connection list), still the same real secret, never the old `sk-no-key-required` sentinel. |

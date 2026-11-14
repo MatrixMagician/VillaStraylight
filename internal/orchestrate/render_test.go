@@ -320,8 +320,8 @@ func TestRenderNetworkGolden(t *testing.T) {
 	if !strings.Contains(c.Text, "ContainerName=villa-llama") {
 		t.Errorf(".container missing stable DNS name ContainerName=villa-llama:\n%s", c.Text)
 	}
-	if !strings.Contains(c.Text, "Network=villa.network") {
-		t.Errorf(".container missing Network=villa.network:\n%s", c.Text)
+	if !strings.Contains(c.Text, "Network=villa-closed.network") {
+		t.Errorf(".container missing Network=villa-closed.network (ADR-0043):\n%s", c.Text)
 	}
 }
 
@@ -798,7 +798,7 @@ func TestRenderSandboxNetworkGolden(t *testing.T) {
 // even with the workspace agent on — the inference unit is byte-identical in both
 // gate states, asserted below and by TestRenderSandboxOffIsByteIdentical). The
 // sandbox's only route to inference is now villa-inferproxy, which joins BOTH
-// villa.network (to reach villa-llama) and villa-sandbox.network.
+// villa-closed.network (to reach villa-llama, ADR-0043) and villa-sandbox.network.
 func TestRenderInferproxyJoinsBothNetworks(t *testing.T) {
 	units, err := Render(sandboxOnFixtureInput())
 	if err != nil {
@@ -816,8 +816,8 @@ func TestRenderInferproxyJoinsBothNetworks(t *testing.T) {
 	if got := strings.Count(proxy.Text, "Network="); got != 2 {
 		t.Errorf("villa-inferproxy has %d Network= lines, want 2:\n%s", got, proxy.Text)
 	}
-	if !strings.Contains(proxy.Text, "Network=villa.network") {
-		t.Errorf("villa-inferproxy does not join villa.network:\n%s", proxy.Text)
+	if !strings.Contains(proxy.Text, "Network=villa-closed.network") {
+		t.Errorf("villa-inferproxy does not join villa-closed.network:\n%s", proxy.Text)
 	}
 	if !strings.Contains(proxy.Text, "Network=villa-sandbox.network") {
 		t.Errorf("villa-inferproxy does not join villa-sandbox.network:\n%s", proxy.Text)

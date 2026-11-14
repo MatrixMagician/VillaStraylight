@@ -1,7 +1,7 @@
 # ~/.config/containers/systemd/{{.UnitFileName}}  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight llama.cpp inference ({{.BackendLabel}})
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName={{.ContainerName}}

@@ -1,12 +1,12 @@
 # ~/.config/containers/systemd/villa-llama-qwen3-6-35b-a3b.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight llama.cpp inference (Vulkan RADV)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName=villa-llama-qwen3-6-35b-a3b
 Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd5994e73d40d9af168a81f560ebb13590c060ee0ea62262388ef3ecfc5ab
-Network=villa.network
+Network=villa-closed.network
 EnvironmentFile=%h/.config/villa/inference/llama.env
 AddDevice=/dev/dri
 GroupAdd=keep-groups

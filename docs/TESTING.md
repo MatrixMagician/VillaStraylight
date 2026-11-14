@@ -169,7 +169,7 @@ that package:
 
 Beyond the byte compare, golden tests also assert specific structural facts
 (e.g. the `.container` carries `ContainerName=villa-llama`,
-`Network=villa.network`, and an `[Install]` section with
+`Network=villa-closed.network`, and an `[Install]` section with
 `WantedBy=default.target`).
 
 ### Grep-gate seam tests
