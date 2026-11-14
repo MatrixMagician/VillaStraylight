@@ -270,6 +270,16 @@ func (r *Runner) Submit(_ context.Context, req SubmitRequest) (taskstore.Task, e
 	return t, nil
 }
 
+// Taint marks a task as having read content from source (ADR-0040). It is the
+// one call a taint source makes, and it must land before that content reaches
+// the model: from the next permission request on, the task's write and execute
+// actions ask. One-way and idempotent; a task already tainted keeps its first
+// source. Nothing calls it yet: the first source is the research task (#408).
+func (r *Runner) Taint(id string, source approval.Taint) error {
+	_, _, err := r.d.Store.SetTaint(id, source, r.d.Now())
+	return err
+}
+
 // Approve answers the parked request with allow, or allow_session when all is
 // set, which also auto-grants every later ask for this task.
 func (r *Runner) Approve(id string, all bool) error {

@@ -218,6 +218,19 @@ func (j *job) finishAfterCancel() {
 	j.finish(taskstore.Cancelled, "cancelled")
 }
 
+// taint is the task's taint as the store holds it now, not as the job last
+// saw it: Runner.Taint is called from outside the worker, and a decision made
+// from a stale copy would answer a tainted task as clean. If the record cannot
+// be read, the job's last copy stands; the next transition fails on the same
+// read and ends the task.
+func (j *job) taint() approval.Taint {
+	t, err := j.r.d.Store.Load(j.t.ID)
+	if err != nil {
+		return j.t.Taint
+	}
+	return t.Taint
+}
+
 // decide answers one permission request from the table, the session grant, or
 // by parking the task for the operator.
 func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
@@ -235,7 +248,8 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 	if req.Command != "" {
 		what += ": " + req.Command
 	}
-	decision := approval.Decide(approval.Mode(j.t.Mode), approval.Untainted, req)
+	taint := j.taint()
+	decision := approval.Decide(approval.Mode(j.t.Mode), taint, req)
 	if decision == approval.Ask && j.pending >= 0 {
 		// A second ask while one is already parked must never overwrite the
 		// pending slot: the operator's answer to what the screen shows would
@@ -247,8 +261,10 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 	}
 	// An "all" answer never auto-grants a deletion (GHSA-mmp6): the session
 	// shortcut is skipped for it, so it falls through to the switch's Ask
-	// case below and parks for the operator like any other execute.
-	if decision == approval.Ask && j.sessionAllow && !approval.IsDeletion(req.Command) {
+	// case below and parks for the operator like any other execute. It does
+	// not cover a tainted task either: the grant was given before the content
+	// that tainted the task was read (ADR-0040).
+	if decision == approval.Ask && j.sessionAllow && !taint.Tainted() && !approval.IsDeletion(req.Command) {
 		now := stamp(j.r.d.Now())
 		j.t.Approvals = append(j.t.Approvals, taskstore.Approval{
 			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path), Command: req.Command,
