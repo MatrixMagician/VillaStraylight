@@ -2,6 +2,7 @@ package preflight
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -205,25 +206,43 @@ func checkComputeDeviceAccess(p detect.HostProfile, requireKFD bool) CheckResult
 		joinProvenance(kfd.Source, render.Source))
 }
 
-// checkFirmwareFloor is a WARN-tier floor gate for linux-firmware. It can
-// only act on what the HostProfile carries; Phase 1 does not probe a firmware date
-// stamp, so this check degrades to an informational WARN noting the known-bad build
-// to avoid (FirmwareDeny) rather than asserting a value it cannot read. The floor
-// data is externalized so a later probe can wire a real comparison without
-// reshaping the check.
-func checkFirmwareFloor(_ detect.HostProfile) CheckResult {
+// checkFirmwareFloor is PRE-07, a WARN-tier floor gate for linux-firmware. It
+// compares the probed HostProfile.FirmwareDate against the policy floor and
+// denylist. An Unknown or non-YYYYMMDD value WARNs rather than passing: a probe
+// that could not read the date must never read as a clean bill. The ROCm
+// bring-up gate (checkROCmFirmware) is separate and stricter; this one never
+// blocks.
+func checkFirmwareFloor(p detect.HostProfile) CheckResult {
 	const (
 		id   = "PRE-07"
 		name = "linux-firmware floor"
 	)
-	f := Floors()
-	remediation := fmt.Sprintf("Ensure linux-firmware ≥ %s and NOT the known-bad %s build (breaks ROCm on Strix Halo).", f.Firmware, f.FirmwareDeny)
+	pol := loadROCmPolicy()
+	denied := strings.Join(pol.FirmwareDeny, ", ")
+	remediation := fmt.Sprintf("Ensure linux-firmware ≥ %s and NOT the known-bad %s build (breaks ROCm on Strix Halo).", pol.FirmwareFloor, denied)
 
-	// Phase 1 has no firmware-date fact on the profile; surface the floor as a
-	// WARN-tier advisory (spirit: cannot evaluate → WARN, never block).
-	return warn(id, name, TierWarn,
-		fmt.Sprintf("firmware version not probed in Phase 1; ensure ≥ %s and avoid %s", f.Firmware, f.FirmwareDeny),
-		remediation,
-		"floors.go (FirmwareFloor/FirmwareDeny)",
-		"")
+	fw := p.FirmwareDate
+	if !fw.Known || fw.Value == "" {
+		return warn(id, name, TierWarn,
+			fmt.Sprintf("firmware version not probed; ensure ≥ %s and avoid %s", pol.FirmwareFloor, denied),
+			remediation, "rocm-policy.json (firmwareFloor/firmwareDeny)", fw.Raw)
+	}
+	if slices.Contains(pol.FirmwareDeny, fw.Value) {
+		return warn(id, name, TierWarn,
+			fmt.Sprintf("linux-firmware-%s is a known-bad build (breaks ROCm on Strix Halo)", fw.Value),
+			remediation, fw.Source, fw.Raw)
+	}
+	if !isFirmwareDate(fw.Value) {
+		return warn(id, name, TierWarn,
+			fmt.Sprintf("linux-firmware %q is not a YYYYMMDD stamp and cannot be compared with the %s floor", fw.Value, pol.FirmwareFloor),
+			remediation, fw.Source, fw.Raw)
+	}
+	if compareVersions(fw.Value, pol.FirmwareFloor) < 0 {
+		return warn(id, name, TierWarn,
+			fmt.Sprintf("linux-firmware %s is below the %s floor", fw.Value, pol.FirmwareFloor),
+			remediation, fw.Source, fw.Raw)
+	}
+	return pass(id, name, TierWarn,
+		fmt.Sprintf("linux-firmware %s meets the %s floor", fw.Value, pol.FirmwareFloor),
+		fw.Source)
 }

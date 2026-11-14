@@ -3,6 +3,7 @@ package preflight
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -79,6 +80,47 @@ func TestCheckPodmanRootless(t *testing.T) {
 			t.Fatalf("systemctl absent should downgrade to WARN, got %v", got.Status)
 		}
 	})
+}
+
+// TestCheckPodmanMajorAdvisory guards the tested-majors advisory on PRE-02: the
+// tested majors pass, a major newer than the newest tested one WARNs in the
+// kernel check's wording, and an unparseable version keeps the old PASS rather
+// than becoming a false block or a false warning.
+func TestCheckPodmanMajorAdvisory(t *testing.T) {
+	present := fixture(t, "subuid-present")
+	tests := []struct {
+		name         string
+		version      string
+		wantStatus   Status
+		wantContains string
+	}{
+		{"podman 5 passes", "podman version 5.8.2\n", StatusPass, "5.8.2"},
+		{"podman 6 passes", "podman version 6.1.3\n", StatusPass, "6.1.3"},
+		{"podman 7 warns", "podman version 7.0.0\n", StatusWarn, "Podman 7 is newer than the tested 6"},
+		{"podman 10 warns", "podman version 10.2.0\n", StatusWarn, "Podman 10 is newer than the tested 6"},
+		{"podman 4 passes as before", "podman version 4.9.4\n", StatusPass, "4.9.4"},
+		{"unparseable keeps passing", "podman version dev-build\n", StatusPass, "dev-build"},
+		{"empty output keeps passing", "\n", StatusPass, "podman present"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := okPodman(present, present, "oliverh", "1000")
+			d.podmanVersion = func() (string, bool, bool) { return tc.version, true, true }
+			got := checkPodmanRootless(d)
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status = %v, want %v (%s)", got.Status, tc.wantStatus, got.Detail)
+			}
+			if got.Tier != TierBlock {
+				t.Errorf("tier = %v, want the check's BLOCK tier", got.Tier)
+			}
+			if !strings.Contains(got.Detail, tc.wantContains) {
+				t.Errorf("detail %q should contain %q", got.Detail, tc.wantContains)
+			}
+			if tc.wantStatus == StatusWarn && got.Remediation == "" {
+				t.Error("an advisory WARN must carry a remediation hint")
+			}
+		})
+	}
 }
 
 func TestSubuidReady(t *testing.T) {

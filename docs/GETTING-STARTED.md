@@ -30,10 +30,15 @@ tells you exactly what is missing, so you do not have to verify them all by hand
 
 **To run the stack (the host `villa` manages):**
 
-- **Fedora Workstation 44+** on **AMD Strix Halo (gfx1151)**, the only supported
-  host platform for v1. The architecture leaves room for a future
-  macOS/Apple-Silicon backend, but it is not yet implemented.
-- **Podman v5 (rootless)** with the user socket enabled. Enable it once with:
+- **Fedora Workstation 44 or 45** on **AMD Strix Halo (gfx1151)**, the only supported
+  host platform for v1. Tested set: Fedora 44 and 45. On 45 (kernel 7.3.3, Podman
+  6.1.3, crun 1.31) the preflight and doctor checks, `verify search/memory/agent`,
+  the Vulkan backend flip, backup/restore and the krun task VM were run; voice,
+  image generation, the reranker and the extractor were not re-proven there. The
+  architecture leaves room for a future macOS/Apple-Silicon backend, but it is not
+  yet implemented.
+- **Podman v5 or v6 (rootless)** with the user socket enabled. `villa preflight`
+  warns on a Podman major newer than 6. Enable the socket once with:
   ```bash
   systemctl --user enable --now podman.socket
   ```

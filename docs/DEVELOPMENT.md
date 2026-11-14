@@ -33,7 +33,9 @@ Notes:
   file writes) is injected behind a function seam or an interface, so the full
   decision logic is exercised by `go test` on any machine. Running the live
   `install`/`up`/`status` paths against real hardware is only needed for UAT, not for
-  unit work.
+  unit work. The tested hardware set, for UAT, is Fedora Workstation 44 and 45 with
+  Podman 5 and 6; the tested Podman majors live in
+  `internal/preflight/rocm-policy.json` (`podmanTested`).
 
 ## Build commands
 
