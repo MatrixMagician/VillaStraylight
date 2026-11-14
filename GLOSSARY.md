@@ -366,6 +366,22 @@ every mode, and the mark is one-way for the life of the task. A pattern, not a
 proof, like the deletion rule; workspace files do not taint (ADR-0040).
 _Avoid_: dirty, untrusted, poisoned
 
+**Research task**:
+A task of `kind: research`: one question answered from the open web by a bounded,
+host-side loop of search, read and report, run by the same runner as a workspace task
+with no sandbox, no tools and no workspace. Its budget (rounds and a soft time limit) is
+printed at start. It is tainted from its first fetch, and ends `flagged` when it found no
+source, every source was flagged by websafe, a claim has no source or the report carried
+active content (ADR-0045).
+_Avoid_: deep research, web task, search task
+
+**Research report**:
+A research task's plain-text artifact, `tasks/<id>.report.txt`: the model's defanged body,
+a delimiter line with a per-report random token, then villa's numbered source list with
+each source's websafe flag. Model output over untrusted pages, so flagged and defanged,
+never claimed safe.
+_Avoid_: answer, summary, markdown report
+
 **Sandbox**:
 The per-task libkrun microVM with one workspace mounted read-write, on the
 internal network, with root inside as the documented boundary.
