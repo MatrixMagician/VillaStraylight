@@ -73,8 +73,13 @@ else:
     quit_keys = ["/exit", "\r"]
 
 env.update(EXTRA_ENV)
+# CAPTURE_EXTRA carries extra env (K=V,K=V) that is too long for a file name, such as the
+# --offline proxy set (#389); CAPTURE_TAG names the result files for that run.
+if os.environ.get("CAPTURE_EXTRA"):
+    env.update(dict(kv.split("=", 1) for kv in os.environ["CAPTURE_EXTRA"].split(",")))
 import re
 tag = re.sub(r"[^A-Za-z0-9._+-]", "_", TARGET) + ("-kept" if KEEP else "") + ("-short" if SHORT else "")
+tag += os.environ.get("CAPTURE_TAG", "")
 pcap = os.path.join(RES, f"{tag}.pcap")
 td = subprocess.Popen(["podman", "unshare", "--rootless-netns", "tcpdump", "-i", "any", "-n", "-U", "-w", pcap,
                        f"src host {IP} and not dst host {LLAMA}"], stderr=subprocess.DEVNULL)

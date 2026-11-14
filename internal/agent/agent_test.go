@@ -210,6 +210,75 @@ func TestRenderGolden(t *testing.T) {
 	}
 }
 
+// TestRequestTimeoutSeconds pins the formula clamp(ceil(ctx/200), 120, 600): the
+// floor is the slowest prefill villa vets (gemma-4-31b, 219 tok/s measured), so a
+// full-context prefill never outlasts it, and an unset window gets the window the
+// renderer defaults to. It never returns zero (Crush reads 0 as "no timeout") or a
+// negative number (Crush rejects it).
+func TestRequestTimeoutSeconds(t *testing.T) {
+	cases := []struct {
+		ctx, want int
+	}{
+		{-1, 164}, // unset reads as defaultContextWindow
+		{0, 164},
+		{1, 120},
+		{4096, 120},
+		{16384, 120}, // 82 s clamps up to the floor
+		{24000, 120}, // exact multiple at the floor
+		{24001, 121}, // ceil, not floor
+		{32768, 164},
+		{65536, 328}, // 327.68 rounds up
+		{120000, 600},
+		{120001, 600},
+		{131072, 600},
+		{262144, 600}, // capped
+	}
+	for _, tc := range cases {
+		if got := RequestTimeoutSeconds(tc.ctx); got != tc.want {
+			t.Errorf("RequestTimeoutSeconds(%d) = %d, want %d", tc.ctx, got, tc.want)
+		}
+	}
+}
+
+// TestRenderCarriesRequestTimeout: both renderers write options.request_timeout from
+// the window they render, never omitted (an absent key is Crush's 60 s default, the
+// failure #351 fixes). Render sizes it from CoderAgentCtx, RenderSandbox from Ctx.
+func TestRenderCarriesRequestTimeout(t *testing.T) {
+	timeoutOf := func(t *testing.T, b []byte) float64 {
+		t.Helper()
+		var v struct {
+			Options map[string]any `json:"options"`
+		}
+		if err := json.Unmarshal(b, &v); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		got, ok := v.Options["request_timeout"].(float64)
+		if !ok {
+			t.Fatalf("options.request_timeout missing or not a number in %v", v.Options)
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		ctx  int
+		want float64
+	}{{0, 164}, {4096, 120}, {32768, 164}, {65536, 328}, {131072, 600}, {262144, 600}} {
+		host, _, err := Render(config.VillaConfig{Model: "m", CoderAgentCtx: tc.ctx}, nil)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if got := timeoutOf(t, host); got != tc.want {
+			t.Errorf("Render CoderAgentCtx=%d: request_timeout = %v, want %v", tc.ctx, got, tc.want)
+		}
+		sbx, err := RenderSandbox(config.VillaConfig{Model: "m", Ctx: tc.ctx}, "http://proxy:8080/v1")
+		if err != nil {
+			t.Fatalf("RenderSandbox: %v", err)
+		}
+		if got := timeoutOf(t, sbx); got != tc.want {
+			t.Errorf("RenderSandbox Ctx=%d: request_timeout = %v, want %v", tc.ctx, got, tc.want)
+		}
+	}
+}
+
 // TestRenderContract asserts the rendered JSON satisfies the locked contract:
 // both kill switches set; exactly ONE openai-compat provider at the loopback
 // base_url with a non-empty models[] whose id is villa- prefixed.
@@ -484,15 +553,21 @@ func editDoc(t *testing.T, doc []byte, edit func(map[string]any)) []byte {
 	return out
 }
 
-// TestKeyOnlyDrift guards ADR-0019's one exception to AGENT-04: villa may rewrite
-// crush.json only when the sole difference is providers.villa.api_key, the value
-// villa alone writes. Any operator edit, alone or beside a stale key, is not
-// key-only, and neither is a file villa cannot parse.
-func TestKeyOnlyDrift(t *testing.T) {
+// TestVillaOwnedDrift guards ADR-0019's exception to AGENT-04, widened by ADR-0044:
+// villa may rewrite crush.json only when the sole differences are the values villa
+// alone writes, providers.villa.api_key and options.request_timeout. Any operator
+// edit, alone or beside either value, is not villa-owned, and neither is a file
+// villa cannot parse.
+func TestVillaOwnedDrift(t *testing.T) {
 	stale, rendered := keyDriftDocs(t)
 	disableMetricsOff := func(v map[string]any) {
 		v["options"].(map[string]any)["disable_metrics"] = false
 	}
+	dropTimeout := func(v map[string]any) { delete(v["options"].(map[string]any), "request_timeout") }
+	setTimeout := func(n float64) func(map[string]any) {
+		return func(v map[string]any) { v["options"].(map[string]any)["request_timeout"] = n }
+	}
+	noTimeout := editDoc(t, rendered, dropTimeout)
 	cases := []struct {
 		name   string
 		onDisk []byte
@@ -500,23 +575,32 @@ func TestKeyOnlyDrift(t *testing.T) {
 	}{
 		{"stale key only", stale, true},
 		{"identical", rendered, false},
+		{"missing timeout only", noTimeout, true},
+		{"stale key and missing timeout", editDoc(t, stale, dropTimeout), true},
+		{"a different timeout only", editDoc(t, rendered, setTimeout(60)), true},
+		{"a hand-set timeout of 0", editDoc(t, rendered, setTimeout(0)), true},
+		{"missing timeout plus an operator edit", editDoc(t, noTimeout, disableMetricsOff), false},
 		{"stale key plus an operator edit", editDoc(t, stale, disableMetricsOff), false},
-		{"operator edit without a key change", editDoc(t, rendered, disableMetricsOff), false},
+		{"extra lsp entry beside a missing timeout", editDoc(t, noTimeout, func(v map[string]any) {
+			v["lsp"] = map[string]any{"rust": map[string]any{"command": "rust-analyzer"}}
+		}), false},
+		{"operator edit without a villa-owned change", editDoc(t, rendered, disableMetricsOff), false},
 		{"malformed JSON", []byte(`{"providers": {"villa": `), false},
 		{"no villa provider", editDoc(t, stale, func(v map[string]any) { delete(v, "providers") }), false},
+		{"no options object", editDoc(t, stale, func(v map[string]any) { delete(v, "options") }), false},
 		{"whitespace-only re-save with a stale key", editDoc(t, stale, func(map[string]any) {}), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := KeyOnlyDrift(tc.onDisk, rendered); got != tc.want {
-				t.Errorf("KeyOnlyDrift = %v, want %v", got, tc.want)
+			if got := VillaOwnedDrift(tc.onDisk, rendered); got != tc.want {
+				t.Errorf("VillaOwnedDrift = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
 // TestDetectDriftKeyOnly asserts the report carries the key-only case (ADR-0019):
-// ConfigKeyOnly is set together with ConfigDrift, and its Reason names the heal
+// ConfigVillaOwned is set together with ConfigDrift, and its Reason names the heal
 // instead of asking the operator to review edits they never made. An operator edit
 // stays plain ConfigDrift.
 func TestDetectDriftKeyOnly(t *testing.T) {
@@ -526,10 +610,10 @@ func TestDetectDriftKeyOnly(t *testing.T) {
 		ConfigPresent: true, OnDiskConfig: stale, RenderedConfig: rendered,
 	}
 	r := DetectDrift(in)
-	if !r.ConfigDrift || !r.ConfigKeyOnly {
-		t.Fatalf("stale key: ConfigDrift=%v ConfigKeyOnly=%v, want both true", r.ConfigDrift, r.ConfigKeyOnly)
+	if !r.ConfigDrift || !r.ConfigVillaOwned {
+		t.Fatalf("stale key: ConfigDrift=%v ConfigVillaOwned=%v, want both true", r.ConfigDrift, r.ConfigVillaOwned)
 	}
-	for _, want := range []string{"inference key", "villa up", "villa code", "crush.json.bak"} {
+	for _, want := range []string{"inference key", "request_timeout", "villa up", "villa code", "crush.json.bak"} {
 		if !strings.Contains(r.Reason, want) {
 			t.Errorf("key-only Reason %q does not mention %q", r.Reason, want)
 		}
@@ -540,8 +624,8 @@ func TestDetectDriftKeyOnly(t *testing.T) {
 
 	in.OnDiskConfig = editDoc(t, stale, func(v map[string]any) { v["$schema"] = "hand-edited" })
 	r = DetectDrift(in)
-	if !r.ConfigDrift || r.ConfigKeyOnly {
-		t.Fatalf("operator edit: ConfigDrift=%v ConfigKeyOnly=%v, want drift that is not key-only", r.ConfigDrift, r.ConfigKeyOnly)
+	if !r.ConfigDrift || r.ConfigVillaOwned {
+		t.Fatalf("operator edit: ConfigDrift=%v ConfigVillaOwned=%v, want drift that is not villa-owned", r.ConfigDrift, r.ConfigVillaOwned)
 	}
 	if strings.Contains(r.Reason, "crush.json.bak") {
 		t.Errorf("operator-edit Reason %q promises a heal villa will not perform", r.Reason)

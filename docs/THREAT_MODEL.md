@@ -86,15 +86,14 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    live model with its projector and n-gram speculation without the flag, and a
    throwaway container on the pinned image-server image generated two images
    without it. `villa-image` as an installed unit was not run.
-4. **`villa-llama` on the closed network is built and not yet proven on hardware**
-   ([#349], [#364]). `villa-llama` and each resident slot join `villa-closed.network`
-   only, and `villa-inferproxy` joins it and the sandbox network, so none has a
-   route off-box ([ADR-0043], status `proposed`). `TestInferenceUnitsJoinOnlyTheClosedNetwork`
-   asserts the render. Whether rootless Podman forwards the loopback publish
-   (`127.0.0.1:8080`) to a container whose only network is `Internal=true` is a host
-   property no test here can show, and two records in the tree disagree about it. The
-   proofs are [#364]: the residency proof, `villa code`, an Open WebUI completion and
-   a workspace task through the proxy.
+4. **The inference port is published on loopback** ([ADR-0043]). `villa-llama` and
+   each resident slot join `villa-closed.network` only, and `villa-inferproxy` joins
+   it and the sandbox network, so none has a route off-box
+   (`TestInferenceUnitsJoinOnlyTheClosedNetwork`; proven on the live stack on
+   2026-11-14, [#364]). What remains is the publish itself: `127.0.0.1:8080` is
+   reachable by any local process, and the inference key is the control there. The
+   publish working from an internal-only network is measured on podman 5.8.7 and
+   6.1.3, not guaranteed for every rootless network backend.
 5. **Markdown-image exfiltration is not closed** ([ADR-0002]). The model can emit
    a markdown image whose URL carries data, and the operator's browser fetches
    it, outside every container. `TestMarkdownImageResidualDocumented` keeps the
