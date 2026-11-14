@@ -13,7 +13,10 @@
 package backendswap
 
 import (
+	"fmt"
+
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
@@ -51,6 +54,9 @@ func Run(d Deps, target string) Result {
 		if cfg.Backend == target {
 			return cfg, &stackapply.Outcome{NoOp: true}
 		}
+		if reason := speculationRefusal(target, cfg.Speculation, "pick another backend, or run `villa speculation set off` first if the served model loads on build 7690 (Qwen3.5 and Qwen3.6 models do not)"); reason != "" {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
+		}
 		if ok, reason := d.FitsModel(cfg); !ok {
 			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
 		}
@@ -68,6 +74,20 @@ func Run(d Deps, target string) Result {
 	return r
 }
 
+// speculationRefusal is the refusal reason when backend cannot serve the speculation
+// mode, or "" when it can. An unknown backend name is not this guard's to judge.
+func speculationRefusal(backend, mode, remedy string) string {
+	if mode == "" || mode == config.SpeculationOff {
+		return ""
+	}
+	b, err := inference.BackendFor(backend)
+	if err != nil || b.ServesSpeculation() {
+		return ""
+	}
+	return fmt.Sprintf("the %s image (llama.cpp build 7690) has no --spec-type, so speculation = %q cannot run on it: %s",
+		b.Name(), mode, remedy)
+}
+
 // RunSpeculation switches the speculation mode. An unset mode renders off, so it IS
 // off for the no-op test. The fit guard sees the TARGET mode, so ResolveSpeculation's
 // refusal for an unqualified entry arrives as a non-fit with its note as the reason.
@@ -81,6 +101,9 @@ func RunSpeculation(d Deps, target string) Result {
 		}
 		if r.From == target {
 			return cfg, &stackapply.Outcome{NoOp: true}
+		}
+		if reason := speculationRefusal(cfg.Backend, target, "run `villa backend set rocm` or another backend first"); reason != "" {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
 		}
 		cfg.Speculation = target
 		if ok, reason := d.FitsModel(cfg); !ok {

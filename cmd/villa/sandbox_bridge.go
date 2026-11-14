@@ -80,7 +80,7 @@ type sandboxBridgeDeps struct {
 // runs it, the sandbox render does (orchestrate.RenderSandboxRun).
 func newSandboxBridge() *cobra.Command {
 	var (
-		// villa-llama joins villa.network ONLY now (GHSA-gvp9, ADR-0011): the
+		// villa-llama joins villa-closed ONLY now (GHSA-gvp9, ADR-0011, ADR-0043): the
 		// sandbox network cannot reach it directly. villa-inferproxy joins BOTH
 		// networks and forwards the two routes a task needs, injecting the real
 		// LLAMA_API_KEY on the leg to villa-llama — so the sandbox side needs no

@@ -106,7 +106,7 @@ actually has:
 | Component | Proof |
 |---|---|
 | backend image | `villa backend set <target>`, a real generation probe **and** the residency proof |
-| Open WebUI | `villa status` protocol probes |
+| Open WebUI | `villa status` protocol probes, and `villa verify tools` when the tool server is on (the identity header and the tool-server list are Open WebUI's, so a pin bump can move them; the failure is closed: a 403, an empty result or a 502) |
 | Qdrant + embedder | `villa verify memory` |
 | extractor | `villa verify memory` (its closing probe PUTs a plain-text document to Tika; the smoke upload itself bypasses Tika) |
 | SearXNG + websafe | `villa verify search` |

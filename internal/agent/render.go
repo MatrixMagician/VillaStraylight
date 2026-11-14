@@ -111,6 +111,14 @@ type crushOptions struct {
 	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
 	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
 	DisabledTools []string `json:"disabled_tools"`
+	// DisabledSkills hides skills by name (sandbox render only, #438). Crush
+	// applies it to every discovered skill, builtin or on disk, so it cannot
+	// replace the workspace refusal for project skills of any other name.
+	DisabledSkills []string `json:"disabled_skills,omitempty"`
+	// RequestTimeout is Crush's idle bound on a request, in seconds (RequestTimeoutSeconds,
+	// ADR-0044). Never omitempty: an omitted key is Crush's 60 s default, which a slow
+	// prefill outlasts, and 0 would disable the bound.
+	RequestTimeout int `json:"request_timeout"`
 }
 
 // crushModelRef selects one provider+model for a Crush model role. Rendered only
@@ -131,20 +139,42 @@ type crushProvider struct {
 	Models  []crushModel `json:"models"`
 }
 
-// crushModel mirrors the v0.76.0 Model required-field set. Cost fields are 0
-// (local, no cost); id is villa- prefixed (#2649-safe).
+// crushModel mirrors the Catwalk v3 model that Crush v0.99+ reads and writes
+// back (a v2 file is rewritten in place on first load; migrateLegacyModels is the
+// read side of that move). Pricing is all 0 (local, no cost); id is villa-
+// prefixed (#2649-safe).
 type crushModel struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	CostPer1MIn         float64 `json:"cost_per_1m_in"`
-	CostPer1MOut        float64 `json:"cost_per_1m_out"`
-	CostPer1MInCached   float64 `json:"cost_per_1m_in_cached"`
-	CostPer1MOutCached  float64 `json:"cost_per_1m_out_cached"`
-	ContextWindow       int     `json:"context_window"`
-	DefaultMaxTokens    int     `json:"default_max_tokens"`
-	CanReason           bool    `json:"can_reason"`
-	SupportsAttachments bool    `json:"supports_attachments"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	ContextWindow    int               `json:"context_window"`
+	DefaultMaxTokens int               `json:"default_max_tokens"`
+	Pricing          crushPricing      `json:"pricing"`
+	Capabilities     crushCapabilities `json:"capabilities"`
+	Reasoning        crushReasoning    `json:"reasoning"`
 }
+
+// crushPricing is the v3 per-million-token price block, replacing the four
+// cost_per_1m_* keys.
+type crushPricing struct {
+	Input       float64 `json:"input"`
+	Output      float64 `json:"output"`
+	CacheCreate float64 `json:"cache_create"`
+	CacheHit    float64 `json:"cache_hit"`
+}
+
+// crushCapabilities replaces v2's supports_attachments with capabilities.vision.
+type crushCapabilities struct {
+	Vision bool `json:"vision"`
+}
+
+// crushReasoning replaces v2's can_reason; Thinking is "never" where v2 said
+// false and "toggleable" where it said true. villa renders no effort levels.
+type crushReasoning struct {
+	Thinking string `json:"thinking"`
+}
+
+// thinkingNever is the v3 spelling of v2's can_reason=false, the only value villa renders.
+const thinkingNever = "never"
 
 // crushLSPEntry is a single detected-toolchain LSP entry. Only Command is
 // rendered (a fixed literal); other fields are omitted (Crush defaults apply).
@@ -188,13 +218,12 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 	}
 
 	model := crushModel{
-		ID:                  id,
-		Name:                base + " (local)",
-		ContextWindow:       ctxWindow,
-		DefaultMaxTokens:    ctxWindow / maxTokensDivisor,
-		CanReason:           false,
-		SupportsAttachments: false,
-		// cost_* default to 0 (local, no cost).
+		ID:               id,
+		Name:             base + " (local)",
+		ContextWindow:    ctxWindow,
+		DefaultMaxTokens: ctxWindow / maxTokensDivisor,
+		Reasoning:        crushReasoning{Thinking: thinkingNever},
+		// pricing defaults to 0 (local, no cost); capabilities.vision to false.
 	}
 
 	lsp, warns := renderLSP(probes)
@@ -207,6 +236,7 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 			DisableDefaultProviders:   true,          // Pitfall 2 — only the villa provider is usable
 			AutoLSP:                   false,         // Pitfall 5 — the lsp block is authoritative
 			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off
+			RequestTimeout:            RequestTimeoutSeconds(ctxWindow),
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {
@@ -269,11 +299,17 @@ func renderLSP(probes []LSPProbe) (map[string]crushLSPEntry, []Warning) {
 // re-marshals so whitespace-only differences normalize away while semantic edits
 // survive. Returns the input unchanged on a parse error (a non-JSON on-disk file
 // is, semantically, a drift the byte path will catch). Used by drift.go.
+//
+// It also reads a Catwalk v2 model as the v3 one Crush rewrites it to
+// (migrateLegacyModels), on BOTH sides of the compare, so DetectDrift,
+// VillaOwnedDrift and doctor's finding all see it. Villa never writes the
+// migrated form; this is the comparison path only.
 func canonicalize(b []byte) []byte {
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return bytes.TrimSpace(b)
 	}
+	migrateLegacyModels(v)
 	out, err := json.Marshal(v)
 	if err != nil {
 		return bytes.TrimSpace(b)
@@ -281,13 +317,22 @@ func canonicalize(b []byte) []byte {
 	return out
 }
 
+// sandboxDisabledSkills names the three skills Crush v0.101.0 embeds
+// (internal/skills/builtin). A task needs none of them, and a skill is a
+// procedure the model is told to follow (#438).
+var sandboxDisabledSkills = []string{"crush-config", "crush-hooks", "jq"}
+
 // sandboxDisabledTools is the workspace-task denylist (spec v1.11 3.3): the four
-// the coding agent already disables, plus web_fetch and web_search. A task's
+// the coding agent already disables, plus web_fetch and web_search, plus the four
+// subagent tools Crush added in v0.100.0. A subagent runs in a child Crush session
+// that the bridge, the approval table and the grounding audit's filetracker do not
+// follow, so a task must not fork one (`villa code` keeps them). A task's
 // network reaches llama-server and nothing else, so this render is defense in
 // depth rather than the boundary — but a model that can SEE a web tool will try
 // it, and a tool call that fails is a wasted turn the operator pays for.
 var sandboxDisabledTools = []string{
 	"fetch", "agentic_fetch", "download", "sourcegraph", "web_fetch", "web_search",
+	"agent_dispatch", "agent_send", "agent_status", "agent_stop",
 }
 
 // RenderSandbox produces the crush.json a workspace task's in-sandbox Crush runs
@@ -297,7 +342,8 @@ var sandboxDisabledTools = []string{
 //   - The provider's base_url is baseURL, the sandbox-network address of the
 //     inference server, resolved by the caller. This package holds no host or
 //     port of its own.
-//   - The six web-class tools are disabled, and no lsp block is rendered
+//   - The six web-class tools and the four subagent tools are disabled
+//     (sandboxDisabledTools says why), and no lsp block is rendered
 //     (auto_lsp stays false): the office image ships no language servers, and
 //     probing for them inside a microVM buys nothing.
 //   - No permissions block. Render's allowed_tools exists so villa's own
@@ -325,6 +371,8 @@ func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
 			DisableDefaultProviders:   true,
 			AutoLSP:                   false,
 			DisabledTools:             sandboxDisabledTools,
+			DisabledSkills:            sandboxDisabledSkills,
+			RequestTimeout:            RequestTimeoutSeconds(ctxWindow),
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {
@@ -337,6 +385,7 @@ func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
 					Name:             base + " (local)",
 					ContextWindow:    ctxWindow,
 					DefaultMaxTokens: ctxWindow / maxTokensDivisor,
+					Reasoning:        crushReasoning{Thinking: thinkingNever},
 				}},
 			},
 		},

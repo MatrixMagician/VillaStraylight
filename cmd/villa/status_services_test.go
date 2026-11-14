@@ -28,6 +28,7 @@ func TestEveryRenderedContainerHasAStatusRow(t *testing.T) {
 		VoiceEnabled:     true,
 		ImageEnabled:     true,
 		ImageModel:       "z-image-turbo",
+		ToolServer:       true,
 	}
 	for _, k := range subsystem.All {
 		if !subsystem.On(cfg, k) {

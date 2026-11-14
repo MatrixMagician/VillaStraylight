@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # An operator adds a model from a commit-pinned URL, and villa builds the entry
@@ -291,11 +291,13 @@ The marking is shown in four places, each append-only:
   schema field to bump, so omission is what keeps every existing consumer and the
   seed listing unchanged);
 - `villa status`: `model_origin` in the report, omitted for a seed model, with
-  `schema_version` 12 to 13 (the report's own rule: any additive change bumps it);
+  `schema_version` 13 to 14 (the report's own rule: any additive change bumps it;
+  the tool server's rows took 13 first);
   the dashboard serves the same document;
 - `villa doctor`: CAT-02 for the configured model, PASS with the origin and what is
   not vetted about it; CAT-03 the seed-drift WARN above; doctor's own `schema_version`
-  13 to 14, and both findings bind only for an external catalog. CAT-01's remediation, which
+  15 to 16 (the tool server took 14 and 15 first), and both findings bind only for an
+  external catalog. CAT-01's remediation, which
   tells the reader to fix `internal/catalog/seed.json`, names the operator's own file
   for an entry that is not from the seed.
 
@@ -313,3 +315,5 @@ The marking is shown in four places, each append-only:
   deliberate limits, and each is one constant or one table row to move.
 - Sharded sources, other hosts, a `catalog sync` verb, and qualifying an added
   entry for speculation or vision are out of scope and unblocked by this shape.
+
+Accepted on 2026-11-14 by operator approval.

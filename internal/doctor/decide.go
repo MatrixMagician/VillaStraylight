@@ -133,8 +133,8 @@ func (d Deps) strayServices(rendered []orchestrate.Unit) []string {
 }
 
 // sandboxNetwork is SBX-02: the villa-sandbox.network unit must be on disk and the
-// inference PROXY unit joined to it. villa-llama itself joins villa.network only
-// (ADR-0011): the proxy is the one unit on both networks, so it is the one whose
+// inference PROXY unit joined to it. villa-llama itself joins villa-closed only
+// (ADR-0011, ADR-0043): the proxy is the one unit on both networks, so it is the one whose
 // missing join leaves a task with no route to the served model. A dir that cannot be
 // resolved is a typed-Unknown WARN; an unreadable unit is absent, as it is to a task.
 func (d Deps) sandboxNetwork() Finding {
@@ -199,15 +199,11 @@ func (d Deps) capabilityFindings(cfg config.VillaConfig) []Finding {
 		}, props != nil, got))
 	}
 	if wantTools {
-		var got detect.Bool
-		if props != nil {
-			got = props.ToolsSupported
-		}
 		out = append(out, capabilityFinding(capabilitySpec{
 			id: "CAP-02", name: "Tool-call capability", claim: "tools mode is on",
-			missing: "the served model's chat template does not report tool support",
-			fix:     "run `villa model swap` to a model whose template supports tools, or `villa tools-mode exit`",
-		}, props != nil, got))
+			missing: inference.ToolsMissing,
+			fix:     inference.ToolsFix,
+		}, props != nil, props.ToolCapable()))
 	}
 	return out
 }

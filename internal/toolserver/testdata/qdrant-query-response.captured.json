@@ -1,0 +1,51 @@
+{
+  "_captured": "villa-qdrant 1.18.2, POST /collections/open-webui_knowledge/points/query with a tenant_id and metadata.file_id filter, dev host 2026-11-14. Structure and types are as returned; every id, name and text is replaced.",
+  "result": {
+    "points": [
+      {
+        "id": "00000000-0000-4000-8000-000000000000",
+        "version": 34,
+        "score": 0.5115,
+        "payload": {
+          "text": "redacted chunk 0",
+          "tenant_id": "knowledge-id",
+          "metadata": {
+            "source": "villa-recall-00000000-0000-4000-8000-000000000000.txt",
+            "name": "villa-recall-00000000-0000-4000-8000-000000000000.txt",
+            "created_by": "<redacted>",
+            "file_id": "file-0",
+            "start_index": 0,
+            "hash": "<redacted>",
+            "embedding_config": {
+              "engine": "openai",
+              "model": "nomic-embed-text-v1.5"
+            }
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "version": 34,
+        "score": 0.4631,
+        "payload": {
+          "text": "redacted chunk 1",
+          "tenant_id": "knowledge-id",
+          "metadata": {
+            "source": "villa-recall-00000000-0000-4000-8000-000000000001.txt",
+            "name": "villa-recall-00000000-0000-4000-8000-000000000001.txt",
+            "created_by": "<redacted>",
+            "file_id": "file-1",
+            "start_index": 0,
+            "hash": "<redacted>",
+            "embedding_config": {
+              "engine": "openai",
+              "model": "nomic-embed-text-v1.5"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "status": "ok",
+  "time": 0.000363855
+}

@@ -35,3 +35,17 @@ func TestLlamaInNetworkEndpoint(t *testing.T) {
 		t.Errorf("LlamaInNetworkEndpoint() = %q must contain the inference server port %q (DNS/port lockstep)", got, port)
 	}
 }
+
+// TestOpenWebUIInNetworkHealthURL: the routed-network sanity target of `villa verify
+// agent` is composed from the rendered container name and the container-internal
+// port of the chat unit's own PublishPort, so a rename or port change cannot leave
+// the probe aimed at a stale literal (ADR-0043).
+func TestOpenWebUIInNetworkHealthURL(t *testing.T) {
+	got := OpenWebUIInNetworkHealthURL()
+	if want := "http://villa-openwebui:8080/health"; got != want {
+		t.Errorf("OpenWebUIInNetworkHealthURL() = %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(openWebUIPublishPort, ":"+strconv.Itoa(openWebUIServerPort)) {
+		t.Errorf("openWebUIPublishPort %q does not publish the container port %d the probe targets", openWebUIPublishPort, openWebUIServerPort)
+	}
+}

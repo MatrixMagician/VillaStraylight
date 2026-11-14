@@ -623,11 +623,11 @@ func probeWebsafeURL(url string) status.HealthState {
 var inferproxyHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
 
 // liveInferproxyHealth is a liveness probe of villa-inferproxy's root from
-// villa.network. The root is off the proxy's allowlist, so the proxy answers 403
+// villa-closed, the network it shares with villa-llama (ADR-0043). The root is off the proxy's allowlist, so the proxy answers 403
 // itself: the probe proves the listener is up without reaching villa-llama.
 func liveInferproxyHealth() status.HealthState {
 	return inferproxyHealthCache.Get(func() status.HealthState {
-		return statusProber(routedNetwork).Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
+		return statusProber(closedNetwork).Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
 	})
 }
 
@@ -888,6 +888,19 @@ func liveStatusServices() []status.Service {
 			Unit:  unitServiceName(orchestrate.ImageContainerUnitName()),
 			Kind:  status.Managed,
 			Probe: liveImageHealth,
+		},
+		{
+			// The tool server's two units each answer an unauthenticated /healthz on
+			// the network they join (ADR-0042). Whether a tool call works end to end
+			// is `villa verify tools`, not a status probe.
+			Unit:  unitServiceName(orchestrate.ToolsWebContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsWebHealth() },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.ToolsRecallContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveToolsRecallHealth() },
 		},
 		{
 			// The dashboard is a native systemd --user service, not a Quadlet

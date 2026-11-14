@@ -8,8 +8,12 @@ package taskrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/approval"
@@ -123,7 +127,11 @@ func (r *Runner) run(a *active) {
 					j.decide(b, *ev.Permission)
 				}
 			case crushapi.KindFile:
-				if ev.File != nil {
+				switch {
+				case ev.File == nil:
+				case ev.File.Op == crushapi.FileOpDeleted:
+					j.narrate("the harness dropped its history record of " + guestRel(ev.File.Path) + "; not a write")
+				default:
 					j.addFile(ev.File.Path)
 				}
 			case crushapi.KindRunComplete:
@@ -179,7 +187,7 @@ func (j *job) settle(ctx context.Context, b Bridge) {
 	if err != nil {
 		j.narrate("the sandbox exited with an error after completing: " + err.Error())
 	}
-	j.audit(ctx)
+	j.audit(ctx, j.observe())
 }
 
 // killAndCancel ends a task the cancel channel woke. Close uses the same
@@ -317,10 +325,44 @@ func (j *job) addFile(guestPath string) {
 	j.narrate(action + " " + rel)
 }
 
-// audit runs the grounding second pass (spec §6) over every distinct file the
-// task wrote, the sources being what the session read minus the document
-// itself. checked:false, an audit error or any unsupported claim flags.
-func (j *job) audit(ctx context.Context) {
+// observe reads each distinct reported path once after the run (ADR-0047) and
+// records what it found. It returns the bytes of the present paths, which the
+// audit reads instead of the disk, so the audited document is the hashed one.
+// Only a not-exist error is absence; any other failure is unobserved.
+func (j *job) observe() map[string][]byte {
+	contents := map[string][]byte{}
+	done := map[string]bool{}
+	for _, f := range j.t.Files {
+		if done[f.Path] {
+			continue
+		}
+		done[f.Path] = true
+		data, err := j.r.d.ReadFile(j.t.Workspace, f.Path)
+		o := taskstore.Observation{Path: f.Path, ObservedAt: stamp(j.r.d.Now())}
+		switch {
+		case err == nil:
+			size := int64(len(data))
+			sum := sha256.Sum256(data)
+			o.State, o.Size, o.SHA256 = taskstore.ObservedPresent, &size, hex.EncodeToString(sum[:])
+			contents[f.Path] = data
+			j.narrate(fmt.Sprintf("observed %s: %d bytes, sha256 %s", f.Path, size, o.SHA256))
+		case errors.Is(err, fs.ErrNotExist):
+			o.State = taskstore.ObservedAbsent
+			j.narrate("absent after the run: " + f.Path)
+		default:
+			o.State, o.Error = taskstore.Unobserved, err.Error()
+			j.narrate("unobserved " + f.Path + ": " + err.Error())
+		}
+		j.t.Observations = append(j.t.Observations, o)
+	}
+	return contents
+}
+
+// audit runs the grounding second pass (spec §6) over every observed document,
+// the sources being what the session read minus the document itself. An
+// absent path has no document and flags on its own; checked:false, an audit
+// error or any unsupported claim flags too.
+func (j *job) audit(ctx context.Context, contents map[string][]byte) {
 	var sources []grounding.Source
 	for _, p := range j.filesRead {
 		rel := guestRel(p)
@@ -337,19 +379,19 @@ func (j *job) audit(ctx context.Context) {
 
 	g := taskstore.Grounding{Checked: true, Documents: []taskstore.GroundingDocument{}}
 	flagged := false
-	audited := map[string]bool{}
-	for _, f := range j.t.Files {
-		if audited[f.Path] {
-			continue
-		}
-		audited[f.Path] = true
+	var absent []string
+	for _, o := range j.t.Observations {
 		var rep grounding.DocumentReport
-		if data, err := j.r.d.ReadFile(j.t.Workspace, f.Path); err != nil {
-			rep = grounding.DocumentReport{Path: f.Path, Err: err.Error()}
-		} else {
-			rep = j.r.d.Audit(ctx, grounding.Document{Path: f.Path, Content: string(data)}, sources)
+		switch o.State {
+		case taskstore.ObservedAbsent:
+			absent = append(absent, o.Path)
+			continue
+		case taskstore.ObservedPresent:
+			rep = j.r.d.Audit(ctx, grounding.Document{Path: o.Path, Content: string(contents[o.Path])}, sources)
+		default:
+			rep = grounding.DocumentReport{Path: o.Path, Err: o.Error}
 		}
-		doc := taskstore.GroundingDocument{Path: f.Path, Claims: rep.Claims, Unsupported: []taskstore.Unsupported{}}
+		doc := taskstore.GroundingDocument{Path: o.Path, Claims: rep.Claims, Unsupported: []taskstore.Unsupported{}}
 		for _, u := range rep.Unsupported {
 			doc.Unsupported = append(doc.Unsupported, taskstore.Unsupported{Claim: u.Claim, Reason: u.Reason})
 		}
@@ -357,13 +399,13 @@ func (j *job) audit(ctx context.Context) {
 		if !rep.Checked {
 			g.Checked = false
 			flagged = true
-			j.narrate("audit could not run for " + f.Path + ": " + rep.Err)
+			j.narrate("audit could not run for " + o.Path + ": " + rep.Err)
 			continue
 		}
 		if rep.Err != "" || len(rep.Unsupported) > 0 {
 			flagged = true
 		}
-		line := fmt.Sprintf("audit %s: %d claims, %d unsupported", f.Path, rep.Claims, len(rep.Unsupported))
+		line := fmt.Sprintf("audit %s: %d claims, %d unsupported", o.Path, rep.Claims, len(rep.Unsupported))
 		if rep.Err != "" {
 			line += " (" + rep.Err + ")"
 		}
@@ -377,8 +419,15 @@ func (j *job) audit(ctx context.Context) {
 		return
 	}
 	j.t.Grounding = g
+	var reasons []string
+	if len(absent) > 0 {
+		reasons = append(reasons, "reported written but absent after the run: "+strings.Join(absent, ", "))
+	}
 	if flagged {
-		j.finish(taskstore.Flagged, "flagged: the audit found claims it could not support; the document is left as written")
+		reasons = append(reasons, "the audit found claims it could not support; the document is left as written")
+	}
+	if len(reasons) > 0 {
+		j.finish(taskstore.Flagged, "flagged: "+strings.Join(reasons, "; "))
 		return
 	}
 	j.finish(taskstore.Done, "done")
@@ -392,6 +441,7 @@ func (j *job) transition(to taskstore.State, extra func(*taskstore.Task)) {
 		t.Files = j.t.Files
 		t.Approvals = j.t.Approvals
 		t.Grounding = j.t.Grounding
+		t.Observations = j.t.Observations
 		if extra != nil {
 			extra(t)
 		}
@@ -417,6 +467,7 @@ func (j *job) finish(to taskstore.State, text string) {
 		t.Files = j.t.Files
 		t.Approvals = j.t.Approvals
 		t.Grounding = j.t.Grounding
+		t.Observations = j.t.Observations
 		t.FinishedAt = finished
 	})
 	if err != nil {

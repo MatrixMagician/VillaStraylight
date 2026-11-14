@@ -145,11 +145,16 @@ graph TD
     taskrun --> crushapi["internal/crushapi<br/>Crush server client + bridge stdio protocol"]
     taskrun -.podman run --runtime=krun.-> sandbox["villa-task-&lt;id&gt; microVM<br/>villa sandbox-bridge → crush server"]
     sandbox -.villa-sandbox network.-> inferproxy["villa-inferproxy<br/>forwards 2 routes only, injects the real<br/>LLAMA_API_KEY bearer (GHSA-gvp9, ADR-0011)"]
-    inferproxy -.villa.network.-> llama
+    inferproxy -.villa-closed.network.-> llama
     stackapply["internal/stackapply<br/>the one stack apply (ADR-0013)"] --> catalog
     stackapply -.catalog.Image → ImageServe.-> orchestrate
     orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0032)"]
     owui -.automatic1111 engine, villa-closed.-> image
+    orchestrate -.tools.container.tmpl, the villa-websafe base image, villa binary bind-mounted.-> toolsweb["villa-tools-web<br/>villa tools-serve --set web: GET /web/search<br/>on villa.network only (ADR-0042)"]
+    orchestrate -.tools.container.tmpl.-> toolsrecall["villa-tools-recall<br/>villa tools-serve --set recall: GET /recall/search<br/>on villa-closed.network only, scoped by X-Villa-User-Id (ADR-0042)"]
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsweb
+    owui -.TOOL_SERVER_CONNECTIONS in a 0600 env file.-> toolsrecall
+    stackapply -.heal: bearers, tools/*.env, recall scope.-> toolsrecall
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
@@ -234,7 +239,18 @@ emits through its `Emit` seam.
    the inference `.container`, `villa.network`, `villa-models.volume`, and the Open
    WebUI `.container` + `.volume`. The inference unit's imperative fields are obtained
    **through** `Backend.Image()` and `Backend.ContainerArgs(spec)` and mapped to
-   Quadlet keys, never re-typed.
+   Quadlet keys, never re-typed. The inference unit and every resident slot join
+   `villa-closed.network` (`Internal=true`) only, so inference has no route off-box
+   while its loopback publish still serves the host (ADR-0043); Open WebUI is on
+   both `villa.network` and the closed network, and `villa-inferproxy` bridges the
+   closed and sandbox networks. With `tool_server` on, two more units render after the
+   voice units: `villa-tools-web` (needs web search) on `villa.network` only and
+   `villa-tools-recall` (needs memory) on `villa-closed.network` only. Both run the
+   host `villa` binary in the `villa-websafe` base image, publish no port, and read a
+   0600 env file for their bearer; Open WebUI's one extra `EnvironmentFile=` carries
+   both bearers in the `TOOL_SERVER_CONNECTIONS` line it registers them from. The stack
+   apply's heal generates the bearers and writes those files and the recall scope
+   file before it renders (ADR-0042).
 6. **Reconcile**: `orchestrate.Reconcile(units, unitDir)` (pure) does a sha256
    render-vs-disk diff, classifying each unit Changed or Unchanged. An empty Changed
    slice is a true no-op, the idempotency core.
@@ -357,9 +373,12 @@ dashboard service drives rather than reads:
    `bridge_ready` line. The instruction goes in with `grounding.CitationInstruction`
    appended. Every Crush permission request is answered by `approval.Decide` or
    parks the task in `awaiting_approval`; file events append to the record.
-4. **Audit**: after `run_complete`, one `grounding.Audit` call per file the task
-   created or modified, the sources being the files the session read. Any
-   unsupported claim, or an audit that could not run, makes the task `flagged`.
+4. **Observe and audit**: after `run_complete`, the runner reads each distinct
+   reported path once and records an observation (present with size and sha256,
+   absent, or unobserved; ADR-0047). Then one `grounding.Audit` call per present
+   document, over the bytes the observation hashed, the sources being the files
+   the session read. A reported file absent after the run, any unsupported
+   claim, or an audit that could not run makes the task `flagged`.
 5. **Finish**: the terminal state is written under a legal edge of
    `taskstore.CanTransition`, the container exits (`--rm`), and the terminal
    re-reads the record from the API before printing the summary, so a cut stream
@@ -400,7 +419,7 @@ dashboard service drives rather than reads:
   render.
 - **`inference.Client`** (`internal/inference/client.go`), the one caller of a
   llama-server unit (ADR-0014). Built from a loaded config by `inferenceClient(cfg)`,
-  or `inNetworkInferenceClient(cfg)` for a `villa.network` probe, and rebuilt per
+  or `inNetworkInferenceClient(cfg)` for a `villa-closed` probe, and rebuilt per
   status run and per dashboard scrape so the long-lived dashboard sends the current
   key (ADR-0016), it owns the address, the api key and every route: `/health` and
   `/v1/models`, which llama.cpp serves publicly (the client sends the key on
@@ -591,9 +610,9 @@ internal/
                       ROCm (default) + Vulkan backends, podman runner, offload assert;
                       Client, the one authenticated caller of llama-server (ADR-0014).
   stackapply/         Stack apply: every render input derived from the config, the
-                      inference-secret heal, the crush.json key heal (only a
-                      drift that is villa's inference key, kept as crush.json.bak;
-                      ADR-0019), stop and remove the registry units the config no longer
+                      inference-secret heal, the crush.json heal (only a
+                      drift in villa's own values, the inference key and
+                      request_timeout, kept as crush.json.bak; ADR-0019, ADR-0044), stop and remove the registry units the config no longer
                       renders (refused when a service's state cannot be read, #344),
                       write changed + reload (ADR-0013, ADR-0035).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile (changed and orphaned) + atomic

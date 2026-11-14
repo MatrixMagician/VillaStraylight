@@ -1,0 +1,48 @@
+19:17:50.619405 ?     B   ARP, Request who-has 10.99.8.240 tell 10.99.8.240, length 28
+19:17:50.728560 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:17:50.728570 ?     Out ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:17:50.728572 ?     B   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:17:50.728606 ?     P   IP 10.99.8.240.43918 > 10.99.8.1.domain: 9989+ [1au] AAAA? api.github.com. (43)
+19:17:50.728607 ?     In  IP 10.99.8.240.43918 > 10.99.8.1.domain: 9989+ [1au] AAAA? api.github.com. (43)
+19:17:50.728640 ?     P   IP 10.99.8.240.57314 > 10.99.8.1.domain: 15921+ [1au] A? api.github.com. (43)
+19:17:50.728640 ?     In  IP 10.99.8.240.57314 > 10.99.8.1.domain: 15921+ [1au] A? api.github.com. (43)
+19:17:50.732119 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [S], seq 2146906643, win 65480, options [mss 65480,sackOK,TS val 4289714426 ecr 0,nop,wscale 10], length 0
+19:17:50.732123 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [S], seq 2146906643, win 65480, options [mss 65480,sackOK,TS val 4289714426 ecr 0,nop,wscale 10], length 0
+19:17:50.735414 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 1434443239, win 64, length 0
+19:17:50.735415 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 1, win 64, length 0
+19:17:50.735658 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [P.], seq 0:1536, ack 1, win 64, length 1536
+19:17:50.735659 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [P.], seq 0:1536, ack 1, win 64, length 1536
+19:17:50.740557 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 3104, win 100, length 0
+19:17:50.740558 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 3104, win 100, length 0
+19:17:50.742859 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [P.], seq 1536:1566, ack 3104, win 100, length 30
+19:17:50.742860 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [P.], seq 1536:1566, ack 3104, win 100, length 30
+19:17:50.742890 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [F.], seq 1566, ack 3104, win 100, length 0
+19:17:50.742890 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [F.], seq 1566, ack 3104, win 100, length 0
+19:17:50.745166 ?     P   IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 3105, win 100, length 0
+19:17:50.745167 ?     In  IP 10.99.8.240.56764 > 20.26.156.210.https: Flags [.], ack 3105, win 100, length 0
+19:17:55.791286 ?     P   ARP, Reply 10.99.8.240 is-at 46:f5:81:eb:a5:e6, length 28
+19:17:55.791290 ?     In  ARP, Reply 10.99.8.240 is-at 46:f5:81:eb:a5:e6, length 28
+19:18:21.299132 ?     P   IP 10.99.8.240.38333 > 10.99.8.1.domain: 24297+ [1au] A? proto-llama.dns.podman. (51)
+19:18:21.299137 ?     In  IP 10.99.8.240.38333 > 10.99.8.1.domain: 24297+ [1au] A? proto-llama.dns.podman. (51)
+19:18:21.299150 ?     P   IP 10.99.8.240.56000 > 10.99.8.1.domain: 4966+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:21.299153 ?     In  IP 10.99.8.240.56000 > 10.99.8.1.domain: 4966+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:21.300883 ?     P   IP 10.99.8.240.47845 > 10.99.8.1.domain: 60458+ [1au] A? proto-llama.dns.podman. (51)
+19:18:21.300884 ?     In  IP 10.99.8.240.47845 > 10.99.8.1.domain: 60458+ [1au] A? proto-llama.dns.podman. (51)
+19:18:21.300914 ?     P   IP 10.99.8.240.50517 > 10.99.8.1.domain: 64747+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:21.300917 ?     In  IP 10.99.8.240.50517 > 10.99.8.1.domain: 64747+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:22.691712 ?     P   IP 10.99.8.240.50692 > 10.99.8.1.domain: 36623+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:22.691712 ?     P   IP 10.99.8.240.43442 > 10.99.8.1.domain: 7432+ [1au] A? proto-llama.dns.podman. (51)
+19:18:22.691719 ?     In  IP 10.99.8.240.50692 > 10.99.8.1.domain: 36623+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:18:22.691719 ?     In  IP 10.99.8.240.43442 > 10.99.8.1.domain: 7432+ [1au] A? proto-llama.dns.podman. (51)
+19:19:36.844035 ?     P   IP 10.99.8.240.59654 > 10.99.8.1.domain: 19609+ [1au] A? proto-llama.dns.podman. (51)
+19:19:36.844035 ?     P   IP 10.99.8.240.48588 > 10.99.8.1.domain: 45135+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:19:36.844040 ?     In  IP 10.99.8.240.48588 > 10.99.8.1.domain: 45135+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:19:36.844040 ?     In  IP 10.99.8.240.59654 > 10.99.8.1.domain: 19609+ [1au] A? proto-llama.dns.podman. (51)
+19:19:38.338673 ?     P   IP 10.99.8.240.52910 > 10.99.8.1.domain: 2561+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:19:38.338677 ?     In  IP 10.99.8.240.52910 > 10.99.8.1.domain: 2561+ [1au] AAAA? proto-llama.dns.podman. (51)
+19:19:38.338728 ?     P   IP 10.99.8.240.58721 > 10.99.8.1.domain: 56380+ [1au] A? proto-llama.dns.podman. (51)
+19:19:38.338733 ?     In  IP 10.99.8.240.58721 > 10.99.8.1.domain: 56380+ [1au] A? proto-llama.dns.podman. (51)
+19:19:42.287280 ?     P   ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:19:42.287286 ?     In  ARP, Request who-has 10.99.8.1 tell 10.99.8.240, length 28
+19:19:42.287327 ?     P   ARP, Reply 10.99.8.240 is-at 46:f5:81:eb:a5:e6, length 28
+19:19:42.287330 ?     In  ARP, Reply 10.99.8.240 is-at 46:f5:81:eb:a5:e6, length 28

@@ -15,7 +15,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/approval"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
 
@@ -111,16 +113,17 @@ func (c *clock) now() time.Time {
 }
 
 type harness struct {
-	root    string
-	t       *testing.T
-	r       *Runner
-	store   taskstore.Store
-	ws      string
-	bridges chan *fakeBridge
-	deps    Deps
-	mu      sync.Mutex
-	killed  []string
-	audit   func(doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
+	root     string
+	t        *testing.T
+	r        *Runner
+	store    taskstore.Store
+	ws       string
+	bridges  chan *fakeBridge
+	deps     Deps
+	mu       sync.Mutex
+	killed   []string
+	launches int
+	audit    func(doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
 }
 
 func newHarness(t *testing.T) *harness {
@@ -145,6 +148,9 @@ func newHarness(t *testing.T) *harness {
 		Store:      h.store,
 		LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{ToolsMode: true}, nil },
 		Launch: func(_ context.Context, args []string) (Bridge, error) {
+			h.mu.Lock()
+			h.launches++
+			h.mu.Unlock()
 			select {
 			case b := <-h.bridges:
 				return b, nil
@@ -165,6 +171,9 @@ func newHarness(t *testing.T) *harness {
 		ToolsOn:    func(config.VillaConfig) bool { return true },
 		SandboxReady: func() (bool, string) {
 			return true, ""
+		},
+		ServedProps: func(context.Context) *inference.PropsInfo {
+			return &inference.PropsInfo{ToolsSupported: detect.Bool{Known: true, Value: true}}
 		},
 		Audit: func(_ context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport {
 			return h.audit(doc, sources)
@@ -1044,5 +1053,35 @@ func TestSessionAllowNeverAutoGrantsADeletion(t *testing.T) {
 	got := h.waitState(task.ID, taskstore.AwaitingApproval)
 	if len(got.Approvals) != 2 || got.Approvals[1].Command != "rm -rf build" || got.Approvals[1].Answer != "" {
 		t.Errorf("a deletion must still park after approve --all: %+v", got.Approvals)
+	}
+}
+
+// TestWorkspaceHoldingProjectSkillsIsRefusedAtSubmit guards #438: a workspace
+// that ships a project skill dir is refused synchronously, before any sandbox
+// starts, with the path named; a clean workspace queues as before.
+func TestWorkspaceHoldingProjectSkillsIsRefusedAtSubmit(t *testing.T) {
+	h := newHarness(t)
+	skills := filepath.Join(h.ws, ".claude", "skills")
+	h.deps.ProjectSkills = func(workspace string) []string {
+		if workspace == h.ws {
+			return []string{skills}
+		}
+		return nil
+	}
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	if task.State != taskstore.Refused {
+		t.Fatalf("State = %q, want refused", task.State)
+	}
+	log := h.logText(task.ID)
+	if !strings.Contains(log, skills) {
+		t.Errorf("refusal %q does not name %s", log, skills)
+	}
+
+	h2 := newHarness(t)
+	h2.deps.ProjectSkills = func(string) []string { return nil }
+	h2.start()
+	if got := h2.submit(approval.ModeAsk); got.State == taskstore.Refused {
+		t.Errorf("clean workspace was refused: %q", got.State)
 	}
 }

@@ -41,6 +41,10 @@ const (
 	pathOpenAIConfig       = "/openai/config"
 	pathOpenAIConfigUpdate = "/openai/config/update"
 
+	// pathToolServersConfig lists the registered tool-server connections (admin). The
+	// connection list is environment-rendered, so this is a read of what Open WebUI loaded.
+	pathToolServersConfig = "/api/v1/configs/tool_servers"
+
 	// pathModelRow reads one Model row; pathModelUpdate writes it; pathModelCreate
 	// creates a fresh one.
 	pathModelRow    = "/api/v1/models/model"

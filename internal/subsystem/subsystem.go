@@ -88,6 +88,10 @@ const (
 	// into Open WebUI. It owns no persistent state: villa-image mounts the models
 	// volume read-only.
 	Image
+	// ToolServer is villa's own model-callable tool server: villa-tools-web and
+	// villa-tools-recall, registered with Open WebUI (ADR-0042). It needs web search
+	// for the first unit and memory for the second, and owns no persistent state.
+	ToolServer
 )
 
 // String renders the subsystem's name for messages and logs.
@@ -111,6 +115,8 @@ func (k Kind) String() string {
 		return "voice"
 	case Image:
 		return "image generation"
+	case ToolServer:
+		return "tool server"
 	}
 	return "unknown"
 }
@@ -133,6 +139,8 @@ func (k Kind) ConfigKey() string {
 		return "voice_enabled"
 	case Image:
 		return "image_enabled"
+	case ToolServer:
+		return "tool_server"
 	case Inference, Chat:
 		// DELIBERATE: an always-on subsystem has no config key, because there is no
 		// flag an operator could edit to change the answer. The empty string is the
@@ -152,7 +160,7 @@ func (k Kind) AlwaysOn() bool {
 	switch k {
 	case Inference, Chat:
 		return true
-	case Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image:
+	case Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image, ToolServer:
 		return false
 	}
 	return false
@@ -228,7 +236,7 @@ func Stateful() []Kind {
 // on?" — a question whose honest answer never includes inference. Widening it would
 // have made status, doctor and install each report two subsystems nobody enabled,
 // silently, with no compile error to catch it. Every is the all-subsystems list.
-var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
+var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image, ToolServer}
 
 // Every is every subsystem, optional and always-on alike, in stack order:
 // inference first because nothing runs without it, then chat, then the addons.
@@ -237,7 +245,7 @@ var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
 // ask which are enabled — the pin table keys its entries by this vocabulary. The
 // order here is presentation order and is deliberately NOT the iota order, which
 // exists only to keep stored values stable.
-var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image}
+var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox, Voice, Image, ToolServer}
 
 // On reports whether the named subsystem is enabled in this config.
 //
@@ -260,6 +268,8 @@ func On(cfg config.VillaConfig, k Kind) bool {
 		return cfg.VoiceEnabled
 	case Image:
 		return cfg.ImageEnabled
+	case ToolServer:
+		return cfg.ToolServer
 	case Inference, Chat:
 		// TRUE BY CONSTRUCTION, not a stub. Inference and chat have no config bool
 		// because `villa install` renders both units unconditionally: there is no
@@ -295,6 +305,19 @@ func VoiceOn(cfg config.VillaConfig) bool { return On(cfg, Voice) }
 
 // ImageOn reports whether local image generation is enabled.
 func ImageOn(cfg config.VillaConfig) bool { return On(cfg, Image) }
+
+// ToolServerOn reports whether villa's own tool server is enabled. It is the gate
+// alone: each unit also needs what it searches, which ToolWebOn and ToolRecallOn add.
+func ToolServerOn(cfg config.VillaConfig) bool { return On(cfg, ToolServer) }
+
+// ToolWebOn reports whether villa-tools-web renders. It is a DERIVED gate like
+// RerankOn: the unit searches through SearXNG and fetches through the web guard, so
+// it needs web search on as well as the tool server.
+func ToolWebOn(cfg config.VillaConfig) bool { return ToolServerOn(cfg) && WebSearchOn(cfg) }
+
+// ToolRecallOn reports whether villa-tools-recall renders: the tool server, and the
+// memory stack whose Qdrant collection and embedder it queries.
+func ToolRecallOn(cfg config.VillaConfig) bool { return ToolServerOn(cfg) && MemoryOn(cfg) }
 
 // ToolsOn reports whether the inference unit must serve tool calls.
 //

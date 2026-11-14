@@ -84,6 +84,9 @@ chat_port = 3000
 | `voice_enabled` | bool | _(absent → false)_ | The voice subsystem's gate (ADR-0030): speech-to-text (`villa-stt`, whisper.cpp on Vulkan) plus text-to-speech (`villa-tts`, Kokoro-FastAPI on the CPU), proven together by one round trip. Written by `villa install --voice`, which also pre-stages the whisper model into the models dir. With it on, Open WebUI's voice input and read-aloud point at the two units by container DNS, `villa recommend` reserves the `stt` and `tts` rows off the envelope, and `villa verify voice` speaks a sentence, transcribes it back and reads villa-stt's journal to prove whisper ran on the GPU, failing on a CPU fallback (ADR-0037). Nothing leaves the box: the Kokoro image bakes its weights in and was proven to make no outbound call. |
 | `image_enabled` | bool | _(absent → false)_ | The image-generation gate (`subsystem.Image`, ADR-0032). Written by `villa install --image`; nothing on the command line turns it off. With it on, the render appends the `villa-image` sd-server unit, Open WebUI's image generation is wired to it, and the image model's measured footprint is reserved off the envelope before the chat-model fit. See [Image generation](#image-generation). |
 | `image_model` | string | _(absent → `z-image-turbo`)_ | The image-table id `villa-image` serves: `z-image-turbo` (Z-Image-Turbo Q8_0) or `z-image-turbo-q4` (Q4_K, about 2.5 GiB less resident and 3 GiB less reserved). Edit by hand, then `villa install`; `catalog_path` never overrides the image table. Self-healed to the default on load and omitted from the file while `image_enabled` is off. |
+| `tool_server` | bool | _(absent → false)_ | The tool server's gate (`subsystem.ToolServer`, ADR-0042). Written by `villa install --tool-server`, which also raises `tools_mode`; nothing on the command line turns it off, and it is never self-healed. With it on, the render appends `villa-tools-web` (when web search is on) and `villa-tools-recall` (when memory is on), and Open WebUI registers each as a model-callable tool. See [The tool server](#the-tool-server). |
+| `tool_web_secret` | string | _(generated with the gate)_ | The bearer `villa-tools-web` requires of Open WebUI, generated once by `villa install --tool-server` or the next stack apply and reused verbatim after. It reaches the unit and Open WebUI only through 0600 files under `~/.config/villa/tools/`, never a 0644 unit. Omitted from the file while `tool_server` is off; never logged. |
+| `tool_recall_secret` | string | _(generated with the gate)_ | The same, for `villa-tools-recall`. It is a separate value from `tool_web_secret`, so the unit that parses untrusted pages never holds the key to the recall index. |
 
 ### The resident set
 
@@ -196,10 +199,14 @@ file and re-run `villa install` to drop the inference unit's join to
 No config field moves it. Every service with no runtime need to reach off-box joins
 it and nothing else: `villa-qdrant`, `villa-embed`, `villa-rerank`, `villa-extract`,
 `villa-stt`, `villa-tts` and `villa-image`. They have no route out, and a public
-hostname does not resolve inside them. Open WebUI joins both `villa.network` and
-`villa-closed.network`, so it reaches them by container DNS. `villa-llama`, SearXNG,
-the web loader and the inference proxy stay on `villa.network`. villa's in-network
-probes run on their target's network. `villa doctor` reports `networks`: every
+hostname does not resolve inside them. `villa-llama` and every resident slot join it
+and nothing else too (ADR-0043), and keep their loopback publish
+(`127.0.0.1:8080`, and one port per slot) for the host. The inference proxy joins it
+and `villa-sandbox.network`. Open WebUI joins both `villa.network` and
+`villa-closed.network`, so it reaches them by container DNS. SearXNG and the web
+loader stay on `villa.network`. villa's in-network probes run on their target's
+network. After an upgrade the first `villa up` restarts the inference units, and the
+model reloads. `villa doctor` reports `networks`: every
 running container must be on exactly the networks its unit joins, and
 `villa-closed` must be internal on the host. Quadlet creates a network with
 `podman network create --ignore`, so a `villa-closed` that existed before villa
@@ -264,6 +271,88 @@ Quadlet (`UnitFileState=generated`), which podman-systemd.unit(5) says
 `systemctl enable` cannot manage, and the generator applies its `WantedBy=`
 itself, so removing the `.container` file is what takes it out of the boot set.
 sd-server ignores SIGTERM, so the stop in that apply waits podman's 10 s SIGKILL fallback.
+
+### The tool server
+
+Villa publishes two read-only tools to Open WebUI from its own fixed OpenAPI servers
+(#313, ADR-0042). There is no operator-named image or URL, no third-party server and
+no tool that writes.
+
+| Key | Type | Default | Written by | Read by |
+|-----|------|---------|------------|---------|
+| `tool_server` | bool | `false` | `villa install --tool-server` | the render, the stack apply's heal, `villa status` (the two `villa-tools-*.service` rows), `villa doctor` (`tool-server` and `tool-server-proof` while on, `orphan-units` when off until `villa up` removes the units) |
+| `tool_web_secret`, `tool_recall_secret` | string | generated | `villa install --tool-server`, or the next stack apply | the heal, which writes the three files below |
+
+`villa install --tool-server` needs web search, memory or both. It refuses, with the
+remedy, when neither is on or asked for in the same run, because the gate would be a flag
+with no unit behind it. It persists the gate, raises `tools_mode` (a model served without
+tool calling cannot use a tool), generates one bearer per unit, writes the files, starts each
+unit after the services it reads and waits for each to answer `/healthz`.
+
+| Unit | Renders when | Network | Tool |
+|------|--------------|---------|------|
+| `villa-tools-web` | `tool_server` and web search | `villa.network` only (a search that returns page text must fetch) | `villa_web_search` on `GET /web/search` |
+| `villa-tools-recall` | `tool_server` and memory | `villa-closed.network` only (no route off-box) | `villa_recall_search` on `GET /recall/search` |
+
+Both run the host `villa` binary, bind-mounted read-only, in the distroless image
+`villa-websafe` already pins, as `villa tools-serve --set web|recall` (a hidden verb). There
+is no new image or pin, no published host port, and nothing joins both networks. The recall
+unit also mounts `~/.local/share/villa/recall-scope/` read-only, which holds one file of
+ids.
+
+Three files under `~/.config/villa/tools/` (directory 0700, files 0600) carry the secrets;
+a rendered unit names them by path and never holds a value:
+
+| File | Holds | Read by |
+|------|-------|---------|
+| `web.env` | `VILLA_TOOLS_KEY=<tool_web_secret>` | `villa-tools-web` |
+| `recall.env` | `VILLA_TOOLS_KEY=<tool_recall_secret>` | `villa-tools-recall` |
+| `openwebui.env` | `TOOL_SERVER_CONNECTIONS=<JSON>`, one line, with both bearers | `villa-openwebui` |
+
+Open WebUI registers each unit from that one line at every start, because the stack already
+renders `ENABLE_PERSISTENT_CONFIG=False`; no admin-API write is made. The recall connection
+asks Open WebUI to fill the session user's id into an `X-Villa-User-Id` header, which the
+recall unit scopes every query on; the web connection carries no header. Both connections
+are private to Open WebUI admins.
+
+The recall scope is `~/.local/share/villa/recall-scope/scope.json`: the recall collection's
+id and a map from each indexed transcript's file id to its owner, derived from
+`recall-state.json`. `villa install --tool-server` and every stack apply write it while the
+recall unit renders, and `villa recall index` rewrites it after every state save. It holds ids
+only. Until `villa recall index` has run once, the recall unit answers 503 and `villa doctor`
+warns.
+
+To turn the tool server off, set `tool_server = false` and run `villa up`. The apply stops
+and removes both units through the unit registry (ADR-0035) and re-renders Open WebUI
+without the connection file, so the tool list is empty again. The files under `tools/` stay,
+with keys no unit accepts any more, and `villa uninstall` leaves them as it leaves
+`websafe.env` and `llama.env`. `villa backup` carries no new entry: the secrets are in
+`config.toml`, and a restore applies through the stack apply, which rewrites the files and
+the scope. The units have no pin of their own, so `villa update search` moves their base
+image and restarts them with the rest of what the apply changed.
+
+**Proving it.** `villa verify tools` runs seven legs against the running units and records
+its verdict and time in `~/.local/share/villa/verify-tools-state.json` (a second document,
+never the search one), which `villa doctor` reads as `tool-server-proof`:
+
+| Leg | Asserts |
+|-----|---------|
+| `contract` | each unit's `/openapi.json`, fetched in-network with its bearer, equals the compiled-in document byte for byte |
+| `refusals` | no bearer and a wrong bearer are 401, a POST is 405, and recall answers 403 without a well-formed `X-Villa-User-Id` while accepting one |
+| `registration` | Open WebUI's tool-server list holds `villa-web` and `villa-recall`, enabled (a malformed `openwebui.env` line reads as an empty list) |
+| `web` | one real search returns results, each fenced with one nonce and carrying a guard verdict |
+| `scope` | recall returns a user's own chats only, each fenced; an identity that owns nothing gets the empty result; with two users who own indexed chats, neither sees the other's |
+| `closed-network` | each unit is on exactly the network its unit file joins (web on `villa` only, recall on `villa-closed` only); a helper on `villa-closed` reaches Qdrant (the control, asked first) and not 1.1.1.1; the recall unit is not reachable from `villa` |
+| `chat` | one completion per unit through Open WebUI offers that unit's tool, and the unit's own request log shows a new call. A completion with no new log line is a REJECT however plausible its text |
+
+A leg that cannot be conducted (a unit unreachable, every search engine refusing, a model
+that made no call, no transcript indexed) is a REJECT and exits 2. A leg that ran and found
+the property absent is a FAIL and exits 1. A unit that is not rendered skips its legs. The
+cross-user check needs two accounts with indexed chats, so with one the `scope` leg says it
+was not shown, and the two-account run is by hand (see
+[TESTING.md](TESTING.md#tool-server-the-two-account-check)). The `tool-server-proof`
+finding is a PASS for a fresh PASS, a BLOCK-class FAIL for a fresh FAIL, and a WARN for a
+fresh REJECT or a stale, absent or unreadable record (24 hours is fresh).
 
 ### Inspecting and editing the config
 
@@ -463,7 +552,7 @@ embedded seed's own entry: `operator-supplied` when its id is not in the seed, a
 `operator-edited` when its id is but its content differs (a hand edit, or a stale copy
 after a release re-pinned it). The marking is derived from the seed, not stored, so it
 also covers an entry you wrote by hand. `model list --json` gains an `origin` key on
-those entries only; `status --json` gains `model_origin` (report `schema_version` 13);
+those entries only; `status --json` gains `model_origin` (report `schema_version` 14);
 `doctor` reports `CAT-02` for the configured model. [ADR-0041](adr/0041-an-operator-adds-a-model-from-a-commit-pinned-url.md)
 has the reasoning.
 
@@ -477,6 +566,17 @@ carries, and every stack apply then fails closed.
 
 The generated Quadlet units embed runtime configuration that is **not** exposed as
 user settings. It is recorded here for transparency.
+
+**Tool server (`tool_server = true`).** `villa-tools-web` and `villa-tools-recall` run
+`/usr/local/bin/villa tools-serve --set <web|recall> --host 0.0.0.0 --port <8092|8093>` from the
+`villa-websafe` base image with the host binary mounted `:ro,z`, `Network=` set to one
+network each, one `EnvironmentFile=` and no `PublishPort=`; the recall unit adds
+`--embedding-model <embedding_model>` and the scope directory mounted `:ro,z` at
+`/villa/recall-scope`. Open WebUI's unit gains exactly one `EnvironmentFile=` line, for
+`~/.config/villa/tools/openwebui.env`, and no `Environment=` key: the connection list holds
+both bearers, so it lives in the 0600 file only. If no other group already rendered it, the
+trailing `ENABLE_PERSISTENT_CONFIG=False` is rendered, because the connection list is a
+persistent config value that Open WebUI would otherwise seed once and then ignore.
 
 **Voice (`voice_enabled = true`).** `villa-stt` runs `whisper-server` from the pinned
 ggml-org Vulkan image with `Entrypoint=` set to the server binary (the image's own
@@ -510,9 +610,10 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 | `--cache-ram 8192` | Caps the RAM prompt cache at 8 GiB (ADR-0021). Rendered, not configurable: there is no `config.toml` key, and the fit counts exactly this value, once per chat unit, so each resident model adds one. `villa-embed` does not render it. |
 | `--ctx-checkpoints 1` | Caps the sliding-window context checkpoints each slot keeps in host memory (ADR-0034). Rendered only on a unit whose model has sliding-window layers (a catalog `swa` block, today `gemma-4-31b`), primary or resident, and the fit counts exactly this value. Not configurable. |
 
-The inference container also receives `--device /dev/dri`, `--group-add keep-groups`,
-`--security-opt seccomp=unconfined`, and a read-only model bind mount
-(`<models-dir>:/models:ro,z`). The container-internal server binds `0.0.0.0:8080`,
+The inference container also receives `--device /dev/dri`, `--group-add keep-groups`
+and a read-only model bind mount. A ROCm unit also receives `/dev/kfd` and
+`--security-opt seccomp=unconfined`; the Vulkan unit carries no security option
+since #343 (measured unnecessary). The mount is `<models-dir>:/models:ro,z`. The container-internal server binds `0.0.0.0:8080`,
 but only the loopback host publish `127.0.0.1:8080:8080` is reachable from the host.
 
 **Backend-specific image, devices, and env.** The image, device passthrough, and
@@ -542,7 +643,7 @@ load-bearing:
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa` network by container DNS, at its internal port 8080. |
+| `OPENAI_API_BASE_URL` | `http://villa-llama:8080/v1` | Reaches inference over the `villa-closed` network by container DNS, at its internal port 8080. |
 | `ENABLE_OPENAI_API` | `True` | Use the OpenAI-compatible llama-server endpoint. |
 | `ENABLE_OLLAMA_API` | `False` | Ollama is not the engine. |
 | `OPENAI_API_KEY` | the `inference_secret` bearer | Set via the SAME 0600 `EnvironmentFile=` (`internal/orchestrate.InferenceSecretEnvFilePath`) villa-llama itself references — never a literal in this 0644 unit — because llama-server now requires `Authorization: Bearer <inference_secret>` on every route but `/health` (GHSA-qxg9, ADR-0011). With a resident set the value is a literal `Environment=` line instead (the singular EnvironmentFile can't carry OWUI's per-slot connection list), still the same real secret, never the old `sk-no-key-required` sentinel. |
@@ -576,7 +677,7 @@ switch to a single-model server, and `AUTOMATIC1111_PARAMS` stays unset because
 **The image server (`villa-image`)** runs `stable-diffusion.cpp`'s `sd-server`
 (`ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:367ccc…`, a rolling
 tag pinned by digest, `internal/orchestrate/image.go`) with the entrypoint
-`/sd-server`, the same `/dev/dri`, `keep-groups` and `seccomp=unconfined` device
+`/sd-server`, the same `/dev/dri` and `keep-groups` device
 access the Vulkan chat unit reads from the seam, the read-only models mount, and no
 host port. Its flags come from `internal/inference/image_server.go`:
 
@@ -671,6 +772,11 @@ values are honored by the inference resolver (`BackendFor`):
 - **`rocm-6.4.4`** and **`rocm-6.4.4-rocwmma`** are additive digest-pinned ROCm 6.4.4
   variants, identical to `rocm` apart from the image. Benchmark them with
   `villa bench --ab --ab-target <name>` rather than assuming a win.
+  `rocm-6.4.4-rocwmma` (llama.cpp build 7690) has no `--spec-type` and cannot serve
+  speculation: `villa backend set rocm-6.4.4-rocwmma` and `villa speculation set
+  ngram|draft` each refuse while the other is in effect, before anything is written.
+  The same build cannot load `qwen35moe` models (the Qwen3.5 and Qwen3.6 entries), so
+  on those it fails at the cutover proof and rolls back even with speculation off.
 - **`vulkan`** (Vulkan RADV) is the fallback. Stable and compatible across model
   sizes, with no ROCm host requirements; the only value `config set` will write.
 

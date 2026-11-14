@@ -96,6 +96,24 @@ type PropsInfo struct {
 	ToolsSupported detect.Bool
 }
 
+// ToolsMissing and ToolsFix are the one wording for "the served model cannot make
+// tool calls": CAP-02 in doctor and the workspace-agent runner's refusal both print
+// it, so the two cannot disagree about what is wrong or how to fix it.
+const (
+	ToolsMissing = "the served model's chat template does not report tool support"
+	ToolsFix     = "run `villa model swap` to a model whose template supports tools, or `villa tools-mode exit`"
+)
+
+// ToolCapable is the served model's tool-call verdict from /props. A nil p (the
+// read failed) and a field /props did not carry are both Unknown, never a
+// confident false: missing evidence is not "unsupported" (#403).
+func (p *PropsInfo) ToolCapable() detect.Bool {
+	if p == nil {
+		return detect.Bool{}
+	}
+	return p.ToolsSupported
+}
+
 // bufferLine is the grammar of a per-device weight-buffer line. It is
 // backend-NEUTRAL: every ggml backend prints the same shape, and the device token
 // that tells a GPU buffer from a CPU buffer is backend-owned, supplied via

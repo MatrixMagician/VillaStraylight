@@ -16,6 +16,7 @@ var closedServiceUnits = []string{
 	"villa-image.container",
 	"villa-stt.container",
 	"villa-tts.container",
+	"villa-tools-recall.container",
 }
 
 // networkLines returns a unit's Network= values in order.
@@ -62,23 +63,113 @@ func TestClosedServicesJoinOnlyTheClosedNetwork(t *testing.T) {
 	}
 }
 
-// TestRoutedUnitsKeepTheirNetworks: the fetchers and the inference units stay on
-// the routed network, and Open WebUI joins both so it reaches either side.
+// TestRoutedUnitsKeepTheirNetworks: the fetchers stay on the routed network, and
+// Open WebUI joins both so it reaches either side.
 func TestRoutedUnitsKeepTheirNetworks(t *testing.T) {
 	units, err := Render(statefulFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	want := map[string][]string{
-		"villa-llama.container":      {"villa.network"},
-		"villa-searxng.container":    {"villa.network"},
-		"villa-websafe.container":    {"villa.network"},
-		"villa-inferproxy.container": {"villa.network", "villa-sandbox.network"},
-		"villa-openwebui.container":  {"villa.network", "villa-closed.network"},
+		"villa-searxng.container":   {"villa.network"},
+		"villa-websafe.container":   {"villa.network"},
+		"villa-tools-web.container": {"villa.network"},
+		"villa-openwebui.container": {"villa.network", "villa-closed.network"},
 	}
 	for name, nets := range want {
 		if got := networkLines(unitByName(t, units, name).Text); !slices.Equal(got, nets) {
 			t.Errorf("%s joins %v, want %v", name, got, nets)
+		}
+	}
+}
+
+// residentStatefulInput is the whole stack plus one resident slot.
+func residentStatefulInput() RenderInput {
+	in := statefulFixtureInput()
+	r := residentFixtureInput()
+	in.Cfg.Resident, in.Resident = r.Cfg.Resident, r.Resident
+	return in
+}
+
+// TestInferenceUnitsJoinOnlyTheClosedNetwork: villa-llama and every resident slot
+// join villa-closed and nothing else, so inference has no route off-box (ADR-0036,
+// amended by ADR-0043). They keep their loopback publish: the host reaches them
+// through it, and the network change must not remove it.
+func TestInferenceUnitsJoinOnlyTheClosedNetwork(t *testing.T) {
+	units, err := Render(residentStatefulInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, name := range []string{"villa-llama.container", residentUnitName} {
+		u := unitByName(t, units, name)
+		if got := networkLines(u.Text); !slices.Equal(got, []string{"villa-closed.network"}) {
+			t.Errorf("%s joins %v, want [villa-closed.network] only", name, got)
+		}
+		if !strings.Contains(u.Text, "After=villa-closed-network.service") || strings.Contains(u.Text, "After=villa-network.service") {
+			t.Errorf("%s is not ordered after the closed network it joins:\n%s", name, u.Text)
+		}
+		if !strings.Contains(u.Text, "PublishPort=127.0.0.1:") {
+			t.Errorf("%s lost its loopback publish:\n%s", name, u.Text)
+		}
+	}
+}
+
+// TestInferproxyBridgesTheClosedAndSandboxNetworks: the proxy reaches villa-llama on
+// the closed network and serves the sandbox on its own, and villa-llama never joins
+// the sandbox network (ADR-0011). The proxy is off the routed network: nothing it
+// does needs a route off-box.
+func TestInferproxyBridgesTheClosedAndSandboxNetworks(t *testing.T) {
+	units, err := Render(residentStatefulInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	proxy := unitByName(t, units, "villa-inferproxy.container")
+	if got := networkLines(proxy.Text); !slices.Equal(got, []string{"villa-closed.network", "villa-sandbox.network"}) {
+		t.Errorf("villa-inferproxy joins %v, want [villa-closed.network villa-sandbox.network]", got)
+	}
+	if !strings.Contains(proxy.Text, "After=villa-closed-network.service") || strings.Contains(proxy.Text, "After=villa-network.service") {
+		t.Errorf("villa-inferproxy is not ordered after the closed network:\n%s", proxy.Text)
+	}
+	for _, name := range []string{"villa-llama.container", residentUnitName} {
+		for _, n := range networkLines(unitByName(t, units, name).Text) {
+			if n == "villa-sandbox.network" {
+				t.Errorf("%s joins the sandbox network", name)
+			}
+		}
+	}
+}
+
+// TestInferenceUnitsCarryNoFetchFlag: the closed network is only safe for inference
+// if llama-server never needs to fetch anything at runtime. Weights are a read-only
+// bind mount, so no rendered argv may name a download flag; a future one would fail
+// here instead of failing at start on a network with no route.
+func TestInferenceUnitsCarryNoFetchFlag(t *testing.T) {
+	fetch := []string{
+		"-hf", "--hf-repo", "-hff", "--hf-file", "-hfv", "--hf-repo-v", "-hfd", "--hf-repo-draft",
+		"-hft", "--hf-token", "-mu", "--model-url", "-mmu", "--mmproj-url", "-dr", "--docker-repo",
+	}
+	inputs := map[string]RenderInput{
+		"minimal":  fixtureInput(),
+		"resident": residentStatefulInput(),
+		"draft":    draftFixtureInput(t, "vulkan"),
+		"rocm":     rocmFixtureInput(t),
+		"vision":   visionFixtureInput(t, "vulkan"),
+	}
+	for name, in := range inputs {
+		units, err := Render(in)
+		if err != nil {
+			t.Fatalf("%s: Render: %v", name, err)
+		}
+		for _, u := range units {
+			if !strings.HasPrefix(u.Name, "villa-llama") || !strings.HasSuffix(u.Name, ".container") {
+				continue
+			}
+			exec := lineWithPrefix(t, u, "Exec=")
+			for tok := range strings.FieldsSeq(exec) {
+				if slices.Contains(fetch, tok) {
+					t.Errorf("%s: %s argv carries fetch flag %q:\n%s", name, u.Name, tok, exec)
+				}
+			}
 		}
 	}
 }
@@ -99,25 +190,28 @@ func TestOpenWebUIJoinsTheClosedNetworkWithEverythingOff(t *testing.T) {
 // TestNetworkTopologyReadsTheRenderedUnits: the topology doctor compares with the
 // host names podman networks, not Quadlet files, and knows which are internal.
 func TestNetworkTopologyReadsTheRenderedUnits(t *testing.T) {
-	units, err := Render(statefulFixtureInput())
+	units, err := Render(residentStatefulInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	top := NetworkTopology(units)
 
 	joins := map[string][]string{
-		"villa-llama":      {"villa"},
-		"villa-openwebui":  {"villa", "villa-closed"},
-		"villa-qdrant":     {"villa-closed"},
-		"villa-embed":      {"villa-closed"},
-		"villa-rerank":     {"villa-closed"},
-		"villa-extract":    {"villa-closed"},
-		"villa-image":      {"villa-closed"},
-		"villa-stt":        {"villa-closed"},
-		"villa-tts":        {"villa-closed"},
-		"villa-searxng":    {"villa"},
-		"villa-websafe":    {"villa"},
-		"villa-inferproxy": {"villa", "villa-sandbox"},
+		"villa-llama": {"villa-closed"},
+		"villa-llama-" + residentSlug(residentModelID): {"villa-closed"},
+		"villa-openwebui":    {"villa", "villa-closed"},
+		"villa-qdrant":       {"villa-closed"},
+		"villa-embed":        {"villa-closed"},
+		"villa-rerank":       {"villa-closed"},
+		"villa-extract":      {"villa-closed"},
+		"villa-image":        {"villa-closed"},
+		"villa-stt":          {"villa-closed"},
+		"villa-tts":          {"villa-closed"},
+		"villa-searxng":      {"villa"},
+		"villa-websafe":      {"villa"},
+		"villa-inferproxy":   {"villa-closed", "villa-sandbox"},
+		"villa-tools-web":    {"villa"},
+		"villa-tools-recall": {"villa-closed"},
 	}
 	if !maps.EqualFunc(top.Joins, joins, slices.Equal) {
 		t.Errorf("Joins = %v,\nwant    %v", top.Joins, joins)

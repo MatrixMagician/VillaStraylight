@@ -255,10 +255,19 @@ func TestRenderResidentSharesPrimaryBackendLiterals(t *testing.T) {
 	primary := unitByName(t, units, "villa-llama.container")
 	resident := unitByName(t, units, residentUnitName)
 
-	for _, prefix := range []string{"Image=", "AddDevice=/dev/dri", "GroupAdd=", "PodmanArgs=", "Network=", "Volume=", "Description="} {
+	for _, prefix := range []string{"Image=", "AddDevice=/dev/dri", "GroupAdd=", "Network=", "Volume=", "Description="} {
 		if lineWithPrefix(t, primary, prefix) != lineWithPrefix(t, resident, prefix) {
 			t.Errorf("resident %q line differs from the primary's:\nprimary:  %s\nresident: %s",
 				prefix, lineWithPrefix(t, primary, prefix), lineWithPrefix(t, resident, prefix))
+		}
+	}
+
+	// The Vulkan access set carries no security option since #343, so neither unit
+	// may render a PodmanArgs line: a slot that kept one would be less confined than
+	// the primary it shares a backend with.
+	for _, u := range []Unit{primary, resident} {
+		if strings.Contains(u.Text, "PodmanArgs=") || strings.Contains(u.Text, "seccomp") {
+			t.Errorf("Vulkan unit %s renders a security option:\n%s", u.Name, u.Text)
 		}
 	}
 

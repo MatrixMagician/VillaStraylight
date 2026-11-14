@@ -76,8 +76,8 @@ func TestHostRejected(t *testing.T) {
 		"VILLA-OPENWEBUI", // case-insensitive
 	}
 	for _, h := range rejected {
-		if !hostRejected(h) {
-			t.Errorf("hostRejected(%q) = false, want true", h)
+		if !HostRejected(h) {
+			t.Errorf("HostRejected(%q) = false, want true", h)
 		}
 	}
 	allowed := []string{
@@ -86,8 +86,8 @@ func TestHostRejected(t *testing.T) {
 		"networkworld.com", // contains "network" but does not END with .network
 	}
 	for _, h := range allowed {
-		if hostRejected(h) {
-			t.Errorf("hostRejected(%q) = true, want false", h)
+		if HostRejected(h) {
+			t.Errorf("HostRejected(%q) = true, want false", h)
 		}
 	}
 }
@@ -121,11 +121,11 @@ func TestSSRFInternalHostCase(t *testing.T) {
 	if !ipRejected(netip.MustParseAddr("127.0.0.1")) {
 		t.Error("ipRejected(127.0.0.1) = false, want true (loopback must be refused)")
 	}
-	if !hostRejected("villa-searxng") {
-		t.Error("hostRejected(villa-searxng) = false, want true (managed-service DNS must be refused)")
+	if !HostRejected("villa-searxng") {
+		t.Error("HostRejected(villa-searxng) = false, want true (managed-service DNS must be refused)")
 	}
-	if !hostRejected("localhost") {
-		t.Error("hostRejected(localhost) = false, want true")
+	if !HostRejected("localhost") {
+		t.Error("HostRejected(localhost) = false, want true")
 	}
 	// The connect-time Control hook returns a non-nil SSRF error for an internal address.
 	if err := control("tcp", "169.254.169.254:80", nil); err == nil {
@@ -141,7 +141,7 @@ func TestRedirectRevalidation(t *testing.T) {
 
 	t.Run("internal-redirect-host-rejected", func(t *testing.T) {
 		// A server that 302-redirects to a loopback host name: CheckRedirect's
-		// hostRejected check fires before any dial, so the request fails.
+		// HostRejected check fires before any dial, so the request fails.
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "http://localhost/internal", http.StatusFound)
 		}))

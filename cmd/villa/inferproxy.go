@@ -22,7 +22,8 @@ import (
 // subcommand: the internal container entrypoint that runs inside the
 // villa-inferproxy Quadlet container (GHSA-gvp9, ADR-0011). It is the sandbox's
 // ONLY route to inference now that villa-llama no longer joins
-// villa-sandbox.network: it joins BOTH villa.network and villa-sandbox.network,
+// villa-sandbox.network: it joins BOTH villa-closed.network (where villa-llama is,
+// ADR-0043) and villa-sandbox.network,
 // forwards ONLY POST /v1/chat/completions and GET /v1/models to villa-llama
 // (inference.ProxyAllowed is the ONE allowlist decision, kept pure and testable
 // there), injects the real LLAMA_API_KEY bearer on the forwarded leg, and caps

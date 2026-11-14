@@ -28,6 +28,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // recallDeps are the injectable host seams for the recall verbs, so both run
@@ -63,6 +65,9 @@ type recallDeps struct {
 	readState func() (recall.State, error)
 	// writeState persists the state atomically (live: recall.Save over WriteFileAtomic).
 	writeState func(recall.State) error
+	// writeScope rewrites the recall scope file the tool server reads, from the state just
+	// saved (live: liveWriteRecallScope). NIL-SAFE: nil writes none.
+	writeScope func(recall.State) error
 	// now supplies the clock for the RFC3339 UTC run stamps.
 	now func() time.Time
 }
@@ -81,8 +86,35 @@ func liveRecallDeps() recallDeps {
 				return recall.WriteFileAtomic(recall.StatePath(), data)
 			}}, s)
 		},
-		now: time.Now,
+		writeScope: liveWriteRecallScope,
+		now:        time.Now,
 	}
+}
+
+// liveWriteRecallScope rewrites the scope file from a recall state while the recall tool
+// unit renders, and does nothing otherwise: a host with no tool server gains no file. It is
+// the one writer of the scope outside the stack apply's heal, which writes it from the
+// saved state too (ADR-0042).
+func liveWriteRecallScope(s recall.State) error {
+	cfg, err := liveLoadedConfig()
+	if err != nil {
+		return err
+	}
+	if !subsystem.ToolRecallOn(cfg) {
+		return nil
+	}
+	return recall.WriteScope(recall.ScopeOf(s))
+}
+
+// liveHealRecallScope is the stack apply's scope write: the scope of the state on disk.
+// An absent or unreadable state is the empty scope, which the unit answers with a 503
+// naming `villa recall index`, never a fabricated one.
+func liveHealRecallScope() error {
+	st, err := liveRecallStateLoad()
+	if err != nil {
+		return err
+	}
+	return recall.WriteScope(recall.ScopeOf(st))
 }
 
 // liveRecallStateLoad is the SHARED fail-closed recall-state.json reader (the
@@ -95,6 +127,23 @@ func liveRecallDeps() recallDeps {
 // different readers.
 func liveRecallStateLoad() (recall.State, error) {
 	return recall.Load(recall.Deps{ReadAll: storeReader(recall.StatePath())}) // absent ⇒ "nothing indexed"
+}
+
+// saveRecallState persists the state and then rewrites the scope file the tool server reads,
+// so every save of an index run leaves the two consistent (ADR-0042). The state is the
+// record and the scope is derived from it, so a scope that cannot be written is a stale
+// tool and not a failed index: it warns, names the remedy and returns nil.
+func saveRecallState(deps recallDeps, state recall.State, errOut io.Writer) error {
+	if err := deps.writeState(state); err != nil {
+		return err
+	}
+	if deps.writeScope == nil {
+		return nil
+	}
+	if err := deps.writeScope(state); err != nil {
+		fmt.Fprintf(errOut, "recall index: WARN: could not rewrite the recall scope file (%v); the recall tool sees the previous index until `villa up` rewrites it.\n", err)
+	}
+	return nil
 }
 
 // newRecall builds the `villa recall` parent command.
@@ -348,7 +397,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	state = prep.PreparedState
 	state.KnowledgeID = kbID
 	state.KnowledgeName = recallKnowledgeName
-	if err := deps.writeState(state); err != nil {
+	if err := saveRecallState(deps, state, errOut); err != nil {
 		fmt.Fprintf(errOut, "recall index: could not persist recall-state.json (%v) — fix the data dir, then re-run.\n", err)
 		return exitBlocked
 	}
@@ -369,7 +418,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	// persisted after EVERY chat: completed work is never lost.
 	var added, updated, deleted, skipped int
 	persist := func() bool {
-		if err := deps.writeState(state); err != nil {
+		if err := saveRecallState(deps, state, errOut); err != nil {
 			fmt.Fprintf(errOut, "recall index: could not persist recall-state.json (%v) — fix the data dir, then re-run.\n", err)
 			return false
 		}

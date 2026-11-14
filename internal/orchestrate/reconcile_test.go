@@ -155,7 +155,8 @@ func TestReconcileNamesTheRegistryUnitsItNoLongerRenders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	want := []string{"villa-searxng.container", "villa-websafe.container"}
+	// The web tool unit goes with web search: it answers the derived gate ToolWebOn.
+	want := []string{"villa-searxng.container", "villa-websafe.container", "villa-tools-web.container"}
 	if got := unitNames(plan.Removed); !slices.Equal(got, want) {
 		t.Fatalf("Removed = %v, want %v", got, want)
 	}

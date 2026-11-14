@@ -49,10 +49,11 @@ func TestReportOmitsTheOriginForASeedModel(t *testing.T) {
 	}
 }
 
-// TestReportSchemaVersionIsThirteen: the additive key is a contract change, so the
-// report's own version moves with it (every additive change bumps it).
-func TestReportSchemaVersionIsThirteen(t *testing.T) {
-	if got := Run(newDeps(t, loopbackUnits(t))).SchemaVersion; got != 13 || SchemaVersion() != 13 {
-		t.Fatalf("schema_version = %d, SchemaVersion() = %d, want 13", got, SchemaVersion())
+// TestReportSchemaVersionIsFourteen: the additive key is a contract change, so the
+// report's own version moves with it (every additive change bumps it). v13 was the
+// tool server's rows (ADR-0042); the model origin is v14.
+func TestReportSchemaVersionIsFourteen(t *testing.T) {
+	if got := Run(newDeps(t, loopbackUnits(t))).SchemaVersion; got != 14 || SchemaVersion() != 14 {
+		t.Fatalf("schema_version = %d, SchemaVersion() = %d, want 14", got, SchemaVersion())
 	}
 }

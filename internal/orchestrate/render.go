@@ -163,10 +163,10 @@ func Render(in RenderInput) ([]Unit, error) {
 
 	// GHSA-gvp9 (ADR-0011): villa-llama no longer joins villa-sandbox.network. It
 	// used to (the workspace agent's tasks reaching it there directly), but that
-	// put a privileged unit — seccomp=unconfined, /dev/kfd, /dev/dri — on the SAME
-	// network as the one that egresses. The sandbox's only route to inference is
-	// now the villa-inferproxy unit below, which joins BOTH networks and is the
-	// thing gated on subsystem.SandboxOn instead.
+	// put a privileged unit — seccomp=unconfined, /dev/kfd, /dev/dri — on the same
+	// network as the task VMs. The sandbox's only route to inference is now the
+	// villa-inferproxy unit below, which joins the closed network villa-llama is on
+	// and the sandbox network, and is the thing gated on subsystem.SandboxOn.
 
 	// Resolved up-front because two consumers need it: the resident .container units
 	// below, and Open WebUI's endpoint env, which must list every resident slot.
@@ -216,7 +216,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	if imageOn {
 		imageEnv = in.Image
 	}
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret, imageEnv))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", withToolServer(buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), subsystem.ExtractOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret, imageEnv), in.Cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +395,29 @@ func Render(in RenderInput) ([]Unit, error) {
 		)
 	}
 
+	// The tool server (ADR-0042) is appended after the voice units and before the
+	// sandbox network, web first, so no existing unit moves and a gate-off render is
+	// byte-identical. Each unit answers its own derived gate: the web unit needs web
+	// search, the recall unit needs memory. Both reuse villa-websafe's pin.
+	if subsystem.ToolWebOn(in.Cfg) {
+		webText, err := execTemplate(tmpl, "tools.container.tmpl", buildToolsWebView(in.pinOr(ComponentWebsafe, websafeImage), in.HostVillaPath))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: toolsWebContainerUnitName, Text: webText})
+	}
+	if subsystem.ToolRecallOn(in.Cfg) {
+		rv, err := buildToolsRecallView(in.pinOr(ComponentWebsafe, websafeImage), in.HostVillaPath, in.RecallScopeDir, mv.EmbeddingModel)
+		if err != nil {
+			return nil, err
+		}
+		recallText, err := execTemplate(tmpl, "tools.container.tmpl", rv)
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: toolsRecallContainerUnitName, Text: recallText})
+	}
+
 	// v1.11 workspace agent: the internal task network, appended LAST so every unit
 	// position before it is unchanged. It carries no container of its own — a task's
 	// container is per-task and started by the runner, never a unit — so
@@ -481,7 +504,10 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 		UnitFileName:  containerUnitName,
 		ContainerName: containerName,
 		Image:         image,
-		Network:       networkAttach,
+		// Closed, not routed (ADR-0043): inference never fetches at runtime, so the
+		// network enforces that it has no route off-box. The loopback publish below
+		// still reaches the host.
+		Network: closedNetworkAttach,
 		// SecretEnvFile is set HERE, unconditionally, so BOTH the primary unit
 		// and every resident slot (renderResidentUnits shares this construction
 		// point) get the LLAMA_API_KEY EnvironmentFile= without a second call
@@ -565,9 +591,10 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	// Defensive: every imperative field must have been sourced from the seam. Device
 	// and group are slices (≥1 element required); Env is intentionally NOT checked
 	// the Vulkan backend legitimately emits zero env, and requiring it would break the
-	// Vulkan path (RESEARCH Pitfall 1).
+	// Vulkan path (RESEARCH Pitfall 1). PodmanArgs is not checked either: the Vulkan
+	// backend emits no security option since #343, and the template omits the line.
 	if len(cv.AddDevice) == 0 || len(cv.GroupAdd) == 0 || cv.PublishPort == "" ||
-		cv.Volume == "" || cv.PodmanArgs == "" || cv.Exec == "" {
+		cv.Volume == "" || cv.Exec == "" {
 		return containerView{}, fmt.Errorf("orchestrate: ContainerArgs missing a required mapped field: %+v", cv)
 	}
 	return cv, nil

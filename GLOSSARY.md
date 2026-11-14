@@ -277,7 +277,8 @@ _Avoid_: filter, sanitiser, injection blocker, firewall
 **Closed network**:
 The `Internal=true` podman network (`villa-closed`) every service with no runtime
 need to reach off-box joins, so its zero egress is enforced rather than measured.
-Open WebUI joins it and the routed `villa` network (ADR-0036).
+Inference (`villa-llama` and the resident slots) is one of them (ADR-0043). Open
+WebUI joins it and the routed `villa` network (ADR-0036).
 _Avoid_: aux network, internal network (that is the sandbox's), private network
 
 **Bounded outbound**:
@@ -357,9 +358,16 @@ result. Follow-ups are a new task; there are no sessions.
 _Avoid_: job, session, run, request
 
 **Task record**:
-The persisted, `--json`-frozen account of a task: its state, files, approvals
-and grounding report. Its state machine decides the exit code.
+The persisted, `--json`-frozen account of a task: its state, files, approvals,
+grounding report and observations. Its state machine decides the exit code.
 _Avoid_: log, history, transcript
+
+**Observation**:
+What villa itself read at a path the harness reported written, once, after the
+run: present (with size and sha256), absent, or unobserved when the read failed
+for any other reason. The file event is the harness's word; the observation is
+villa's. An absent observation flags the task (ADR-0047).
+_Avoid_: verification, check, confirmation
 
 **Approval**:
 A task's request to perform a write-class action, answered by the operator.
@@ -383,8 +391,16 @@ _Avoid_: worker, daemon, scheduler
 
 **Tools mode**:
 The chat unit served with the model's own chat template so tool calls parse.
-One config flag; coding mode implies it.
+One config flag; coding mode implies it. A tool server needs it, and is not it.
 _Avoid_: jinja mode, agent mode, function calling
+
+**Tool server**:
+Villa's own two read-only OpenAPI services that publish web search and recall
+search to Open WebUI as model-callable tools: `villa-tools-web` on the routed
+network and `villa-tools-recall` on the closed one, registered from the rendered
+environment. A fixed set; there is no operator-named tool, image or URL. It
+publishes tools, where tools mode only lets the model call them.
+_Avoid_: MCP server, plugin, tool container, function server
 
 **Grounding audit**:
 The second pass villa runs after a task, one chat completion per document the
@@ -394,7 +410,7 @@ auditor found none"; it is never evidence that a document is correct.
 _Avoid_: grounded, verified, fact-checked, validation
 
 **Flagged**:
-A task that finished with claims the grounding audit could not support, or
-whose audit could not run. Exit `2`, never `0`; the document is left as
-written.
+A task that finished with claims the grounding audit could not support, whose
+audit could not run, or with a reported file absent after the run. Exit `2`,
+never `0`; the document is left as written.
 _Avoid_: warning, partial, degraded

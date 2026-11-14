@@ -90,7 +90,7 @@
   "model": "qwen3",
   "coding": {
     "enabled": true,
-    "version": "v0.93.1",
+    "version": "v0.101.0",
     "pin_match": "match",
     "model": "qwen3-coder",
     "mode": "coding",
@@ -105,5 +105,5 @@
   "speculation": "off",
   "vision": false,
   "tools": true,
-  "schema_version": 13
+  "schema_version": 14
 }

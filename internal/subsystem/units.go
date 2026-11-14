@@ -71,6 +71,13 @@ var unitTable = map[Kind][]unit{
 	},
 	// villa-image has no `on`: its presence is the Image Kind's own gate.
 	Image: {{name: "villa-image.container"}},
+	// The tool server's two units answer two derived gates (ADR-0042): web search
+	// and memory are separate prerequisites, and a unit whose prerequisite went off
+	// is removed through this registry (ADR-0035). Web comes first, as it renders.
+	ToolServer: {
+		{name: "villa-tools-web.container", on: ToolWebOn},
+		{name: "villa-tools-recall.container", on: ToolRecallOn},
+	},
 }
 
 // serviceOf is the Quadlet mapping: villa-x.container → villa-x.service.

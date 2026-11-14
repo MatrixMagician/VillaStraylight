@@ -1118,7 +1118,7 @@ func TestAgentResidencyFindingSwitch(t *testing.T) {
 //   - BinaryDrift → WARN + re-install remediation (agent-binary-drift).
 //   - BinaryAbsent → WARN + Phase-27 install remediation (agent-binary-drift).
 //   - ConfigDrift → WARN + review/re-render remediation (agent-config-drift).
-//   - ConfigKeyOnly → the same WARN, remediation naming the heal (ADR-0019).
+//   - ConfigVillaOwned → the same WARN, remediation naming the heal (ADR-0019).
 //   - ConfigAbsent ALONE → NO finding (first-run trigger, not drift).
 func TestAgentDriftFindingsMatrix(t *testing.T) {
 	hasID := func(fs []Finding, id string) (Finding, bool) {
@@ -1172,21 +1172,21 @@ func TestAgentDriftFindingsMatrix(t *testing.T) {
 		}
 	})
 
-	// ADR-0019: a key-only drift is still a read-only WARN, but its remediation names
+	// ADR-0019: a villa-owned drift is still a read-only WARN, but its remediation names
 	// the heal instead of asking the operator to review edits they never made.
-	t.Run("config-drift-key-only", func(t *testing.T) {
-		fs := agentDriftFindings(agent.DriftReport{ConfigDrift: true, ConfigKeyOnly: true, Reason: "stale key"})
+	t.Run("config-drift-villa-owned", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{ConfigDrift: true, ConfigVillaOwned: true, Reason: "stale key"})
 		f, ok := hasID(fs, "agent-config-drift")
 		if !ok || f.Status != statusWarn || f.Tier != tierWarn {
-			t.Fatalf("ConfigKeyOnly → %+v, want WARN agent-config-drift", fs)
+			t.Fatalf("ConfigVillaOwned → %+v, want WARN agent-config-drift", fs)
 		}
 		for _, want := range []string{"villa up", "villa code", "crush.json.bak"} {
 			if !strings.Contains(f.Remediation, want) {
-				t.Errorf("key-only remediation %q does not mention %q", f.Remediation, want)
+				t.Errorf("villa-owned remediation %q does not mention %q", f.Remediation, want)
 			}
 		}
 		if strings.Contains(f.Remediation, "review your crush.json edits") {
-			t.Errorf("key-only remediation %q asks the operator to review edits they never made", f.Remediation)
+			t.Errorf("villa-owned remediation %q asks the operator to review edits they never made", f.Remediation)
 		}
 		plain := agentDriftFindings(agent.DriftReport{ConfigDrift: true, Reason: "edited crush.json"})
 		if p, _ := hasID(plain, "agent-config-drift"); strings.Contains(p.Remediation, "crush.json.bak") {
@@ -1318,14 +1318,15 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 // for the TMD-01 tools-mode drift finding (issue #173), 8→9 for the reranker
 // health row (ADR-0028), 9→10 for the extractor health row (ADR-0033) and 10→11
 // for the orphan-units finding (ADR-0035) and 11→12 for the networks finding
-// (ADR-0036) and 12→13 for the CAP-01/CAP-02 capability findings (#403) and 13→14
-// for the CAT-02/CAT-03 catalog-provenance findings (ADR-0041). The const is the
-// single source of truth — Aggregate stamps it on
+// (ADR-0036) and 12→13 for the CAP-01/CAP-02 capability findings (#403) and 13→14 for the
+// tool-server finding and rows (#362) and 14→15 for the tool-server-proof finding (#363)
+// and 15→16 for the CAT-02/CAT-03 catalog-provenance findings (ADR-0041). The const is
+// the single source of truth — Aggregate stamps it on
 // every Report. INDEPENDENT of status's reportSchemaVersion.
-func TestDoctorSchemaVersionIsFourteen(t *testing.T) {
+func TestDoctorSchemaVersionIsSixteen(t *testing.T) {
 	r := newDoctorDeps().aggregate()
-	if r.SchemaVersion != 14 {
-		t.Fatalf("Report.SchemaVersion = %d, want 14 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row, orphan-units, networks, the capability findings and the catalog-provenance findings)", r.SchemaVersion)
+	if r.SchemaVersion != 16 {
+		t.Fatalf("Report.SchemaVersion = %d, want 16 (append-only bumps for the sandbox fold, TMD-01, the reranker row, the extractor row, orphan-units, networks, the capability findings, the tool server and its proof, and the catalog-provenance findings)", r.SchemaVersion)
 	}
 }
 
