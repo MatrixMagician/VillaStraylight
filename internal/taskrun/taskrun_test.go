@@ -655,6 +655,75 @@ func TestDeletionAsksInAutoMode(t *testing.T) {
 	}
 }
 
+// TestTaintMovesAutoWritesToAsk guards ADR-0040 end to end: an auto task that
+// is tainted while running asks for its next write, the taint is on the
+// record, and the log names the source.
+func TestTaintMovesAutoWritesToAsk(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAuto)
+	b.feed(ready(), permission("p1", "edit", "write", "/workspace/a.md", `{}`))
+	h.waitCommands(b, 2)
+	if err := h.r.Taint(task.ID, approval.TaintWeb); err != nil {
+		t.Fatalf("Taint: %v", err)
+	}
+	b.feed(permission("p2", "edit", "write", "/workspace/b.md", `{}`))
+	got := h.waitState(task.ID, taskstore.AwaitingApproval)
+	if got.Taint != approval.TaintWeb || len(got.Approvals) != 1 || got.Approvals[0].Path != "b.md" {
+		t.Errorf("record = taint %q approvals %+v, want the tainted write parked", got.Taint, got.Approvals)
+	}
+	if !strings.Contains(h.logText(task.ID), "tainted by web") {
+		t.Errorf("log lacks the taint line: %s", h.logText(task.ID))
+	}
+}
+
+// TestTaintIsIdempotentThroughTheRunner guards that a second Taint call is a
+// no-op and does not add a second log line.
+func TestTaintIsIdempotentThroughTheRunner(t *testing.T) {
+	h := newHarness(t)
+	h.bridges <- newFakeBridge()
+	h.start()
+	task := h.submit(approval.ModeAuto)
+	for i := 0; i < 2; i++ {
+		if err := h.r.Taint(task.ID, approval.TaintWeb); err != nil {
+			t.Fatalf("Taint #%d: %v", i, err)
+		}
+	}
+	if n := strings.Count(h.logText(task.ID), "tainted by web"); n != 1 {
+		t.Errorf("taint log lines = %d, want 1", n)
+	}
+	if err := h.r.Taint(task.ID, approval.Taint("email")); err == nil {
+		t.Error("an unknown source must be refused")
+	}
+}
+
+// TestSessionGrantDoesNotCoverATaintedWrite guards the rule that "approve all"
+// predates the taint: once tainted, a write parks again instead of being
+// auto-granted by the session.
+func TestSessionGrantDoesNotCoverATaintedWrite(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	b.feed(ready(), permission("p1", "edit", "write", "/workspace/a.md", `{}`))
+	h.waitState(task.ID, taskstore.AwaitingApproval)
+	if err := h.r.Approve(task.ID, true); err != nil {
+		t.Fatalf("Approve --all: %v", err)
+	}
+	h.waitState(task.ID, taskstore.Running)
+	if err := h.r.Taint(task.ID, approval.TaintWeb); err != nil {
+		t.Fatalf("Taint: %v", err)
+	}
+	b.feed(permission("p2", "edit", "write", "/workspace/b.md", `{}`))
+	got := h.waitState(task.ID, taskstore.AwaitingApproval)
+	if len(got.Approvals) != 2 || got.Approvals[1].Answer != "" {
+		t.Errorf("approvals = %+v, want the second write parked", got.Approvals)
+	}
+}
+
 // TestFetchIsDeniedByPolicy guards the table's deny column: a fetch is denied
 // without parking and without an approval row.
 func TestFetchIsDeniedByPolicy(t *testing.T) {

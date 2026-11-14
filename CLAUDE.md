@@ -124,7 +124,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
   The v1.11 workspace-agent packages: `workspace` (the grant list and its
   refusals), `approval` (the Action × Mode table; deletion asks in every mode, as a
-  pattern, not a proof), `taskstore` (the record, its state machine, the log; never
+  pattern, not a proof; a task tainted by web content, ADR-0040, asks for every write
+  and execute, `--auto` included), `taskstore` (the record, its state machine, the log; never
   deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
   "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
@@ -435,7 +436,7 @@ images in `internal/orchestrate/{memory,searxng,websafe,extract,image}.go`, and
 | prune | Reference-counted image removal — the only image deletion in this project | `internal/prune/prune.go` |
 | snapshotprune | Data-snapshot retention — the only snapshot deletion in this project | `internal/snapshotprune/snapshotprune.go` |
 | workspace | The registered grant list: `Register`/`Remove`/`Registered`, typed refusals, fail-closed at registration | `internal/workspace/workspace.go` |
-| approval | Pure Action × Mode table for a task's tool call: allow, ask, deny; deletion asks in every mode (a pattern, not a proof) | `internal/approval/approval.go` |
+| approval | Pure Action × Mode × Taint table for a task's tool call: allow, ask, deny; deletion asks in every mode, and a tainted task's write or execute asks (ADR-0040); a pattern, not a proof | `internal/approval/approval.go` |
 | taskstore | The task record, its state machine (`Exit(State)` is the one state → exit-code map), the append-only log; never deletes | `internal/taskstore/*.go` |
 | crushapi | The Crush server client + the bridge's one-object-per-line stdio protocol | `internal/crushapi/*.go` |
 | grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |

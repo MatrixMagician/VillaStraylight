@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/approval"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // schemaVersion is the task record's own self-version. New fields append above
 // Schema, which stays last, and every append bumps it (2: observations,
-// ADR-0047). Every write stamps it, because the bytes written are always the
+// ADR-0047; 3: taint, ADR-0040). Every write stamps it, because the bytes written are always the
 // current shape, a pre-upgrade record rewritten by Recover included.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // listSchemaVersion is the list view's own version. It is separate from the
 // record's because the list shape did not change when the record grew.
@@ -49,7 +51,12 @@ type Task struct {
 	// Observations is what villa read at each distinct Files path after the
 	// run, in first-reported order. Files is the harness's word; this is villa's.
 	Observations []Observation `json:"observations"`
-	Schema       int           `json:"schema"`
+	// Taint is the source that tainted the task (ADR-0040), omitted while the
+	// task is clean: a record from before the field loads untainted and an
+	// untainted record keeps its bytes, so the field needs no schema bump. It is
+	// set once by SetTaint and never cleared.
+	Taint  approval.Taint `json:"taint,omitempty"`
+	Schema int            `json:"schema"`
 }
 
 // ObservationState is what villa saw at a reported path after the run.
@@ -326,6 +333,8 @@ func (s Store) Load(id string) (Task, error) {
 // append a file event, etc. in the same write. Exit is set the moment the new
 // state is terminal, from Exit(to) — never by the caller.
 func (s Store) Transition(id string, to State, mutate func(*Task)) (Task, error) {
+	recordMu.Lock()
+	defer recordMu.Unlock()
 	t, err := s.Load(id)
 	if err != nil {
 		return Task{}, err
@@ -345,6 +354,40 @@ func (s Store) Transition(id string, to State, mutate func(*Task)) (Task, error)
 		return Task{}, err
 	}
 	return t, nil
+}
+
+// recordMu serialises the read-modify-write cycle of a record. SetTaint is
+// called from outside the worker that owns Transition, and without it a
+// transition loaded before a taint landed would write the record back clean.
+var recordMu sync.Mutex
+
+// SetTaint marks the task tainted by source (ADR-0040) and reports whether
+// this call changed the record. It is one-way and idempotent: a task that is
+// already tainted keeps its first source, nothing is written and nothing is
+// logged. The first time, one narration line naming the source is appended to
+// the task's log, stamped at. A source that is not a known taint is refused.
+func (s Store) SetTaint(id string, source approval.Taint, at time.Time) (Task, bool, error) {
+	if !source.Valid() {
+		return Task{}, false, fmt.Errorf("taskstore: SetTaint %s: %q is not a taint source", id, source)
+	}
+	recordMu.Lock()
+	defer recordMu.Unlock()
+	t, err := s.Load(id)
+	if err != nil {
+		return Task{}, false, err
+	}
+	if t.Taint.Tainted() {
+		return t, false, nil
+	}
+	t.Taint = source
+	if err := s.writeRecord(t); err != nil {
+		return Task{}, false, err
+	}
+	text := "tainted by " + string(source) + ": write and execute actions now ask, in every mode"
+	if err := s.AppendLog(id, LogEvent{At: at, Kind: "narration", Text: text}); err != nil {
+		return t, true, err
+	}
+	return t, true, nil
 }
 
 func (s Store) writeRecord(t Task) error {

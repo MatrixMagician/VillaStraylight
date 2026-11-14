@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -516,7 +517,7 @@ func TestARewrittenSchema1RecordCarriesTheCurrentShape(t *testing.T) {
 	if string(shape["observations"]) != "[]" {
 		t.Errorf("observations = %s, want []", shape["observations"])
 	}
-	if string(shape["schema"]) != "2" {
-		t.Errorf("schema = %s, want 2", shape["schema"])
+	if string(shape["schema"]) != strconv.Itoa(schemaVersion) {
+		t.Errorf("schema = %s, want %d", shape["schema"], schemaVersion)
 	}
 }
