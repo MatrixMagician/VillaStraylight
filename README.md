@@ -6,6 +6,8 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only**: the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary. Telemetry is off in everything villa launches: first-party components emit none, and the coding agents (Crush, Claude Code) start with their telemetry and update switches set, checked by a network capture of each (ADR-0039). The one disclosed exception is Crush's release check against `api.github.com`, which has no switch (#389).
 
+To report a vulnerability, see [SECURITY.md](SECURITY.md). The trust boundary, each control with the test that holds it, and the known gaps are in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+
 > Status: **v1.18.3 shipped** (tag `v1.18.3`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0**: Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
 > - **v1.1**: the **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. (ROCm shipped opt-in here and became the default in a later revision; Vulkan RADV remains selectable as the fallback.)
