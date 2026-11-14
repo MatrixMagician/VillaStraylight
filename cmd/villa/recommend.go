@@ -24,6 +24,7 @@ type recommendFlags struct {
 	catalogPath  string
 	alternatives bool
 	save         bool
+	envelope     string
 }
 
 // recommendProbe is the host probe `villa recommend` fits against. Tests pin it
@@ -58,9 +59,23 @@ func newRecommend() *cobra.Command {
 		Short: "Recommend a model/quant/context that fits this host's memory envelope",
 		Long: "Turn the detected hardware profile into a single memory-safe model/quant/context/backend " +
 			"recommendation, showing the fit math (model_bytes + KV-cache@ctx + prompt cache + headroom ≤ usable_envelope). " +
-			"Overrides (--model/--quant/--ctx) are re-validated against the envelope. Read-only unless --save.",
+			"Overrides (--model/--quant/--ctx) are re-validated against the envelope. --envelope <size> answers a what-if: " +
+			"it replaces the detected envelope (it never adds to it), marks the result simulated, and is refused with --save. " +
+			"Read-only unless --save.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Refuse before anything is probed, rendered or written: a simulated
+			// pick must never reach config.toml.
+			var envelope uint64
+			if f.envelope != "" {
+				if f.save {
+					return fmt.Errorf("recommend: --envelope produces a simulated pick and cannot be combined with --save; drop --save to preview, or drop --envelope to save the pick for this host")
+				}
+				var perr error
+				if envelope, perr = recommend.ParseEnvelope(f.envelope); perr != nil {
+					return fmt.Errorf("recommend: --envelope: %w", perr)
+				}
+			}
 			profile := recommendProbe()
 
 			// Resolve the catalog source: an explicit --catalog flag wins; otherwise
@@ -81,6 +96,7 @@ func newRecommend() *cobra.Command {
 				Quant:       f.quant,
 				Ctx:         f.ctx,
 				Speculation: speculation,
+				Envelope:    envelope,
 			}, res)
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
@@ -102,6 +118,7 @@ func newRecommend() *cobra.Command {
 	pf.IntVar(&f.ctx, "ctx", 0, "override the context length in tokens (re-validated)")
 	pf.StringVar(&f.catalogPath, "catalog", "", "path to an external catalog JSON (schema-checked; falls back to embedded on mismatch)")
 	pf.BoolVar(&f.alternatives, "alternatives", false, "also list other fitting picks")
+	pf.StringVar(&f.envelope, "envelope", "", "simulate a usable memory envelope this host does not have, e.g. 64GiB (replaces the detected one; cannot be combined with --save)")
 	pf.BoolVar(&f.save, "save", false, "persist the recommended pick to ~/.config/villa/config.toml")
 
 	return cmd
@@ -217,6 +234,9 @@ func writeNoRecommendation(w io.Writer, rec recommend.Recommendation) {
 
 // writeRecommendHeader prints the pick, its speculation mode and the degraded flag.
 func writeRecommendHeader(w io.Writer, rec recommend.Recommendation) {
+	if rec.SimulatedEnvelope {
+		fmt.Fprint(w, "SIMULATED: sized against the envelope given with --envelope, not this host's detected one. Nothing was saved.\n\n")
+	}
 	fmt.Fprintf(w, "Recommended: %s  (quant %s, ctx %d, backend %s)\n",
 		rec.Model, rec.Quant, rec.ContextLen, rec.Backend)
 	fmt.Fprintf(w, "  speculation: %s\n", rec.Speculation)

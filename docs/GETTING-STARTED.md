@@ -141,7 +141,18 @@ It is read-only by default. Useful flags:
 ```bash
 ./villa recommend --alternatives   # also list other fitting picks
 ./villa recommend --save           # persist the pick to config.toml
+./villa recommend --envelope 64GiB # what-if: the pick for a 64 GiB envelope
 ```
+
+`--envelope <size>` answers "what would villa pick on a box with this much
+memory?" without that hardware. The value **replaces** the detected usable envelope
+(it never adds to it) and the rest of the detected profile is unchanged, so the
+reservations of your enabled subsystems still come off it. The output says
+`SIMULATED` in the table and carries `"simulated_envelope": true` in `--json`
+(schema 10). Accepted sizes are a number with a unit (`64GiB`, `64G`, `1.5TiB`, `2048M`;
+every unit is binary, 1 GiB to 4 TiB); a bare number, zero or a negative value is
+refused. `--envelope` with `--save` is refused, so a simulated pick never reaches
+`config.toml`.
 
 If you want to inspect the raw hardware profile that drives the recommendation,
 run `./villa detect` (CPU/arch, iGPU, Vulkan/ROCm availability, total RAM, and the
