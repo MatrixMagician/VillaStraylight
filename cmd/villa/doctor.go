@@ -310,6 +310,8 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		// hashFileSHA256 / crushConfigPath) and agent.Render; no re-typed literal.
 		AgentBinarySHA:  func() (string, bool, error) { return hashFileSHA256(agentBinPath()) },
 		ReadCrushConfig: readCrushConfig,
+		// The same /props read the status fold and the residency proofs use.
+		Props: func() *inference.PropsInfo { return sd.Props(cfg) },
 		RenderCrushConfig: func(cfg config.VillaConfig) ([]byte, error) {
 			reference, _, err := agent.Render(cfg, liveLSPProbes())
 			return reference, err

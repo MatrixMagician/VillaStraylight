@@ -117,7 +117,11 @@ const (
 //     each rendered Internal=true network must be internal on the host. Like TMD-01
 //     it is not gated on a subsystem, so every report of an installed stack gains
 //     one line.
-const reportSchemaVersion = 12
+//   - v13: the CAP-01 / CAP-02 capability findings (#403) — NEW doctor-owned finding
+//     types: the config's vision and tool-support claims against the served model's
+//     /props. Each is emitted only when the config claims its capability, so a
+//     config that claims neither is byte-identical except this bump.
+const reportSchemaVersion = 13
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -282,6 +286,12 @@ type Deps struct {
 	ReadCrushConfig func() (b []byte, present bool, err error)
 	// RenderCrushConfig renders the reference crush.json cfg would produce.
 	RenderCrushConfig func(cfg config.VillaConfig) ([]byte, error)
+
+	// Props reads the served model's /props through the inference client (ADR-0014).
+	// nil, or a nil result, is the typed-Unknown: the capability findings WARN rather
+	// than PASS. Called at most once per run, and only when the config claims a
+	// capability.
+	Props func() *inference.PropsInfo
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -659,6 +669,10 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	served, want, ok := d.toolsDrift(cfg)
 	findings = append(findings, toolsDriftFinding(served, want, ok))
 
+	// 3c. CAPABILITIES (CAP-01, CAP-02) — what the config claims against what the served
+	// model's /props reports. A config that claims neither emits nothing.
+	findings = append(findings, d.capabilityFindings(cfg)...)
+
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".
 	//
 	// 4a. RESIDENCY SUPERSESSION (the gap-closure rule, 13-UAT.md Test 1 / DOCTOR-01):
@@ -769,6 +783,39 @@ func toolsDriftFinding(served, want, ok bool) Finding {
 		Remediation: "re-run `villa install` to reconcile the unit, or `villa tools-mode enter` to persist the state the unit is already in",
 		Provenance:  "on-disk villa-llama unit vs subsystem.ToolsOn",
 	}
+}
+
+// capabilitySpec is the wording that differs between the capability findings.
+type capabilitySpec struct {
+	id, name, claim, missing, fix string
+}
+
+// capabilityFinding builds a CAP-* finding from the three-valued /props answer. Tier
+// follows TMD-01: a confident disagreement is a BLOCK-tier FAIL (the feature the
+// config promised fails at the server), an unanswerable question a WARN-tier
+// typed-Unknown, never a PASS.
+func capabilityFinding(s capabilitySpec, reached bool, got detect.Bool) Finding {
+	const provenance = "served model /props vs config"
+	switch {
+	case !reached:
+		return Finding{ID: s.id, Name: s.name, Tier: tierWarn, Status: statusWarn,
+			Detail:      s.claim + " but the served model's /props could not be read to confirm it",
+			Remediation: "run `villa status` to check the inference service is up, then re-run `villa doctor`",
+			Provenance:  provenance + " (unreadable)"}
+	case !got.Known:
+		return Finding{ID: s.id, Name: s.name, Tier: tierWarn, Status: statusWarn,
+			Detail:      s.claim + " but the served model's /props does not say whether it is supported",
+			Remediation: "confirm the llama.cpp build serves this field, or check by hand, then re-run `villa doctor`",
+			Provenance:  provenance + " (field absent)"}
+	case !got.Value:
+		return Finding{ID: s.id, Name: s.name, Tier: tierBlock, Status: statusFail,
+			Detail:      s.claim + " but " + s.missing,
+			Remediation: s.fix,
+			Provenance:  provenance}
+	}
+	return Finding{ID: s.id, Name: s.name, Tier: tierBlock, Status: statusPass,
+		Detail:     s.claim + " and the served model reports it is supported",
+		Provenance: provenance}
 }
 
 // onOff names a gate state for a finding detail.
