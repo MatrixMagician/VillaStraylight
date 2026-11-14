@@ -85,8 +85,8 @@ func reportRequest(question string, notes []string) llm.ChatRequest {
 var lineMarker = regexp.MustCompile(`^\s*(?:\d+[.)]|[-*])?\s*`)
 
 // parseLines returns the text after prefix on every line that carries it, in any
-// case and any list style, deduplicated, bounded in length and capped at max.
-func parseLines(out, prefix string, max int) []string {
+// case and any list style, deduplicated, bounded in length and capped at limit.
+func parseLines(out, prefix string, limit int) []string {
 	var got []string
 	seen := map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
@@ -103,7 +103,7 @@ func parseLines(out, prefix string, max int) []string {
 		}
 		seen[strings.ToLower(q)] = true
 		got = append(got, q)
-		if len(got) == max {
+		if len(got) == limit {
 			break
 		}
 	}

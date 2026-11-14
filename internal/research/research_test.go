@@ -96,15 +96,15 @@ func (f *fake) deps() Deps {
 			f.mu.Lock()
 			f.requests = append(f.requests, req)
 			f.mu.Unlock()
-			switch sys := req.Messages[0].Content; {
-			case sys == planSystem:
+			switch sys := req.Messages[0].Content; sys {
+			case planSystem:
 				f.log("plan")
 				return f.plan()
-			case sys == readSystem:
+			case readSystem:
 				f.log("read")
 				f.reads++
 				return f.read(f.reads)
-			case sys == reportSystem:
+			case reportSystem:
 				f.log("report")
 				return f.report()
 			}
