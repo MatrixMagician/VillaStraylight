@@ -21,7 +21,9 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
@@ -110,6 +112,9 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 		ToolsOn:    func(config.VillaConfig) bool { return fx.toolsOn },
 		SandboxReady: func() (bool, string) {
 			return true, ""
+		},
+		ServedProps: func(context.Context) *inference.PropsInfo {
+			return &inference.PropsInfo{ToolsSupported: detect.Bool{Known: true, Value: true}}
 		},
 		Audit: func(_ context.Context, doc grounding.Document, _ []grounding.Source) grounding.DocumentReport {
 			return grounding.DocumentReport{Path: doc.Path, Checked: true, Claims: 1}

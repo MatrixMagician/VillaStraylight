@@ -15,7 +15,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/approval"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
 
@@ -111,16 +113,17 @@ func (c *clock) now() time.Time {
 }
 
 type harness struct {
-	root    string
-	t       *testing.T
-	r       *Runner
-	store   taskstore.Store
-	ws      string
-	bridges chan *fakeBridge
-	deps    Deps
-	mu      sync.Mutex
-	killed  []string
-	audit   func(doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
+	root     string
+	t        *testing.T
+	r        *Runner
+	store    taskstore.Store
+	ws       string
+	bridges  chan *fakeBridge
+	deps     Deps
+	mu       sync.Mutex
+	killed   []string
+	launches int
+	audit    func(doc grounding.Document, sources []grounding.Source) grounding.DocumentReport
 }
 
 func newHarness(t *testing.T) *harness {
@@ -145,6 +148,9 @@ func newHarness(t *testing.T) *harness {
 		Store:      h.store,
 		LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{ToolsMode: true}, nil },
 		Launch: func(_ context.Context, args []string) (Bridge, error) {
+			h.mu.Lock()
+			h.launches++
+			h.mu.Unlock()
 			select {
 			case b := <-h.bridges:
 				return b, nil
@@ -165,6 +171,9 @@ func newHarness(t *testing.T) *harness {
 		ToolsOn:    func(config.VillaConfig) bool { return true },
 		SandboxReady: func() (bool, string) {
 			return true, ""
+		},
+		ServedProps: func(context.Context) *inference.PropsInfo {
+			return &inference.PropsInfo{ToolsSupported: detect.Bool{Known: true, Value: true}}
 		},
 		Audit: func(_ context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport {
 			return h.audit(doc, sources)
