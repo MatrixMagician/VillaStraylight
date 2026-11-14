@@ -103,10 +103,13 @@ proof that bounds their outbound. It is a measurement, not a standing control.
    without asking. The workspace bounds what it reaches.
 7. **A workspace file can carry a prompt injection** ([#404]). A task reads
    workspace files, and the approval answer does not change after it has read
-   one. The per-source taint decided on 2026-11-14 covers web content only, and
-   it is not built. No task has a web route today. The first web source would
-   be `villa research` ([#408]), also not built. The sandbox bounds the damage
-   to one workspace.
+   one. The per-source taint decided on 2026-11-14 ([ADR-0040]) covers web
+   content only, and files do not taint. The mechanism exists: a tainted task
+   asks for every write and execute, under `--auto` too
+   (`TestTaintedWriteAndExecuteAsk`, `TestTaintMovesAutoWritesToAsk`). No source
+   sets it yet. The first would be `villa research` ([#408]), not built. The taint
+   is a pattern, not a proof, the way the deletion rule is. The sandbox bounds
+   the damage to one workspace.
 8. **Root inside the task VM** ([Workspace-agent spec] §3.4, §12). krun ignores
    `--user`, so the guest runs as uid 0. The VM is the boundary.
 9. **A resident set puts the inference key in a unit file** ([ADR-0011]). With
@@ -119,6 +122,7 @@ proof that bounds their outbound. It is a measurement, not a standing control.
 [ADR-0014]: adr/0014-one-authenticated-inference-client.md
 [ADR-0036]: adr/0036-services-with-no-runtime-egress-join-a-closed-network.md
 [ADR-0039]: adr/0039-a-launched-coding-agent-runs-with-its-telemetry-off-and-a-capture-to-show-it.md
+[ADR-0040]: adr/0040-web-content-in-a-task-taints-it-per-source.md
 [Workspace-agent spec]: spec/v1.11-workspace-agent.md
 [Update spec]: spec/v1.8-villa-update.md
 [RELEASING.md]: RELEASING.md

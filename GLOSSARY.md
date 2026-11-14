@@ -359,6 +359,13 @@ A task's request to perform a write-class action, answered by the operator.
 The class comes from the harness's tool layer; villa's table decides.
 _Avoid_: permission, prompt, confirmation
 
+**Taint**:
+A mark on a task that it has read content from a source outside the operator's
+control (today only `web`). A tainted task's write and execute actions ask in
+every mode, and the mark is one-way for the life of the task. A pattern, not a
+proof, like the deletion rule; workspace files do not taint (ADR-0040).
+_Avoid_: dirty, untrusted, poisoned
+
 **Sandbox**:
 The per-task libkrun microVM with one workspace mounted read-write, on the
 internal network, with root inside as the documented boundary.
