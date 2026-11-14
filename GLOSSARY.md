@@ -351,9 +351,16 @@ result. Follow-ups are a new task; there are no sessions.
 _Avoid_: job, session, run, request
 
 **Task record**:
-The persisted, `--json`-frozen account of a task: its state, files, approvals
-and grounding report. Its state machine decides the exit code.
+The persisted, `--json`-frozen account of a task: its state, files, approvals,
+grounding report and observations. Its state machine decides the exit code.
 _Avoid_: log, history, transcript
+
+**Observation**:
+What villa itself read at a path the harness reported written, once, after the
+run: present (with size and sha256), absent, or unobserved when the read failed
+for any other reason. The file event is the harness's word; the observation is
+villa's. An absent observation flags the task (ADR-0047).
+_Avoid_: verification, check, confirmation
 
 **Approval**:
 A task's request to perform a write-class action, answered by the operator.
@@ -388,7 +395,7 @@ auditor found none"; it is never evidence that a document is correct.
 _Avoid_: grounded, verified, fact-checked, validation
 
 **Flagged**:
-A task that finished with claims the grounding audit could not support, or
-whose audit could not run. Exit `2`, never `0`; the document is left as
-written.
+A task that finished with claims the grounding audit could not support, whose
+audit could not run, or with a reported file absent after the run. Exit `2`,
+never `0`; the document is left as written.
 _Avoid_: warning, partial, degraded
