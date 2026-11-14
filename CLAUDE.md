@@ -146,6 +146,10 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   (`tool_server`), with derived gates `ToolWebOn` (needs web search) and `ToolRecallOn`
   (needs memory); the two bearers and the Open WebUI connection reach their containers
   only through 0600 env files under `~/.config/villa/tools/`.
+  `toolproof` is the pure core of `villa verify tools`: seven named legs (`contract`,
+  `refusals`, `registration`, `web`, `scope`, `closed-network`, `chat`), recorded in
+  `verify-tools-state.json` and read back by doctor's `tool-server-proof` finding; a
+  leg it could not conduct is a REJECT, never a pass.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
