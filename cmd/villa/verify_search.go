@@ -373,7 +373,7 @@ func liveVerifyStatePersist(s verifystate.State) error {
 // searchAllowlistHost is the sanctioned upstream the positive control reaches and the
 // transient bound permits. It is the SearXNG general-engine surface — Wikipedia's API
 // host is a stable, allowlisted (general/reference) upstream from the vetted engine subset
-// (orchestrate.searxngEngines = duckduckgo/brave/wikipedia/wikidata). A loopback/internal
+// (orchestrate.searxngEngines = duckduckgo/brave/wikipedia/wikidata/mwmbl). A loopback/internal
 // host would be unroutable; this is a real public allowlisted host so the positive control
 // is meaningful. It is a hostname (not an IP/image literal), resolved to IPs at runtime for
 // the nft rule.

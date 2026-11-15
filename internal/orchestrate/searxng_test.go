@@ -156,7 +156,7 @@ func TestSearxngEngineAllowlist(t *testing.T) {
 	if !strings.Contains(text, "keep_only:") {
 		t.Errorf("settings.yml missing use_default_settings.engines.keep_only (SRCH-04):\n%s", text)
 	}
-	want := []string{"duckduckgo", "brave", "wikipedia", "wikidata"}
+	want := []string{"duckduckgo", "brave", "wikipedia", "wikidata", "mwmbl"}
 	for _, eng := range want {
 		if !strings.Contains(text, "- "+eng) {
 			t.Errorf("settings.yml keep_only missing vetted engine %q (SRCH-04):\n%s", eng, text)
@@ -178,6 +178,24 @@ func TestSearxngEngineAllowlist(t *testing.T) {
 		if strings.Contains(text, bad) {
 			t.Errorf("settings.yml keep_only includes excluded engine line %q (SRCH-04 over-broad):\n%s", bad, text)
 		}
+	}
+}
+
+// TestSearxngEnablesTheEnginesUpstreamDisables guards #454: mwmbl ships `disabled: true` in
+// the pinned image's default settings, so keep_only alone keeps it off and web search still
+// has only DuckDuckGo and Brave to return results. The render turns on exactly the vetted
+// engines upstream disables, and no other.
+func TestSearxngEnablesTheEnginesUpstreamDisables(t *testing.T) {
+	_, text, err := RenderSearxngSettings(searxngFixtureInput().Cfg)
+	if err != nil {
+		t.Fatalf("RenderSearxngSettings: %v", err)
+	}
+	want := "\nengines:\n  - name: mwmbl\n    disabled: false\n"
+	if !strings.Contains(text, want) {
+		t.Errorf("settings.yml does not enable mwmbl with %q:\n%s", want, text)
+	}
+	if n := strings.Count(text, "disabled: false"); n != 1 {
+		t.Errorf("settings.yml enables %d engines, want 1 (mwmbl):\n%s", n, text)
 	}
 }
 

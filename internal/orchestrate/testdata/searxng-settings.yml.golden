@@ -9,6 +9,7 @@ use_default_settings:
       - brave
       - wikipedia
       - wikidata
+      - mwmbl
 server:
   secret_key: ""
   limiter: false
@@ -19,3 +20,6 @@ search:
     - json
   safe_search: 0
   autocomplete: ""
+engines:
+  - name: mwmbl
+    disabled: false

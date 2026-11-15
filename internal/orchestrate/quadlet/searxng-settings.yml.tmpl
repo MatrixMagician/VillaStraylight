@@ -18,3 +18,10 @@ search:
     - json
   safe_search: 0
   autocomplete: ""
+{{- if .Enable}}
+engines:
+{{- range .Enable}}
+  - name: {{.}}
+    disabled: false
+{{- end}}
+{{- end}}

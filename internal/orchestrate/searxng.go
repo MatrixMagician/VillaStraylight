@@ -84,19 +84,30 @@ const searxngSecretEnvFilePath = "%h/.config/villa/searxng/" + searxngSecretEnvF
 // references it by path only. The secret value never appears in any 0644 file.
 func SearXNGSecretEnvFilePath() string { return searxngSecretEnvFilePath }
 
+// searxngEngine is one vetted engine. EnabledUpstream is false for an engine the pinned
+// image's default settings ship with `disabled: true`: keep_only keeps such an engine
+// loaded but off, so the render must also turn it on.
+type searxngEngine struct {
+	Name            string
+	EnabledUpstream bool
+}
+
 // searxngEngines is the SINGLE-SOURCE vetted engine subset (RESEARCH A1): the
-// bounded use_default_settings.engines.keep_only allowlist. ≤4 high-trust general/
-// reference engines (duckduckgo/brave/wikipedia/wikidata) — excludes Google/Bing direct
-// (rate-limit/CAPTCHA self-hosted), social/forum engines (injection surface), and image/
-// video engines (out of scope for v1.5 text grounding). This slice IS the auditable
-// outbound surface Phase 33's `villa verify search` cross-checks; an operator change is a
-// one-line edit + golden re-freeze. Order is fixed so the rendered settings.yml golden is
-// deterministic.
-var searxngEngines = []string{
-	"duckduckgo",
-	"brave",
-	"wikipedia",
-	"wikidata",
+// bounded use_default_settings.engines.keep_only allowlist. High-trust general/reference
+// engines only. It excludes Google/Bing direct (rate-limit/CAPTCHA self-hosted, and Bing
+// returns junk to scraped queries, #454), social/forum engines (injection surface), and
+// image/video engines (out of scope for v1.5 text grounding). Wikipedia and Wikidata
+// answer only SearXNG's infobox and never `results`, so DuckDuckGo, Brave and mwmbl are
+// the engines a search's results come from; mwmbl is there so a host DuckDuckGo and Brave
+// both refuse still gets results (#454). This slice IS the auditable outbound surface
+// Phase 33's `villa verify search` cross-checks; an operator change is a one-line edit +
+// golden re-freeze. Order is fixed so the rendered settings.yml golden is deterministic.
+var searxngEngines = []searxngEngine{
+	{Name: "duckduckgo", EnabledUpstream: true},
+	{Name: "brave", EnabledUpstream: true},
+	{Name: "wikipedia", EnabledUpstream: true},
+	{Name: "wikidata", EnabledUpstream: true},
+	{Name: "mwmbl", EnabledUpstream: false},
 }
 
 // searxngView is the data searxng.container.tmpl renders: container-DNS only on
@@ -112,11 +123,12 @@ type searxngView struct {
 }
 
 // settingsYmlView is the data searxng-settings.yml.tmpl renders: the bounded engine
-// keep_only subset. server.secret_key renders EMPTY (the live value arrives via
+// keep_only subset (Engines) and the vetted engines upstream disables (Enable). server.secret_key renders EMPTY (the live value arrives via
 // $SEARXNG_SECRET from the EnvironmentFile, never written into this 0644-capable file
 // Pitfall 2); limiter/image_proxy/formats are fixed render-time decisions.
 type settingsYmlView struct {
 	Engines []string
+	Enable  []string
 }
 
 // buildSearxngView assembles the SearXNG container view. ContainerName is the
@@ -141,8 +153,15 @@ func buildSearxngView(image, searxngAddr string) searxngView {
 // buildSettingsYml assembles the settings.yml view from the vetted engine subset. The
 // engines slice is the single-source allowlist (searxngEngines) threaded as a
 // parameter so the render and any future audit bind one symbol.
-func buildSettingsYml(engines []string) settingsYmlView {
-	return settingsYmlView{Engines: engines}
+func buildSettingsYml(engines []searxngEngine) settingsYmlView {
+	var v settingsYmlView
+	for _, e := range engines {
+		v.Engines = append(v.Engines, e.Name)
+		if !e.EnabledUpstream {
+			v.Enable = append(v.Enable, e.Name)
+		}
+	}
+	return v
 }
 
 // SearxngEngines returns a copy of the single-source vetted engine subset so
@@ -150,7 +169,9 @@ func buildSettingsYml(engines []string) settingsYmlView {
 // is returned so callers cannot mutate the package-level slice.
 func SearxngEngines() []string {
 	out := make([]string, len(searxngEngines))
-	copy(out, searxngEngines)
+	for i, e := range searxngEngines {
+		out[i] = e.Name
+	}
 	return out
 }
 
